@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#fffdf8">
+  <title>Podprosečské domácí produkty</title>
+  <link rel="stylesheet" href="assets/style.css?v=6">
+</head>
+<body>
+<div class="site-shell">
+  <header class="hero">
+    <div class="hero-icons"><span>🌼🐝🌿</span><span>🐔🏡🌻</span></div>
+    <div class="kicker">Z Jablonce nad Nisou</div>
+    <h1>Podprosečské<br>domácí produkty</h1>
+    <p>Poctivý med, čerstvá vejce a další domácí dobroty přímo od nás.</p>
+  </header>
+
+  <main class="content">
+    <section>
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">Aktuální nabídka</div>
+          <h2>Vyberte si</h2>
+        </div>
+        <div id="itemCount" class="muted">0 položek</div>
+      </div>
+      <div id="products"></div>
+    </section>
+
+    <section class="order-section">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">Vaše objednávka</div>
+          <h2>Souhrn</h2>
+        </div>
+      </div>
+
+      <div id="summary" class="muted">Zatím nemáte nic vybráno.</div>
+      <div class="total-row"><span>Celkem</span><span id="totalPrice">0 Kč</span></div>
+
+      <div class="form-area">
+        <label class="line-field">
+          <span>Jméno a příjmení</span>
+          <input id="customerName" type="text" placeholder="Jan Novák">
+        </label>
+        <label class="line-field">
+          <span>Telefon</span>
+          <input id="customerPhone" type="tel" inputmode="tel" placeholder="777 123 456">
+        </label>
+        <label class="line-field">
+          <span>Požadovaný termín vyzvednutí</span>
+          <input id="pickupDate" type="date">
+        </label>
+        <label class="line-field">
+          <span>Poznámka</span>
+          <textarea id="customerNote" rows="3" placeholder="Například vyzvednutí odpoledne"></textarea>
+        </label>
+      </div>
+
+      <button id="submitOrder" class="primary-button" type="button">Odeslat objednávku</button>
+      <p id="feedback" class="feedback" aria-live="polite"></p>
+    </section>
+
+    <section class="about-section">
+      <div class="eyebrow">Jak to u nás vypadá</div>
+      <h2>Poctivě a jednoduše</h2>
+      <div class="about-grid">
+        <article><div>🐝</div><strong>Naše včely</strong><p>Stanoviště v pestré krajině s loukami, ovocnými stromy, lesem a lípami.</p></article>
+        <article><div>🐔</div><strong>Naše slepice</strong><p>Každodenní přístup na trávu, kvalitní krmení a přirozená potrava.</p></article>
+        <article><div>📍</div><strong>Osobní odběr</strong><p>Objednávku připravíme a společně se domluvíme na čase vyzvednutí.</p></article>
+      </div>
+    </section>
+  </main>
+
+  <footer>Podprosečské domácí produkty · Jablonec nad Nisou</footer>
+</div>
+<iframe name="orderSubmitFrame" id="orderSubmitFrame" hidden></iframe>
+<form id="backendOrderForm" method="post" target="orderSubmitFrame" hidden>
+  <input name="action" type="hidden" value="createOrder">
+  <input id="backendPayload" name="payload" type="hidden">
+</form>
+<script src="assets/config.js?v=7"></script>
+<script src="assets/customer.js?v=7"></script>
+</body>
+</html>
