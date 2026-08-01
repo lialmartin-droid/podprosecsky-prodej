@@ -1,0 +1,6 @@
+Podprosečské domácí produkty
+Kompletní balíček V9
+Datum sestavení: 1. 8. 2026
+Customer JS: V9
+Admin JS: V9
+Cache verze: 9-20260801
