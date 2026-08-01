@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#fffdf8">
+  <title>Administrace – Podprosečské domácí produkty</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<section id="adminLogin" class="login-screen hidden">
+  <div class="login-card">
+    <div style="font-size:46px">🌼🐝🐔</div>
+    <div class="kicker">Zabezpečená administrace</div>
+    <h2>Přihlášení</h2>
+    <p class="muted">Zadejte heslo, které vám přišlo při spuštění funkce setup.</p>
+    <input id="adminPassword" type="password" placeholder="Heslo administrace" autocomplete="current-password">
+    <button id="loginButton" class="primary-button" type="button">Přihlásit</button>
+    <p id="loginMessage" class="feedback"></p>
+  </div>
+</section>
+<div id="adminApp" class="site-shell admin-shell hidden">
+  <header class="hero admin-hero">
+    <div class="hero-icons"><span>🌼🐝</span><span>🐔🏡</span></div>
+    <div class="kicker">Administrace</div>
+    <h1>Podprosečské domácí produkty</h1>
+    <p>Objednávky, kalendář a správa nabídky.</p>
+    <button id="logoutButton" class="secondary-button" type="button" style="margin-top:14px">Odhlásit</button>
+  </header>
+
+  <main class="content">
+    <section class="stats-grid">
+      <article><span>Nové objednávky</span><strong id="statNew">0</strong></article>
+      <article><span>Tržba objednávek</span><strong id="statRevenue">0 Kč</strong></article>
+      <article><span>Objednaná vejce</span><strong id="statEggs">0</strong></article>
+      <article><span>Objednané sklenice</span><strong id="statHoney">0</strong></article>
+    </section>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="ordersTab">Objednávky</button>
+      <button class="tab" data-tab="calendarTab">Kalendář</button>
+      <button class="tab" data-tab="productsTab">Produkty</button>
+    </nav>
+
+    <section id="ordersTab" class="tab-panel active">
+      <div class="section-head">
+        <div><div class="eyebrow">Přehled</div><h2>Objednávky</h2></div>
+        <button id="showManualOrder" class="primary-small">Nová objednávka</button>
+      </div>
+
+      <div id="manualOrderForm" class="admin-form hidden">
+        <div class="form-grid">
+          <label><span>Jméno zákazníka</span><input id="manualName" placeholder="Marie Nováková"></label>
+          <label><span>Telefon</span><input id="manualPhone" placeholder="Lze nechat prázdné"></label>
+          <label><span>Termín vyzvednutí</span><input id="manualPickup" type="date"></label>
+          <label><span>Stav</span>
+            <select id="manualStatus">
+              <option>Nová</option><option>Připravuji</option><option>Připraveno</option><option>Vyzvednuto</option>
+            </select>
+          </label>
+          <div class="full">
+            <span class="field-label">Položky</span>
+            <div id="manualProducts" class="quantity-list"></div>
+          </div>
+          <label class="full"><span>Poznámka</span><textarea id="manualNote" rows="3"></textarea></label>
+        </div>
+        <div class="actions">
+          <button id="cancelManualOrder" class="secondary-button">Zrušit</button>
+          <button id="saveManualOrder" class="primary-small">Uložit objednávku</button>
+        </div>
+      </div>
+
+      <div class="filter-grid">
+        <input id="searchOrders" placeholder="Hledat jméno nebo telefon">
+        <select id="statusFilter">
+          <option value="">Všechny stavy</option>
+          <option>Nová</option><option>Připravuji</option><option>Připraveno</option><option>Vyzvednuto</option><option>Zrušeno</option>
+        </select>
+        <select id="archiveFilter">
+          <option value="active">Aktivní</option>
+          <option value="archive">Archiv</option>
+          <option value="all">Všechny</option>
+        </select>
+      </div>
+
+      <div id="ordersList" class="stack"></div>
+    </section>
+
+    <section id="calendarTab" class="tab-panel">
+      <div class="section-head">
+        <div><div class="eyebrow">Podle termínu</div><h2>Kalendář objednávek</h2></div>
+      </div>
+      <div id="calendarList" class="stack"></div>
+    </section>
+
+    <section id="productsTab" class="tab-panel">
+      <div class="section-head">
+        <div><div class="eyebrow">Nabídka</div><h2>Správa produktů</h2></div>
+        <button id="showProductForm" class="primary-small">Přidat produkt</button>
+      </div>
+
+      <div id="productForm" class="admin-form hidden">
+        <div class="form-grid">
+          <label><span>Název</span><input id="newProductName"></label>
+          <label><span>Emoji</span><input id="newProductEmoji" placeholder="📦"></label>
+          <label><span>Cena</span><input id="newProductPrice" type="number" min="0"></label>
+          <label><span>Jednotka</span><input id="newProductUnit" placeholder="kus"></label>
+          <label class="full"><span>Krátký popis</span><input id="newProductShort"></label>
+          <label class="full"><span>Podrobné informace</span><textarea id="newProductDetail" rows="3"></textarea></label>
+          <label><span>Minimální předstih (dny)</span><input id="newProductLead" type="number" min="0" value="0"></label>
+          <label><span>Rychlá tlačítka</span><input id="newProductQuick" placeholder="6, 10, 30"></label>
+        </div>
+        <div class="actions">
+          <button id="cancelProductForm" class="secondary-button">Zrušit</button>
+          <button id="saveNewProduct" class="primary-small">Uložit produkt</button>
+        </div>
+      </div>
+
+      <div id="productsList" class="stack"></div>
+    </section>
+  </main>
+</div>
+<iframe name="adminSubmitFrame" id="adminSubmitFrame" hidden></iframe>
+<form id="adminBackendForm" method="post" target="adminSubmitFrame" hidden>
+  <input id="adminAction" name="action" type="hidden">
+  <input id="adminToken" name="token" type="hidden">
+  <input id="adminPayload" name="payload" type="hidden">
+</form>
+<script src="../assets/config.js"></script>
+<script src="../assets/admin.js"></script>
+</body>
+</html>
