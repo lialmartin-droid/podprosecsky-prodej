@@ -1,0 +1,17 @@
+KONTROLA V12 – 1. 8. 2026
+
+Provedené kontroly:
+- syntaxe customer.js, admin.js, config.js a Code.gs,
+- shoda samostatného Code.gs s verzí v ZIPu,
+- kontrola všech pevných HTML ID používaných JavaScriptem,
+- kontrola URL Apps Scriptu a verzování souborů,
+- simulace Google Tabulky, nastavení, objednávek a skladu,
+- 5 000 náhodných testů rezervačního algoritmu,
+- scénář: sklad 6, snáška 10/den, první rezervace 50 ks za 10 dní,
+- ověření, že druhá objednávka 60 ks není povolena 6. den a je povolena 11. den,
+- serverové odmítnutí vyprodaného nebo skrytého produktu,
+- ochrana proti odečtení většího počtu vajec, než je fyzicky skladem.
+
+Poznámka:
+Před ostrým provozem je stále nutné po nasazení provést jednu zkušební objednávku,
+protože skutečné prostředí Google Apps Scriptu nelze plně nahradit lokální simulací.

@@ -1,0 +1,6 @@
+V13 – vizuální úprava zákaznické stránky
+
+- U vajec se zobrazuje pouze jednoduchá informace o nejbližším možném termínu.
+- V objednávce zůstává výběr data; zákazník může zvolit nejbližší nebo pozdější termín.
+- V patičce je kontaktní e-mail podprosecskeprodukty@gmail.com.
+- Apps Script se kvůli této změně nemusí měnit ani znovu nasazovat.

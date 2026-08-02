@@ -1,0 +1,17 @@
+KONTROLA OPRAVENÉ V15 – 2. 8. 2026
+
+PROVEDENO:
+- syntaxe assets/customer.js: OK
+- syntaxe assets/admin.js: OK
+- syntaxe google-apps-script/Code.gs: OK
+- kontrola HTML ID a odkazovaných souborů: OK
+- validace názvu, ceny, ID a data produktu: OK
+- sloučení duplicitních položek a limit 500 ks: OK
+- serverové generování ID objednávky: OK
+- ochrana odpovědi před vložením </script>: OK
+- ochrana textů před vyhodnocením jako vzorec v Google Tabulce: OK
+- shoda samostatného Code.gs s verzí v ZIPu: OK
+
+DŮLEŽITÉ:
+Po nahrání Code.gs je nutné v Apps Scriptu vytvořit NOVOU VERZI implementace.
+Pouhé uložení kódu nestačí.
