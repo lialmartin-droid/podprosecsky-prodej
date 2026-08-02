@@ -1,2 +1,2 @@
-Podprosečské produkty V15.3
-Oprava potvrzení objednávky z vnořeného rámce Google Apps Scriptu.
+V15.4 – povinný e-mail a automatické potvrzení zákazníkovi
+Datum: 2. 8. 2026

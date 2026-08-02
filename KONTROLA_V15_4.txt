@@ -1,0 +1,16 @@
+V15.4 – PROVEDENÉ ÚPRAVY A KONTROLY
+
+- Přidáno povinné pole E-mail v zákaznické objednávce.
+- Kontrola e-mailu probíhá v prohlížeči i znovu na serveru.
+- E-mail se ukládá do nového sloupce E-mail v listu Objednávky.
+- Zákazníkovi se po přijetí objednávky automaticky odešle potvrzení.
+- Text potvrzení se mění podle objednávky:
+  * pouze vejce – slepičky,
+  * pouze včelí produkty – včelky,
+  * vejce i včelí produkty – slepičky a včeličky.
+- Potvrzení obsahuje položky, cenu, datum vyzvednutí a číslo objednávky.
+- E-mail je viditelný a upravitelný také v administraci.
+- Ověřena syntaxe customer.js, admin.js a Code.gs.
+
+PO AKTUALIZACI CODE.GS JE NUTNÉ VYTVOŘIT NOVOU VERZI IMPLEMENTACE WEBOVÉ APLIKACE.
+Funkci setup() není nutné znovu spouštět; sloupec E-mail se doplní automaticky při prvním použití.

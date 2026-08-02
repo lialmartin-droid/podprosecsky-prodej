@@ -241,7 +241,7 @@ function renderOrders() {
       <div class="card-head">
         <div>
           <h3>${esc(order.name)}</h3>
-          <div class="meta">${esc(order.created)} · ${esc(order.phone || "bez telefonu")}</div>
+          <div class="meta">${esc(order.created)} · ${esc(order.phone || "bez telefonu")}${order.email ? ` · ${esc(order.email)}` : ""}</div>
           <div class="badges">
             <span class="badge blue">${esc(localDate(order.pickup))}</span>
             ${eggQty(order) ? `<span class="badge green">🥚 ${eggQty(order)} ks</span>` : ""}
@@ -263,6 +263,7 @@ function renderOrders() {
         <div class="form-grid">
           <label><span>Jméno</span><input data-on="${esc(order.id)}" value="${esc(order.name)}"></label>
           <label><span>Telefon</span><input data-op="${esc(order.id)}" value="${esc(order.phone)}"></label>
+          <label><span>E-mail</span><input data-oe="${esc(order.id)}" type="email" value="${esc(order.email || "")}"></label>
           <label><span>Termín</span><input data-od="${esc(order.id)}" type="date" value="${esc(order.pickup)}"></label>
           <label><span>Stav</span><select data-os="${esc(order.id)}">${statusOptions(order.status)}</select></label>
           <div class="full">
@@ -298,6 +299,7 @@ function renderOrders() {
       const order = orders.find(item => item.id === id);
       order.name = document.querySelector(dataSelector("on", id)).value;
       order.phone = document.querySelector(dataSelector("op", id)).value;
+      order.email = document.querySelector(dataSelector("oe", id)).value;
       order.pickup = document.querySelector(dataSelector("od", id)).value;
       order.status = document.querySelector(dataSelector("os", id)).value;
       order.note = document.querySelector(dataSelector("ot", id)).value;
@@ -490,6 +492,7 @@ $("#saveManualOrder").onclick = () => {
   post("manualOrder", {
     name: $("#manualName").value,
     phone: $("#manualPhone").value,
+    email: $("#manualEmail").value,
     pickup: $("#manualPickup").value,
     status: $("#manualStatus").value,
     note: $("#manualNote").value,

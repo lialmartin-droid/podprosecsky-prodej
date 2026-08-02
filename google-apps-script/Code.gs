@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V15
+ * Podprosečské domácí produkty — sdílený backend V15.4
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -200,7 +200,7 @@ function createOrder_(payload, manual) {
 
     sheet.appendRow([
       id, createdAt, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
-      safeSheetText_(itemsText), order.total, safeSheetText_(order.note), manual ? 'Administrace' : 'Web', JSON.stringify(order.items)
+      safeSheetText_(itemsText), order.total, safeSheetText_(order.note), manual ? 'Administrace' : 'Web', JSON.stringify(order.items), safeSheetText_(order.email)
     ]);
   } catch (error) {
     if (stockAdjusted) adjustEggStock_(fulfilledQty);
@@ -216,11 +216,25 @@ function createOrder_(payload, manual) {
         body: buildTextEmail_(order, id, createdAt),
         htmlBody: buildHtmlEmail_(order, id, createdAt),
         name: CONFIG.BRAND_NAME,
-        replyTo: CONFIG.NOTIFICATION_EMAIL
+        replyTo: order.email || CONFIG.NOTIFICATION_EMAIL
       });
     } catch (emailError) {
-      console.error('Objednávka byla uložena, ale e-mail se nepodařilo odeslat.', emailError);
-      emailWarning = ' Objednávka je uložená, ale upozorňovací e-mail se nepodařilo odeslat.';
+      console.error('Objednávka byla uložena, ale upozornění pro prodejce se nepodařilo odeslat.', emailError);
+      emailWarning += ' Objednávka je uložená, ale upozorňovací e-mail se nepodařilo odeslat.';
+    }
+
+    try {
+      MailApp.sendEmail({
+        to: order.email,
+        subject: `Potvrzení přijetí objednávky – ${CONFIG.BRAND_NAME}`,
+        body: buildCustomerTextEmail_(order, id),
+        htmlBody: buildCustomerHtmlEmail_(order, id),
+        name: CONFIG.BRAND_NAME,
+        replyTo: CONFIG.NOTIFICATION_EMAIL
+      });
+    } catch (customerEmailError) {
+      console.error('Objednávka byla uložena, ale potvrzení zákazníkovi se nepodařilo odeslat.', customerEmailError);
+      emailWarning += ' Potvrzovací e-mail zákazníkovi se nepodařilo odeslat.';
     }
   }
 
@@ -310,9 +324,9 @@ function saveOrder_(payload) {
       adjustEggStock_(appliedStockDelta);
     }
 
-    sheet.getRange(row, 1, 1, 11).setValues([[
+    sheet.getRange(row, 1, 1, 12).setValues([[
       id, created, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
-      safeSheetText_(itemsText), order.total, safeSheetText_(order.note), source, JSON.stringify(order.items)
+      safeSheetText_(itemsText), order.total, safeSheetText_(order.note), source, JSON.stringify(order.items), safeSheetText_(order.email)
     ]]);
   } catch (error) {
     if (appliedStockDelta) adjustEggStock_(-appliedStockDelta);
@@ -567,6 +581,7 @@ function orderFromSheetRow_(row) {
     status: String(row[2] || 'Nová'),
     name: restoreSheetText_(row[3] || ''),
     phone: restoreSheetText_(row[4] || ''),
+    email: restoreSheetText_(row[11] || ''),
     pickup: formatSheetDate_(row[5]),
     itemsText: restoreSheetText_(row[6] || ''),
     items: Array.isArray(items) ? items : [],
@@ -579,12 +594,15 @@ function orderFromSheetRow_(row) {
 function validateOrder_(payload, manual) {
   const name = cleanText_(payload.name, 100);
   const phone = cleanText_(payload.phone, 40);
+  const email = cleanText_(payload.email, 254).toLowerCase();
   const pickup = cleanText_(payload.pickup, 20);
   const note = cleanText_(payload.note, 500);
   const status = manual ? cleanText_(payload.status || 'Nová', 30) : 'Nová';
 
   if (name.length < 2) throw new Error('Neplatné jméno.');
   if (!manual && phone.length < 5) throw new Error('Neplatný telefon.');
+  if (!manual && !isValidEmail_(email)) throw new Error('Zadejte platnou e-mailovou adresu.');
+  if (manual && email && !isValidEmail_(email)) throw new Error('E-mailová adresa není platná.');
   if (!CONFIG.ORDER_STATUSES.includes(status)) throw new Error('Neplatný stav objednávky.');
   if (pickup && !isValidDateKey_(pickup)) throw new Error('Neplatný termín vyzvednutí.');
   if (!Array.isArray(payload.items) || !payload.items.length || payload.items.length > CONFIG.MAX_ITEMS) {
@@ -621,6 +639,7 @@ function validateOrder_(payload, manual) {
   return {
     name: name,
     phone: phone,
+    email: email,
     pickup: pickup,
     note: note,
     status: status,
@@ -679,7 +698,7 @@ function getOrCreateSheet_(name) {
 }
 
 function formatOrdersSheet_(sheet) {
-  const headers = ['ID objednávky', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON'];
+  const headers = ['ID objednávky', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON', 'E-mail'];
   ensureHeaders_(sheet, headers);
   sheet.setFrozenRows(1);
 }
@@ -948,6 +967,7 @@ function buildTextEmail_(order, id, createdAt) {
     `Přijata: ${Utilities.formatDate(createdAt, CONFIG.TIME_ZONE, 'd. M. yyyy HH:mm')}`,
     `Jméno: ${order.name}`,
     `Telefon: ${order.phone}`,
+    `E-mail: ${order.email || 'neuveden'}`,
     `Vyzvednutí: ${order.pickup || 'neuvedeno'}`,
     '',
     'Položky:',
@@ -960,7 +980,65 @@ function buildTextEmail_(order, id, createdAt) {
 
 function buildHtmlEmail_(order, id) {
   const rows = order.items.map(item => `<tr><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml_(item.qty + '× ' + item.name)}</td><td style="text-align:right;font-weight:700">${item.qty * item.price} Kč</td></tr>`).join('');
-  return `<div style="font-family:Arial;max-width:600px"><h2>${escapeHtml_(CONFIG.BRAND_NAME)}</h2><p><b>Jméno:</b> ${escapeHtml_(order.name)}<br><b>Telefon:</b> ${escapeHtml_(order.phone)}<br><b>Vyzvednutí:</b> ${escapeHtml_(order.pickup || 'neuvedeno')}</p><table style="width:100%;border-collapse:collapse">${rows}</table><p style="font-size:22px;text-align:right"><b>Celkem: ${order.total} Kč</b></p><p><b>Poznámka:</b> ${escapeHtml_(order.note || '—')}</p><small>ID: ${escapeHtml_(id)}</small></div>`;
+  return `<div style="font-family:Arial;max-width:600px"><h2>${escapeHtml_(CONFIG.BRAND_NAME)}</h2><p><b>Jméno:</b> ${escapeHtml_(order.name)}<br><b>Telefon:</b> ${escapeHtml_(order.phone)}<br><b>E-mail:</b> ${escapeHtml_(order.email || 'neuveden')}<br><b>Vyzvednutí:</b> ${escapeHtml_(order.pickup || 'neuvedeno')}</p><table style="width:100%;border-collapse:collapse">${rows}</table><p style="font-size:22px;text-align:right"><b>Celkem: ${order.total} Kč</b></p><p><b>Poznámka:</b> ${escapeHtml_(order.note || '—')}</p><small>ID: ${escapeHtml_(id)}</small></div>`;
+}
+
+function isValidEmail_(value) {
+  const email = String(value || '').trim();
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+}
+
+function customerWorkMessage_(order) {
+  const items = order.items || [];
+  const hasEggs = items.some(item => {
+    const text = `${item.name || ''}`.toLocaleLowerCase('cs-CZ');
+    return String(item.productId) === CONFIG.EGG_PRODUCT_ID || text.includes('vejce');
+  });
+  const hasBeeProducts = items.some(item => {
+    const text = `${item.name || ''}`.toLocaleLowerCase('cs-CZ');
+    return text.includes('med') || text.includes('včel') || text.includes('propolis') || text.includes('vosk');
+  });
+
+  if (hasEggs && hasBeeProducts) {
+    return 'Naše slepičky a včeličky na vaší objednávce usilovně pracují. Den před vyzvednutím vás budeme kontaktovat formou SMS.';
+  }
+  if (hasEggs) {
+    return 'Naše slepičky na vaší objednávce usilovně pracují. Den před vyzvednutím vás budeme kontaktovat formou SMS.';
+  }
+  if (hasBeeProducts) {
+    return 'Naše včelky na vaší objednávce usilovně pracují. Den před vyzvednutím vás budeme kontaktovat formou SMS.';
+  }
+  return 'Na vaší objednávce usilovně pracujeme. Den před vyzvednutím vás budeme kontaktovat formou SMS.';
+}
+
+function buildCustomerTextEmail_(order, id) {
+  return [
+    `Dobrý den, ${order.name},`,
+    '',
+    'děkujeme za vaši objednávku. Úspěšně jsme ji přijali.',
+    '',
+    customerWorkMessage_(order),
+    '',
+    'Objednávka:',
+    ...order.items.map(item => `- ${item.qty}× ${item.name}: ${item.qty * item.price} Kč`),
+    '',
+    `Celkem: ${order.total} Kč`,
+    `Termín vyzvednutí: ${formatCustomerPickupDate_(order.pickup)}`,
+    `Číslo objednávky: ${id}`,
+    '',
+    CONFIG.BRAND_NAME
+  ].join('\n');
+}
+
+function buildCustomerHtmlEmail_(order, id) {
+  const rows = order.items.map(item => `<tr><td style="padding:9px 0;border-bottom:1px solid #eadfce">${escapeHtml_(item.qty + '× ' + item.name)}</td><td style="padding:9px 0;border-bottom:1px solid #eadfce;text-align:right;font-weight:700">${item.qty * item.price} Kč</td></tr>`).join('');
+  return `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#2b241f;line-height:1.55"><div style="background:#f3b72e;padding:22px 26px;border-radius:18px 18px 0 0"><h1 style="font-size:24px;margin:0">${escapeHtml_(CONFIG.BRAND_NAME)}</h1></div><div style="padding:26px;border:1px solid #eadfce;border-top:0;border-radius:0 0 18px 18px"><p>Dobrý den, <b>${escapeHtml_(order.name)}</b>,</p><p>děkujeme za vaši objednávku. Úspěšně jsme ji přijali.</p><p style="padding:16px;background:#fff8e5;border-radius:12px"><b>${escapeHtml_(customerWorkMessage_(order))}</b></p><table style="width:100%;border-collapse:collapse;margin-top:18px">${rows}</table><p style="font-size:22px;text-align:right"><b>Celkem: ${order.total} Kč</b></p><p><b>Termín vyzvednutí:</b> ${escapeHtml_(formatCustomerPickupDate_(order.pickup))}<br><b>Číslo objednávky:</b> ${escapeHtml_(id)}</p><p style="margin-top:28px">Podprosečské domácí produkty</p></div></div>`;
+}
+
+function formatCustomerPickupDate_(dateKey) {
+  if (!dateKey || !isValidDateKey_(dateKey)) return 'bude upřesněn';
+  const parts = String(dateKey).split('-').map(Number);
+  return `${parts[2]}. ${parts[1]}. ${parts[0]}`;
 }
 
 function escapeHtml_(value) {

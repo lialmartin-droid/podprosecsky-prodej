@@ -566,6 +566,8 @@ submitButton.addEventListener("click", () => {
 
   const name = document.getElementById("customerName").value.trim();
   const phone = document.getElementById("customerPhone").value.trim();
+  const emailInput = document.getElementById("customerEmail");
+  const email = emailInput.value.trim().toLowerCase();
   const pickup = pickupInput.value;
   const note = document.getElementById("customerNote").value.trim();
   const pickupRules = calculatePickupMinimum();
@@ -573,6 +575,11 @@ submitButton.addEventListener("click", () => {
   if (!items.length) return feedbackEl.textContent = "Nejprve vyberte alespoň jeden produkt.";
   if (!name) return feedbackEl.textContent = "Vyplňte jméno.";
   if (!phone) return feedbackEl.textContent = "Vyplňte telefon.";
+  if (!email) return feedbackEl.textContent = "Vyplňte e-mail.";
+  if (!emailInput.checkValidity() || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    emailInput.focus();
+    return feedbackEl.textContent = "Zadejte platnou e-mailovou adresu.";
+  }
   if (pickupRules.blocked) return feedbackEl.textContent = pickupRules.message;
   if (!pickup) return feedbackEl.textContent = "Vyberte termín vyzvednutí.";
   if (pickupRules.minimum && pickup < pickupRules.minimum) {
@@ -593,7 +600,7 @@ submitButton.addEventListener("click", () => {
 
   form.action = url;
   form.querySelector('[name="action"]').value = "createOrder";
-  payload.value = JSON.stringify({ name, phone, pickup, note, source: "Web", items });
+  payload.value = JSON.stringify({ name, phone, email, pickup, note, source: "Web", items });
 
   submissionPending = true;
   submissionFinished = false;

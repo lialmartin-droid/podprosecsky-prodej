@@ -7,7 +7,7 @@
   <title>Podprosečské domácí produkty</title>
   <link rel="stylesheet" href="assets/style.css?v=15-20260802-fix1">
 </head>
-<body data-pdp-version="15">
+<body data-pdp-version="15.4">
 <div class="site-shell">
   <header class="hero">
     <div class="hero-icons"><span>🌼🐝🌿</span><span>🐔🏡🌻</span></div>
@@ -46,7 +46,12 @@
         </label>
         <label class="line-field">
           <span>Telefon</span>
-          <input id="customerPhone" type="tel" inputmode="tel" placeholder="777 123 456">
+          <input id="customerPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="777 123 456">
+        </label>
+        <label class="line-field">
+          <span>E-mail</span>
+          <input id="customerEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="jan.novak@email.cz" required>
+          <small class="field-help">Na tento e-mail vám pošleme potvrzení objednávky.</small>
         </label>
         <label class="line-field">
           <span>Termín vyzvednutí</span>
@@ -86,6 +91,6 @@
   <input id="backendPayload" name="payload" type="hidden">
 </form>
 <script src="assets/config.js?v=15-20260802-fix1"></script>
-<script src="assets/customer.js?v=15-20260802-fix3"></script>
+<script src="assets/customer.js?v=15-20260802-fix4"></script>
 </body>
 </html>
