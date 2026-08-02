@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V15.4
+ * Podprosečské domácí produkty — sdílený backend V16
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -84,7 +84,8 @@ function doGet(e) {
       return jsonpResponse_(e, {
         ok: true,
         products: readProducts_(),
-        availability: publicEggAvailability_()
+        availability: publicEggAvailability_(),
+        settings: publicBusinessSettings_()
       });
     }
 
@@ -103,14 +104,15 @@ function doGet(e) {
         products: readProducts_(),
         orders: readOrders_(),
         eggSettings: availability.settings,
-        eggAvailability: availability
+        eggAvailability: availability,
+        businessSettings: publicBusinessSettings_()
       });
     }
 
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '15',
+      version: '16',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -139,6 +141,7 @@ function doPost(e) {
     if (action === 'deleteOrder') return deleteOrder_(payload);
     if (action === 'manualOrder') return createOrder_(payload, true);
     if (action === 'saveEggSettings') return saveEggSettings_(payload);
+    if (action === 'saveBusinessSettings') return saveBusinessSettings_(payload);
 
     throw new Error('Neznámá operace.');
   } catch (error) {
@@ -181,6 +184,7 @@ function getSessionVersion_() {
 function createOrder_(payload, manual) {
   const order = validateOrder_(payload, manual);
   validatePickupRules_(order, '');
+  if (!manual) validateBusinessRules_(order);
 
   const fulfilledQty = isFulfilledStatus_(order.status) ? eggQtyFromItems_(order.items) : 0;
   if (fulfilledQty > 0) ensureEggStockCanBeReduced_(fulfilledQty);
@@ -200,7 +204,8 @@ function createOrder_(payload, manual) {
 
     sheet.appendRow([
       id, createdAt, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
-      safeSheetText_(itemsText), order.total, safeSheetText_(order.note), manual ? 'Administrace' : 'Web', JSON.stringify(order.items), safeSheetText_(order.email)
+      safeSheetText_(itemsText), order.total, safeSheetText_(order.note), manual ? 'Administrace' : 'Web', JSON.stringify(order.items), safeSheetText_(order.email),
+      safeSheetText_(order.contactMethod), order.splitOrder, order.preorderPickup
     ]);
   } catch (error) {
     if (stockAdjusted) adjustEggStock_(fulfilledQty);
@@ -258,11 +263,11 @@ function saveProduct_(payload) {
   const record = [[
     product.id, safeSheetText_(product.emoji), safeSheetText_(product.name), product.price, safeSheetText_(product.unit),
     safeSheetText_(product.short), safeSheetText_(product.detail), product.visible, product.soldOut,
-    product.restock, product.leadDays, product.quick.join(', '), new Date()
+    product.restock, product.leadDays, product.quick.join(', '), new Date(), product.preorder, product.preorderDate, product.capacity
   ]];
 
-  if (row) sheet.getRange(row, 1, 1, 13).setValues(record);
-  else sheet.getRange(sheet.getLastRow() + 1, 1, 1, 13).setValues(record);
+  if (row) sheet.getRange(row, 1, 1, 16).setValues(record);
+  else sheet.getRange(sheet.getLastRow() + 1, 1, 1, 16).setValues(record);
 
   return htmlResponse_(true, 'Produkt byl uložen.', String(product.id), { product: product });
 }
@@ -324,9 +329,10 @@ function saveOrder_(payload) {
       adjustEggStock_(appliedStockDelta);
     }
 
-    sheet.getRange(row, 1, 1, 12).setValues([[
+    sheet.getRange(row, 1, 1, 15).setValues([[
       id, created, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
-      safeSheetText_(itemsText), order.total, safeSheetText_(order.note), source, JSON.stringify(order.items), safeSheetText_(order.email)
+      safeSheetText_(itemsText), order.total, safeSheetText_(order.note), source, JSON.stringify(order.items), safeSheetText_(order.email),
+      safeSheetText_(order.contactMethod || oldOrder.contactMethod || 'SMS'), order.splitOrder, order.preorderPickup
     ]]);
   } catch (error) {
     if (appliedStockDelta) adjustEggStock_(-appliedStockDelta);
@@ -377,16 +383,26 @@ function validatePickupRules_(order, excludeOrderId) {
   const productMap = {};
   readProducts_().forEach(product => { productMap[String(product.id)] = product; });
 
-  let requiredLeadDays = 0;
+  let minimum = today;
   order.items.forEach(item => {
     if (String(item.productId) === CONFIG.EGG_PRODUCT_ID) return;
     const product = productMap[String(item.productId)];
-    if (product) requiredLeadDays = Math.max(requiredLeadDays, Number(product.leadDays || 0));
+    if (!product) return;
+    const leadMinimum = addDaysKey_(today, Number(product.leadDays || 0));
+    if (leadMinimum > minimum) minimum = leadMinimum;
+    const preorderDate = product.preorderDate || product.restock;
+    if (product.preorder && order.splitOrder) {
+      if (!order.preorderPickup) throw new Error('Chybí termín předobjednané části.');
+      if (preorderDate && order.preorderPickup < preorderDate) {
+        throw new Error(`Předobjednanou část lze vyzvednout nejdříve ${formatDateForMessage_(preorderDate)}.`);
+      }
+      return;
+    }
+    if (product.preorder && preorderDate && preorderDate > minimum) minimum = preorderDate;
   });
 
-  if (requiredLeadDays > 0) {
+  if (minimum > today) {
     if (!order.pickup) throw new Error('Vyberte termín vyzvednutí.');
-    const minimum = addDaysKey_(today, requiredLeadDays);
     if (order.pickup < minimum) {
       throw new Error(`Nejbližší možný termín vyzvednutí ostatních produktů je ${formatDateForMessage_(minimum)}.`);
     }
@@ -552,7 +568,11 @@ function readProducts_() {
     soldOut: toBool_(row[8]),
     restock: formatSheetDate_(row[9]),
     leadDays: String(row[0]) === CONFIG.EGG_PRODUCT_ID ? 0 : Number(row[10] || 0),
-    quick: quickButtonsForProduct_(row[0], row[1], row[2], row[11])
+    quick: quickButtonsForProduct_(row[0], row[1], row[2], row[11]),
+    preorder: toBool_(row[13]),
+    preorderDate: formatSheetDate_(row[14]) || formatSheetDate_(row[9]),
+    capacity: Number(row[15] || 0),
+    reserved: reservedProductQuantity_(String(row[0]))
   }));
 }
 
@@ -587,7 +607,10 @@ function orderFromSheetRow_(row) {
     items: Array.isArray(items) ? items : [],
     total: Number(row[7] || 0),
     note: restoreSheetText_(row[8] || ''),
-    source: restoreSheetText_(row[9] || '')
+    source: restoreSheetText_(row[9] || ''),
+    contactMethod: restoreSheetText_(row[12] || 'SMS') || 'SMS',
+    splitOrder: toBool_(row[13]),
+    preorderPickup: formatSheetDate_(row[14])
   };
 }
 
@@ -598,12 +621,17 @@ function validateOrder_(payload, manual) {
   const pickup = cleanText_(payload.pickup, 20);
   const note = cleanText_(payload.note, 500);
   const status = manual ? cleanText_(payload.status || 'Nová', 30) : 'Nová';
+  const contactMethod = cleanText_(payload.contactMethod || 'SMS', 20);
+  const splitOrder = toBool_(payload.splitOrder);
+  const preorderPickup = cleanText_(payload.preorderPickup, 20);
 
   if (name.length < 2) throw new Error('Neplatné jméno.');
   if (!manual && phone.length < 5) throw new Error('Neplatný telefon.');
   if (!manual && !isValidEmail_(email)) throw new Error('Zadejte platnou e-mailovou adresu.');
   if (manual && email && !isValidEmail_(email)) throw new Error('E-mailová adresa není platná.');
   if (!CONFIG.ORDER_STATUSES.includes(status)) throw new Error('Neplatný stav objednávky.');
+  if (!['SMS', 'E-mail'].includes(contactMethod)) throw new Error('Neplatný způsob kontaktu.');
+  if (preorderPickup && !isValidDateKey_(preorderPickup)) throw new Error('Neplatný termín předobjednávky.');
   if (pickup && !isValidDateKey_(pickup)) throw new Error('Neplatný termín vyzvednutí.');
   if (!Array.isArray(payload.items) || !payload.items.length || payload.items.length > CONFIG.MAX_ITEMS) {
     throw new Error('Neplatné položky.');
@@ -618,7 +646,7 @@ function validateOrder_(payload, manual) {
     const qty = Math.floor(Number(item.qty));
     const product = productMap[productId];
     if (!product) throw new Error('Objednaný produkt už neexistuje. Obnovte stránku a zkuste to znovu.');
-    if (!manual && (!product.visible || product.soldOut)) {
+    if (!manual && (!product.visible || (product.soldOut && !product.preorder))) {
       throw new Error(`Produkt ${product.name} nyní není možné objednat.`);
     }
     if (!Number.isInteger(qty) || qty < 1) throw new Error('Neplatné množství položky.');
@@ -644,7 +672,10 @@ function validateOrder_(payload, manual) {
     note: note,
     status: status,
     items: items,
-    total: items.reduce((sum, item) => sum + item.qty * item.price, 0)
+    total: items.reduce((sum, item) => sum + item.qty * item.price, 0),
+    contactMethod: contactMethod,
+    splitOrder: splitOrder,
+    preorderPickup: preorderPickup
   };
 }
 
@@ -654,12 +685,16 @@ function normalizeProduct_(product) {
   const name = cleanText_(product.name, 100);
   const unit = cleanText_(product.unit || 'kus', 30);
   const restock = cleanText_(product.restock, 20);
+  const preorder = toBool_(product.preorder);
+  const preorderDate = cleanText_(product.preorderDate || product.restock, 20);
   const price = Number(product.price);
 
   if (!name) throw new Error('Vyplňte název produktu.');
   if (!unit) throw new Error('Vyplňte jednotku produktu.');
   if (!Number.isFinite(price) || price < 0 || price > 1000000) throw new Error('Cena produktu není platná.');
   if (restock && !isValidDateKey_(restock)) throw new Error('Datum doplnění produktu není platné.');
+  if (preorderDate && !isValidDateKey_(preorderDate)) throw new Error('Datum naskladnění předobjednávky není platné.');
+  if (preorder && !preorderDate) throw new Error('U předobjednávky vyplňte předpokládané datum naskladnění.');
 
   return {
     id: id,
@@ -671,9 +706,12 @@ function normalizeProduct_(product) {
     detail: cleanText_(product.detail, 1000),
     visible: toBool_(product.visible),
     soldOut: toBool_(product.soldOut),
-    restock: restock,
+    preorder: preorder,
+    preorderDate: preorderDate,
+    restock: restock || preorderDate,
     leadDays: String(id) === CONFIG.EGG_PRODUCT_ID ? 0 : Math.min(365, Math.max(0, Math.floor(Number(product.leadDays) || 0))),
-    quick: quickButtonsForProduct_(id, emoji, name, product.quick)
+    quick: quickButtonsForProduct_(id, emoji, name, product.quick),
+    capacity: Math.max(0, Math.floor(Number(product.capacity) || 0))
   };
 }
 
@@ -698,13 +736,13 @@ function getOrCreateSheet_(name) {
 }
 
 function formatOrdersSheet_(sheet) {
-  const headers = ['ID objednávky', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON', 'E-mail'];
+  const headers = ['ID objednávky', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON', 'E-mail', 'Kontakt před vyzvednutím', 'Rozdělená objednávka', 'Termín předobjednávky'];
   ensureHeaders_(sheet, headers);
   sheet.setFrozenRows(1);
 }
 
 function formatProductsSheet_(sheet) {
-  const headers = ['ID', 'Emoji', 'Název', 'Cena', 'Jednotka', 'Krátký popis', 'Podrobnosti', 'Viditelný', 'Vyprodáno', 'Doplnění', 'Předstih dní', 'Rychlá tlačítka', 'Aktualizováno'];
+  const headers = ['ID', 'Emoji', 'Název', 'Cena', 'Jednotka', 'Krátký popis', 'Podrobnosti', 'Viditelný', 'Vyprodáno', 'Doplnění', 'Předstih dní', 'Rychlá tlačítka', 'Aktualizováno', 'Předobjednávka', 'Datum předobjednávky', 'Plánované množství'];
   ensureHeaders_(sheet, headers);
   sheet.setFrozenRows(1);
 }
@@ -723,9 +761,9 @@ function ensureHeaders_(sheet, headers) {
 function seedProducts_(sheet) {
   if (sheet.getLastRow() > 1) return;
   const now = new Date();
-  sheet.getRange(2, 1, 2, 13).setValues([
-    ['1', '🍯', 'Květový med', 190, '950 g', 'Smíšený květový med z okolí Lukášova.', 'Včely sbírají nektar z lučního kvítí, maliní, ovocných stromů, lip a okolních lesů. Každá sklenice tak nese chuť místní krajiny.', true, false, '', 0, '', now],
-    ['2', '🥚', 'Čerstvá vejce', 7, 'kus', 'Vejce od našich slepic z domácího chovu.', 'Slepice krmíme kvalitní směsí a zeleninou. Každý den mají přístup na trávu, kde si hledají červy a další přirozenou potravu.', true, false, '', 0, '6, 10, 30', now]
+  sheet.getRange(2, 1, 2, 16).setValues([
+    ['1', '🍯', 'Květový med', 190, '950 g', 'Smíšený květový med z okolí Lukášova.', 'Včely sbírají nektar z lučního kvítí, maliní, ovocných stromů, lip a okolních lesů. Každá sklenice tak nese chuť místní krajiny.', true, false, '', 0, '', now, false, '', 0],
+    ['2', '🥚', 'Čerstvá vejce', 7, 'kus', 'Vejce od našich slepic z domácího chovu.', 'Slepice krmíme kvalitní směsí a zeleninou. Každý den mají přístup na trávu, kde si hledají červy a další přirozenou potravu.', true, false, '', 0, '6, 10, 30', now, false, '', 0]
   ]);
 }
 
@@ -758,6 +796,76 @@ function seedEggSettings_(sheet) {
   setSettingIfMissing_(sheet, 'EGG_DAILY_PRODUCTION', CONFIG.DEFAULT_EGG_DAILY_PRODUCTION, 'Předpokládaný počet nových vajec za den');
   setSettingIfMissing_(sheet, 'EGG_SAFETY_RESERVE', CONFIG.DEFAULT_EGG_SAFETY_RESERVE, 'Počet vajec, který se zákazníkům nenabízí');
   setSettingIfMissing_(sheet, 'EGG_PLANNING_DAYS', CONFIG.DEFAULT_EGG_PLANNING_DAYS, 'Kolik dní dopředu lze plánovat');
+}
+
+
+function publicBusinessSettings_() {
+  const map = readSettingsMap_(getOrCreateSheet_(CONFIG.SETTINGS_SHEET));
+  return {
+    bannerEnabled: toBool_(map.BANNER_ENABLED),
+    bannerStyle: cleanText_(map.BANNER_STYLE || 'yellow', 20),
+    bannerTitle: restoreSheetText_(map.BANNER_TITLE || ''),
+    bannerText: restoreSheetText_(map.BANNER_TEXT || ''),
+    bannerFrom: normalizeDateKey_(map.BANNER_FROM, ''),
+    bannerTo: normalizeDateKey_(map.BANNER_TO, ''),
+    ordersPaused: toBool_(map.ORDERS_PAUSED),
+    pauseFrom: normalizeDateKey_(map.PAUSE_FROM, ''),
+    pauseTo: normalizeDateKey_(map.PAUSE_TO, ''),
+    pauseMessage: restoreSheetText_(map.PAUSE_MESSAGE || ''),
+    dailyOrderLimit: Math.max(0, safeInteger_(map.DAILY_ORDER_LIMIT, 0))
+  };
+}
+
+function saveBusinessSettings_(payload) {
+  const settings = payload.settings || payload;
+  const sheet = getOrCreateSheet_(CONFIG.SETTINGS_SHEET);
+  setSetting_(sheet, 'BANNER_ENABLED', toBool_(settings.bannerEnabled), 'Zobrazit informační banner');
+  setTextSetting_(sheet, 'BANNER_STYLE', cleanText_(settings.bannerStyle || 'yellow', 20), 'Barva banneru');
+  setTextSetting_(sheet, 'BANNER_TITLE', cleanText_(settings.bannerTitle, 150), 'Nadpis banneru');
+  setTextSetting_(sheet, 'BANNER_TEXT', cleanText_(settings.bannerText, 800), 'Text banneru');
+  setTextSetting_(sheet, 'BANNER_FROM', normalizeDateKey_(settings.bannerFrom, ''), 'Banner zobrazit od');
+  setTextSetting_(sheet, 'BANNER_TO', normalizeDateKey_(settings.bannerTo, ''), 'Banner zobrazit do');
+  setSetting_(sheet, 'ORDERS_PAUSED', toBool_(settings.ordersPaused), 'Pozastavit objednávky');
+  setTextSetting_(sheet, 'PAUSE_FROM', normalizeDateKey_(settings.pauseFrom, ''), 'Pozastavení od');
+  setTextSetting_(sheet, 'PAUSE_TO', normalizeDateKey_(settings.pauseTo, ''), 'Pozastavení do');
+  setTextSetting_(sheet, 'PAUSE_MESSAGE', cleanText_(settings.pauseMessage, 800), 'Zpráva při pozastavení');
+  setSetting_(sheet, 'DAILY_ORDER_LIMIT', Math.max(0, Math.floor(Number(settings.dailyOrderLimit) || 0)), 'Maximum objednávek na den');
+  return htmlResponse_(true, 'Nastavení webu bylo uloženo.', '', { settings: publicBusinessSettings_() });
+}
+
+function reservedProductQuantity_(productId) {
+  return readOrdersForAvailability_()
+    .filter(order => isReservingStatus_(order.status))
+    .flatMap(order => order.items || [])
+    .filter(item => String(item.productId) === String(productId))
+    .reduce((sum, item) => sum + Math.max(0, Number(item.qty) || 0), 0);
+}
+
+function validateBusinessRules_(order) {
+  const settings = publicBusinessSettings_();
+  const today = todayKey_();
+  const paused = settings.ordersPaused &&
+    (!settings.pauseFrom || today >= settings.pauseFrom) &&
+    (!settings.pauseTo || today <= settings.pauseTo);
+  if (paused) throw new Error(settings.pauseMessage || 'Příjem objednávek je dočasně pozastaven.');
+
+  if (settings.dailyOrderLimit > 0 && order.pickup) {
+    const count = readOrdersForAvailability_().filter(item =>
+      item.pickup === order.pickup && isReservingStatus_(item.status)
+    ).length;
+    if (count >= settings.dailyOrderLimit) throw new Error('Zvolený den je již plně obsazený. Vyberte jiný termín.');
+  }
+
+  const products = {};
+  readProducts_().forEach(product => products[String(product.id)] = product);
+  order.items.forEach(item => {
+    const product = products[String(item.productId)];
+    if (!product || !product.capacity) return;
+    const reserved = reservedProductQuantity_(item.productId);
+    if (reserved + item.qty > product.capacity) {
+      throw new Error(`U produktu ${product.name} zbývá k rezervaci pouze ${Math.max(0, product.capacity - reserved)} ${product.unit}.`);
+    }
+  });
 }
 
 function normalizeEggStockDateSetting_(sheet) {
@@ -969,6 +1077,9 @@ function buildTextEmail_(order, id, createdAt) {
     `Telefon: ${order.phone}`,
     `E-mail: ${order.email || 'neuveden'}`,
     `Vyzvednutí: ${order.pickup || 'neuvedeno'}`,
+    `Kontakt před vyzvednutím: ${order.contactMethod}`,
+    `Rozdělit objednávku: ${order.splitOrder ? 'ANO' : 'NE'}`,
+    ...(order.splitOrder ? [`Předobjednaná část: ${order.preorderPickup || 'bude upřesněno'}`] : []),
     '',
     'Položky:',
     ...order.items.map(item => `- ${item.qty}× ${item.name}: ${item.qty * item.price} Kč`),
@@ -988,51 +1099,72 @@ function isValidEmail_(value) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
 
-function customerWorkMessage_(order) {
-  const items = order.items || [];
-  const hasEggs = items.some(item => {
-    const text = `${item.name || ''}`.toLocaleLowerCase('cs-CZ');
-    return String(item.productId) === CONFIG.EGG_PRODUCT_ID || text.includes('vejce');
-  });
-  const hasBeeProducts = items.some(item => {
-    const text = `${item.name || ''}`.toLocaleLowerCase('cs-CZ');
-    return text.includes('med') || text.includes('včel') || text.includes('propolis') || text.includes('vosk');
-  });
+function firstNameVocative_(fullName) {
+  const first = cleanText_(String(fullName || '').trim().split(/\s+/)[0], 50);
+  if (!first) return '';
+  const lower = first.toLocaleLowerCase('cs-CZ');
+  const known = {
+    martin:'Martine', petr:'Petře', pavel:'Pavle', jan:'Jane', tomáš:'Tomáši', lukáš:'Lukáši',
+    michal:'Michale', jiří:'Jiří', josef:'Josefe', david:'Davide', ondřej:'Ondřeji',
+    jakub:'Jakube', marek:'Marku', radek:'Radku', roman:'Romane', milan:'Milane',
+    eva:'Evo', jana:'Jano', hana:'Hano', anna:'Anno', lucie:'Lucie', petra:'Petro',
+    veronika:'Veroniko', kateřina:'Kateřino', martina:'Martino', monika:'Moniko',
+    lenka:'Lenko', alena:'Aleno', marie:'Marie', tereza:'Terezo', barbora:'Barboro'
+  };
+  if (known[lower]) return known[lower];
+  if (/[aá]$/.test(lower)) return first.slice(0, -1) + 'o';
+  if (/ek$/.test(lower)) return first.slice(0, -2) + 'ku';
+  if (/el$/.test(lower)) return first + 'i';
+  if (/r$/.test(lower)) return first + 'e';
+  return first;
+}
 
-  if (hasEggs && hasBeeProducts) {
-    return 'Naše slepičky a včeličky na vaší objednávce usilovně pracují. Den před vyzvednutím vás budeme kontaktovat formou SMS.';
-  }
-  if (hasEggs) {
-    return 'Naše slepičky na vaší objednávce usilovně pracují. Den před vyzvednutím vás budeme kontaktovat formou SMS.';
-  }
-  if (hasBeeProducts) {
-    return 'Naše včelky na vaší objednávce usilovně pracují. Den před vyzvednutím vás budeme kontaktovat formou SMS.';
-  }
-  return 'Na vaší objednávce usilovně pracujeme. Den před vyzvednutím vás budeme kontaktovat formou SMS.';
+function customerAnimalPhrase_(order) {
+  const items = order.items || [];
+  const hasEggs = items.some(item => String(item.productId) === CONFIG.EGG_PRODUCT_ID || String(item.name || '').toLocaleLowerCase('cs-CZ').includes('vejce'));
+  const hasBeeProducts = items.some(item => /med|včel|propolis|vosk/i.test(String(item.name || '')));
+  if (hasEggs && hasBeeProducts) return 'naše slepičky a včeličky';
+  if (hasEggs) return 'naše slepičky';
+  if (hasBeeProducts) return 'naše včeličky';
+  return 'my';
+}
+
+function customerWorkMessage_(order) {
+  return `${customerAnimalPhrase_(order)} na vaší objednávce usilovně pracují. Den před vyzvednutím vás budeme kontaktovat formou ${order.contactMethod === 'E-mail' ? 'e-mailu' : 'SMS'}.`;
+}
+
+function splitOrderMessage_(order) {
+  if (!order.splitOrder) return '';
+  return `Vaši objednávku jsme rozdělili na dvě vyzvednutí. Dostupné produkty připravíme na ${formatCustomerPickupDate_(order.pickup)} a předobjednané produkty po naskladnění, předpokládaně ${formatCustomerPickupDate_(order.preorderPickup)}.`;
 }
 
 function buildCustomerTextEmail_(order, id) {
+  const greeting = firstNameVocative_(order.name);
   return [
-    `Dobrý den, ${order.name},`,
-    '',
-    'děkujeme za vaši objednávku. Úspěšně jsme ji přijali.',
+    `Dobrý den${greeting ? ', ' + greeting : ''},`,
     '',
     customerWorkMessage_(order),
+    ...(order.splitOrder ? ['', splitOrderMessage_(order)] : []),
     '',
-    'Objednávka:',
+    'Přehled objednávky:',
     ...order.items.map(item => `- ${item.qty}× ${item.name}: ${item.qty * item.price} Kč`),
     '',
     `Celkem: ${order.total} Kč`,
     `Termín vyzvednutí: ${formatCustomerPickupDate_(order.pickup)}`,
+    ...(order.splitOrder ? [`Termín předobjednané části: ${formatCustomerPickupDate_(order.preorderPickup)}`] : []),
+    `Způsob kontaktu před vyzvednutím: ${order.contactMethod}`,
     `Číslo objednávky: ${id}`,
     '',
+    'Děkujeme za vaši objednávku.',
     CONFIG.BRAND_NAME
   ].join('\n');
 }
 
 function buildCustomerHtmlEmail_(order, id) {
+  const greeting = firstNameVocative_(order.name);
   const rows = order.items.map(item => `<tr><td style="padding:9px 0;border-bottom:1px solid #eadfce">${escapeHtml_(item.qty + '× ' + item.name)}</td><td style="padding:9px 0;border-bottom:1px solid #eadfce;text-align:right;font-weight:700">${item.qty * item.price} Kč</td></tr>`).join('');
-  return `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#2b241f;line-height:1.55"><div style="background:#f3b72e;padding:22px 26px;border-radius:18px 18px 0 0"><h1 style="font-size:24px;margin:0">${escapeHtml_(CONFIG.BRAND_NAME)}</h1></div><div style="padding:26px;border:1px solid #eadfce;border-top:0;border-radius:0 0 18px 18px"><p>Dobrý den, <b>${escapeHtml_(order.name)}</b>,</p><p>děkujeme za vaši objednávku. Úspěšně jsme ji přijali.</p><p style="padding:16px;background:#fff8e5;border-radius:12px"><b>${escapeHtml_(customerWorkMessage_(order))}</b></p><table style="width:100%;border-collapse:collapse;margin-top:18px">${rows}</table><p style="font-size:22px;text-align:right"><b>Celkem: ${order.total} Kč</b></p><p><b>Termín vyzvednutí:</b> ${escapeHtml_(formatCustomerPickupDate_(order.pickup))}<br><b>Číslo objednávky:</b> ${escapeHtml_(id)}</p><p style="margin-top:28px">Podprosečské domácí produkty</p></div></div>`;
+  const split = order.splitOrder ? `<p style="padding:16px;background:#eef7ff;border-radius:12px"><b>${escapeHtml_(splitOrderMessage_(order))}</b></p>` : '';
+  return `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#2b241f;line-height:1.55"><div style="background:#f3b72e;padding:22px 26px;border-radius:18px 18px 0 0"><h1 style="font-size:24px;margin:0">${escapeHtml_(CONFIG.BRAND_NAME)}</h1></div><div style="padding:26px;border:1px solid #eadfce;border-top:0;border-radius:0 0 18px 18px"><p>Dobrý den${greeting ? ', <b>' + escapeHtml_(greeting) + '</b>' : ''},</p><p style="padding:16px;background:#fff8e5;border-radius:12px"><b>${escapeHtml_(customerWorkMessage_(order))}</b></p>${split}<table style="width:100%;border-collapse:collapse;margin-top:18px">${rows}</table><p style="font-size:22px;text-align:right"><b>Celkem: ${order.total} Kč</b></p><p><b>Termín vyzvednutí:</b> ${escapeHtml_(formatCustomerPickupDate_(order.pickup))}${order.splitOrder ? `<br><b>Termín předobjednané části:</b> ${escapeHtml_(formatCustomerPickupDate_(order.preorderPickup))}` : ''}<br><b>Kontakt před vyzvednutím:</b> ${escapeHtml_(order.contactMethod)}<br><b>Číslo objednávky:</b> ${escapeHtml_(id)}</p><p style="margin-top:28px">Děkujeme za vaši objednávku.<br>${escapeHtml_(CONFIG.BRAND_NAME)}</p></div></div>`;
 }
 
 function formatCustomerPickupDate_(dateKey) {

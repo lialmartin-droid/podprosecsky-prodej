@@ -7,7 +7,7 @@
   <title>Administrace – Podprosečské domácí produkty</title>
   <link rel="stylesheet" href="../assets/style.css?v=15-20260802-fix2">
 </head>
-<body data-pdp-admin-version="15">
+<body data-pdp-admin-version="16">
 <section id="adminLogin" class="login-screen hidden">
   <div class="login-card">
     <div style="font-size:46px">🌼🐝🐔</div>
@@ -37,6 +37,10 @@
       <article><span>Objednané sklenice</span><strong id="statHoney">0</strong></article>
       <article><span>Vejce fyzicky skladem</span><strong id="statEggStock">—</strong></article>
       <article><span>Nastavená snáška</span><strong id="statEggDaily">—</strong></article>
+      <article><span>Tržba tento měsíc</span><strong id="statMonthRevenue">0 Kč</strong></article>
+      <article><span>Objednávky tento měsíc</span><strong id="statMonthOrders">0</strong></article>
+      <article><span>Předobjednávky</span><strong id="statPreorders">0</strong></article>
+      <article><span>Aktivní zákazníci</span><strong id="statCustomers">0</strong></article>
     </section>
 
     <nav class="tabs">
@@ -44,6 +48,8 @@
       <button class="tab" data-tab="calendarTab">Kalendář</button>
       <button class="tab" data-tab="eggsTab">Vejce</button>
       <button class="tab" data-tab="productsTab">Produkty</button>
+      <button class="tab" data-tab="insightsTab">Statistiky</button>
+      <button class="tab" data-tab="settingsTab">Nastavení webu</button>
     </nav>
 
     <section id="ordersTab" class="tab-panel active">
@@ -145,7 +151,10 @@
           <label class="full"><span>Krátký popis</span><input id="newProductShort"></label>
           <label class="full"><span>Podrobné informace</span><textarea id="newProductDetail" rows="3"></textarea></label>
           <label><span>Minimální předstih (dny)</span><input id="newProductLead" type="number" min="0" value="0"></label>
+          <label><span>Předpokládané naskladnění</span><input id="newProductRestock" type="date"></label>
           <label><span>Rychlá tlačítka (oddělit čárkou)</span><input id="newProductQuick" placeholder="6, 10, 30"></label>
+          <label><span>Plánované množství / kapacita</span><input id="newProductCapacity" type="number" min="0" placeholder="např. 120"></label>
+          <label><input id="newProductPreorder" type="checkbox"> Povolit předobjednávky</label>
         </div>
         <div class="actions">
           <button id="cancelProductForm" class="secondary-button">Zrušit</button>
@@ -154,6 +163,41 @@
       </div>
 
       <div id="productsList" class="stack"></div>
+    </section>
+
+
+    <section id="insightsTab" class="tab-panel">
+      <div class="section-head"><div><div class="eyebrow">Souhrny</div><h2>Statistiky prodeje</h2></div></div>
+      <div class="insights-grid">
+        <article class="card"><h3>Nejprodávanější produkty</h3><div id="topProducts"></div></article>
+        <article class="card"><h3>TOP zákazníci</h3><div id="topCustomers"></div></article>
+      </div>
+      <article class="card"><h3>Měsíční tržby</h3><div id="monthlyRevenue" class="bar-list"></div></article>
+    </section>
+
+    <section id="settingsTab" class="tab-panel">
+      <div class="section-head"><div><div class="eyebrow">Veřejná stránka</div><h2>Nastavení webu</h2></div></div>
+      <div class="admin-form">
+        <h3>Informační banner</h3>
+        <div class="form-grid">
+          <label><input id="bannerEnabled" type="checkbox"> Zobrazit banner</label>
+          <label><span>Styl</span><select id="bannerStyle"><option value="yellow">Žlutý</option><option value="green">Zelený</option><option value="blue">Modrý</option><option value="red">Červený</option></select></label>
+          <label class="full"><span>Nadpis</span><input id="bannerTitle" placeholder="Otevřeli jsme předprodej medu"></label>
+          <label class="full"><span>Text</span><textarea id="bannerText" rows="3"></textarea></label>
+          <label><span>Zobrazit od</span><input id="bannerFrom" type="date"></label>
+          <label><span>Zobrazit do</span><input id="bannerTo" type="date"></label>
+        </div>
+        <h3>Pozastavení objednávek</h3>
+        <div class="form-grid">
+          <label><input id="ordersPaused" type="checkbox"> Dočasně nepřijímat objednávky</label>
+          <label><span>Od</span><input id="pauseFrom" type="date"></label>
+          <label><span>Do</span><input id="pauseTo" type="date"></label>
+          <label class="full"><span>Zpráva zákazníkům</span><textarea id="pauseMessage" rows="3"></textarea></label>
+          <label><span>Max. objednávek na den</span><input id="dailyOrderLimit" type="number" min="0" placeholder="0 = bez limitu"></label>
+        </div>
+        <div class="actions"><button id="saveBusinessSettings" class="primary-small" type="button">Uložit nastavení webu</button></div>
+      </div>
+      <p class="settings-note">SMS připomínky se neposílají automaticky. Zvolený způsob kontaktu se uloží k objednávce, abyste zákazníka kontaktoval ručně.</p>
     </section>
   </main>
 </div>
@@ -165,6 +209,6 @@
   <input id="adminPayload" name="payload" type="hidden">
 </form>
 <script src="../assets/config.js?v=15-20260802-fix2"></script>
-<script src="../assets/admin.js?v=15-20260802-fix3"></script>
+<script src="../assets/admin.js?v=16-20260802"></script>
 </body>
 </html>

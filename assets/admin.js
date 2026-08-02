@@ -1,10 +1,11 @@
-window.PDP_ADMIN_VERSION = "15.3";
-console.info("Podprosečské produkty – admin.js V15.3");
+window.PDP_ADMIN_VERSION = "16";
+console.info("Podprosečské produkty – admin.js V16");
 
 let products = [];
 let orders = [];
 let eggSettings = null;
 let eggAvailability = null;
+let businessSettings = {};
 let token = sessionStorage.getItem("pdp-admin-token") || "";
 let requestTimer = null;
 let activePost = null;
@@ -168,6 +169,7 @@ function loadData() {
     orders = data.orders || [];
     eggSettings = data.eggSettings || null;
     eggAvailability = data.eggAvailability || null;
+    businessSettings = data.businessSettings || {};
     showApp();
     renderAll();
   };
@@ -209,6 +211,12 @@ function renderStats() {
     .reduce((sum, item) => sum + Number(item.qty || 0), 0);
   $("#statEggStock").textContent = eggSettings ? eggSettings.currentStock : "—";
   $("#statEggDaily").textContent = eggSettings ? `${eggSettings.dailyProduction} / den` : "—";
+  const month = new Date().toISOString().slice(0, 7);
+  const monthOrders = orders.filter(order => (order.created || "").slice(0, 7) === month && order.status !== "Zrušeno");
+  $("#statMonthRevenue").textContent = money(monthOrders.reduce((sum, order) => sum + Number(order.total || 0), 0));
+  $("#statMonthOrders").textContent = monthOrders.length;
+  $("#statPreorders").textContent = orders.filter(order => activeReservation(order) && (order.items || []).some(item => products.find(p => String(p.id) === String(item.productId))?.preorder)).length;
+  $("#statCustomers").textContent = new Set(orders.filter(order => order.status !== "Zrušeno").map(order => (order.email || order.phone || order.name).toLowerCase())).size;
 }
 
 function filteredOrders() {
@@ -345,6 +353,7 @@ function renderCalendar() {
 
 function productBadges(product) {
   if (!product.visible) return '<span class="badge gray">Skryto</span>';
+  if (product.preorder) return '<span class="badge blue">Předobjednávka</span>';
   if (product.soldOut) return '<span class="badge orange">Vyprodáno</span>';
   return '<span class="badge green">V prodeji</span>';
 }
@@ -367,13 +376,16 @@ function renderProducts() {
           <label><span>Jednotka</span><input data-pu="${esc(product.id)}" value="${esc(product.unit)}"></label>
           <label class="full"><span>Krátký popis</span><input data-ps="${esc(product.id)}" value="${esc(product.short)}"></label>
           <label class="full"><span>Podrobnosti</span><textarea data-pd="${esc(product.id)}">${esc(product.detail)}</textarea></label>
-          <label><span>Doplnění</span><input data-pr="${esc(product.id)}" type="date" value="${esc(product.restock || "")}"></label>
+          <label><span>Předpokládané naskladnění</span><input data-pr="${esc(product.id)}" type="date" value="${esc(product.restock || "")}"></label>
           <label><span>Předstih dní</span><input data-pl="${esc(product.id)}" type="number" value="${product.leadDays}"></label>
           <label class="full"><span>Rychlá tlačítka</span><input data-pq="${esc(product.id)}" value="${(product.quick || []).join(", ")}"></label>
+          <label><span>Plánované množství / kapacita</span><input data-pcap="${esc(product.id)}" type="number" min="0" value="${Number(product.capacity || 0)}"></label>
+          <div><span class="field-label">Rezervováno</span><strong>${Number(product.reserved || 0)}${product.capacity ? ` / ${product.capacity}` : ""}</strong></div>
         </div>
         <div class="actions">
           <label><input data-pv="${esc(product.id)}" type="checkbox" ${product.visible ? "checked" : ""}> Zobrazovat</label>
           <label><input data-po="${esc(product.id)}" type="checkbox" ${product.soldOut ? "checked" : ""}> Vyprodáno</label>
+          <label><input data-ppre="${esc(product.id)}" type="checkbox" ${product.preorder ? "checked" : ""}> Povolit předobjednávky</label>
           <button class="danger-button" data-dp="${esc(product.id)}">Smazat</button>
           <button class="primary-small" data-sp="${esc(product.id)}">Uložit</button>
         </div>
@@ -399,8 +411,11 @@ function renderProducts() {
       product.restock = document.querySelector(dataSelector("pr", id)).value;
       product.leadDays = Number(document.querySelector(dataSelector("pl", id)).value) || 0;
       product.quick = document.querySelector(dataSelector("pq", id)).value.split(",").map(value => Number(value.trim())).filter(Boolean);
+      product.capacity = Number(document.querySelector(dataSelector("pcap", id)).value) || 0;
       product.visible = document.querySelector(dataSelector("pv", id)).checked;
       product.soldOut = document.querySelector(dataSelector("po", id)).checked;
+      product.preorder = document.querySelector(dataSelector("ppre", id)).checked;
+      if (product.preorder && !product.restock) return alert("U předobjednávky vyplňte předpokládané datum naskladnění.");
       post("saveProduct", { product }, data => data.ok ? loadData() : alert(data.message));
     };
   });
@@ -450,6 +465,51 @@ function renderEggSettings() {
     </div>`).join("") || '<div class="empty">Předpověď je prázdná.</div>';
 }
 
+
+function renderInsights() {
+  const valid = orders.filter(order => order.status !== "Zrušeno");
+  const productTotals = {};
+  valid.forEach(order => (order.items || []).forEach(item => {
+    const key = item.name || item.productId;
+    productTotals[key] = (productTotals[key] || 0) + Number(item.qty || 0);
+  }));
+  const topProducts = Object.entries(productTotals).sort((a,b) => b[1]-a[1]).slice(0,10);
+  $("#topProducts").innerHTML = topProducts.map(([name, qty], i) => `<div class="rank-row"><span>${i+1}. ${esc(name)}</span><strong>${qty}</strong></div>`).join("") || '<div class="empty">Zatím bez dat.</div>';
+
+  const customers = {};
+  valid.forEach(order => {
+    const key = (order.email || order.phone || order.name).toLowerCase();
+    const row = customers[key] || { name: order.name, count: 0, total: 0 };
+    row.count += 1; row.total += Number(order.total || 0); customers[key] = row;
+  });
+  const topCustomers = Object.values(customers).sort((a,b) => b.total-a.total).slice(0,10);
+  $("#topCustomers").innerHTML = topCustomers.map((c,i) => `<div class="rank-row"><span>${i+1}. ${esc(c.name)} <small>${c.count} obj.</small></span><strong>${money(c.total)}</strong></div>`).join("") || '<div class="empty">Zatím bez dat.</div>';
+
+  const months = {};
+  valid.forEach(order => {
+    const key = (order.created || "").slice(0,7);
+    if (key) months[key] = (months[key] || 0) + Number(order.total || 0);
+  });
+  const entries = Object.entries(months).sort().slice(-12);
+  const max = Math.max(1, ...entries.map(x => x[1]));
+  $("#monthlyRevenue").innerHTML = entries.map(([month,total]) => `<div class="bar-row"><span>${esc(month)}</span><div class="bar-track"><i style="width:${Math.round(total/max*100)}%"></i></div><strong>${money(total)}</strong></div>`).join("") || '<div class="empty">Zatím bez dat.</div>';
+}
+
+function renderBusinessSettings() {
+  const s = businessSettings || {};
+  $("#bannerEnabled").checked = Boolean(s.bannerEnabled);
+  $("#bannerStyle").value = s.bannerStyle || "yellow";
+  $("#bannerTitle").value = s.bannerTitle || "";
+  $("#bannerText").value = s.bannerText || "";
+  $("#bannerFrom").value = s.bannerFrom || "";
+  $("#bannerTo").value = s.bannerTo || "";
+  $("#ordersPaused").checked = Boolean(s.ordersPaused);
+  $("#pauseFrom").value = s.pauseFrom || "";
+  $("#pauseTo").value = s.pauseTo || "";
+  $("#pauseMessage").value = s.pauseMessage || "";
+  $("#dailyOrderLimit").value = Number(s.dailyOrderLimit || 0);
+}
+
 function renderAll() {
   renderStats();
   renderOrders();
@@ -457,6 +517,8 @@ function renderAll() {
   renderProducts();
   renderManualOrderProducts();
   renderEggSettings();
+  renderInsights();
+  renderBusinessSettings();
 }
 
 document.querySelectorAll(".tab").forEach(tab => {
@@ -516,9 +578,11 @@ $("#saveNewProduct").onclick = () => {
     detail: $("#newProductDetail").value,
     leadDays: Number($("#newProductLead").value) || 0,
     quick: $("#newProductQuick").value.split(",").map(value => Number(value.trim())).filter(Boolean),
+    capacity: Number($("#newProductCapacity").value) || 0,
     visible: true,
     soldOut: false,
-    restock: ""
+    preorder: $("#newProductPreorder")?.checked || false,
+    restock: $("#newProductRestock")?.value || ""
   };
   post("saveProduct", { product }, data => data.ok ? loadData() : alert(data.message));
 };
@@ -540,6 +604,29 @@ $("#saveEggSettings").onclick = () => {
     button.textContent = "Uložit nastavení";
     if (!data.ok) return alert(data.message);
     loadData();
+  });
+};
+
+
+$("#saveBusinessSettings").onclick = () => {
+  const settings = {
+    bannerEnabled: $("#bannerEnabled").checked,
+    bannerStyle: $("#bannerStyle").value,
+    bannerTitle: $("#bannerTitle").value,
+    bannerText: $("#bannerText").value,
+    bannerFrom: $("#bannerFrom").value,
+    bannerTo: $("#bannerTo").value,
+    ordersPaused: $("#ordersPaused").checked,
+    pauseFrom: $("#pauseFrom").value,
+    pauseTo: $("#pauseTo").value,
+    pauseMessage: $("#pauseMessage").value,
+    dailyOrderLimit: Number($("#dailyOrderLimit").value) || 0
+  };
+  post("saveBusinessSettings", { settings }, data => {
+    if (!data.ok) return alert(data.message);
+    businessSettings = data.settings || settings;
+    alert("Nastavení webu bylo uloženo.");
+    renderBusinessSettings();
   });
 };
 

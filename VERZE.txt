@@ -1,2 +1,3 @@
-V15.4 – povinný e-mail a automatické potvrzení zákazníkovi
+Podprosečské domácí produkty V16
 Datum: 2. 8. 2026
+Dashboard, banner, předobjednávky, rozdělené vyzvednutí, kontakt SMS/e-mail, kapacity produktů, obsazenost a statistiky.

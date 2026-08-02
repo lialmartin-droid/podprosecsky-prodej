@@ -7,7 +7,7 @@
   <title>Podprosečské domácí produkty</title>
   <link rel="stylesheet" href="assets/style.css?v=15-20260802-fix1">
 </head>
-<body data-pdp-version="15.4">
+<body data-pdp-version="16">
 <div class="site-shell">
   <header class="hero">
     <div class="hero-icons"><span>🌼🐝🌿</span><span>🐔🏡🌻</span></div>
@@ -17,6 +17,7 @@
   </header>
 
   <main class="content">
+    <section id="publicBanner" class="public-banner hidden" aria-live="polite"></section>
     <section>
       <div class="section-head">
         <div>
@@ -51,10 +52,22 @@
         <label class="line-field">
           <span>E-mail</span>
           <input id="customerEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="jan.novak@email.cz" required>
-          <small class="field-help">Na tento e-mail vám pošleme potvrzení objednávky.</small>
+          <small class="field-help">E-mail slouží pouze k potvrzení objednávky a informacím o jejím vyzvednutí. Žádné reklamní e-maily od nás nedostanete.</small>
         </label>
+        <fieldset class="choice-box">
+          <legend>Jak vás máme informovat den před vyzvednutím?</legend>
+          <label><input type="radio" name="contactMethod" value="SMS" checked> SMS</label>
+          <label><input type="radio" name="contactMethod" value="E-mail"> E-mail</label>
+        </fieldset>
+        <div id="splitOrderBox" class="choice-box hidden">
+          <strong>Objednávka obsahuje dostupné i předobjednané produkty</strong>
+          <p class="field-help">Dostupné produkty, například vejce, můžete vyzvednout dříve a předobjednávku až po naskladnění.</p>
+          <label><input type="radio" name="splitOrder" value="together" checked> Vyzvednout vše najednou po naskladnění</label>
+          <label><input type="radio" name="splitOrder" value="split"> Rozdělit na dvě vyzvednutí</label>
+          <div class="notice"><strong>Upozornění:</strong> při rozdělení vás budeme před každým vyzvednutím kontaktovat zvoleným způsobem.</div>
+        </div>
         <label class="line-field">
-          <span>Termín vyzvednutí</span>
+          <span id="pickupDateLabel">Termín vyzvednutí</span>
           <small class="field-help">Nejbližší možný termín se nastaví automaticky. Pokud chcete vyzvednout později, zvolte jiné datum.</small>
           <input id="pickupDate" type="date">
         </label>
@@ -91,6 +104,6 @@
   <input id="backendPayload" name="payload" type="hidden">
 </form>
 <script src="assets/config.js?v=15-20260802-fix1"></script>
-<script src="assets/customer.js?v=15-20260802-fix4"></script>
+<script src="assets/customer.js?v=16-20260802"></script>
 </body>
 </html>
