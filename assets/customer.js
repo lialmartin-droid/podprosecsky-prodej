@@ -1,5 +1,5 @@
 window.PDP_CUSTOMER_VERSION = "15";
-console.info("Podprosečské produkty – customer.js V15");
+console.info("Podprosečské produkty – customer.js V15.3");
 
 // Produkty se nikdy nevykreslují z ukázkových hodnot.
 // Stránka čeká na aktuální data z Google Tabulky, aby zákazník neviděl starou cenu.
@@ -519,11 +519,27 @@ function finish(success, message) {
   }
 }
 
+function isTrustedAppsScriptOrigin(origin) {
+  try {
+    const parsed = new URL(origin);
+    return parsed.protocol === "https:" && (
+      parsed.hostname === "script.google.com" ||
+      parsed.hostname.endsWith(".googleusercontent.com")
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
 window.addEventListener("message", event => {
-  const frame = document.getElementById("orderSubmitFrame");
-  if (!frame || event.source !== frame.contentWindow) return;
   const data = event.data;
-  if (!data || data.type !== "PDP_BACKEND_RESULT") return;
+  if (!submissionPending || !data || data.type !== "PDP_BACKEND_RESULT") return;
+
+  // HtmlService vrací výsledek z vnořeného rámce Googlu. Zdroj proto
+  // nemusí být přímo orderSubmitFrame.contentWindow.
+  const frame = document.getElementById("orderSubmitFrame");
+  const directFrameMessage = Boolean(frame && event.source === frame.contentWindow);
+  if (!directFrameMessage && !isTrustedAppsScriptOrigin(event.origin)) return;
 
   finish(
     Boolean(data.ok),

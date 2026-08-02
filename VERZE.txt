@@ -1,2 +1,2 @@
-Podprosečské domácí produkty
-Verze 15.2 – oprava přihlášení administrace přes vnořený Apps Script iframe
+Podprosečské produkty V15.3
+Oprava potvrzení objednávky z vnořeného rámce Google Apps Scriptu.

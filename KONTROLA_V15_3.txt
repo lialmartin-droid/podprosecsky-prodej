@@ -1,0 +1,1 @@
+V15.3: zákaznická stránka přijímá ověřenou odpověď z vnořeného googleusercontent rámce. E-mail již dokazoval, že objednávka byla na serveru vytvořena; opravena byla pouze zpětná zpráva v prohlížeči.

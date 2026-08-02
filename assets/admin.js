@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "15.2";
-console.info("Podprosečské produkty – admin.js V15.2");
+window.PDP_ADMIN_VERSION = "15.3";
+console.info("Podprosečské produkty – admin.js V15.3");
 
 let products = [];
 let orders = [];
