@@ -1,4 +1,4 @@
-# Podprosečské domácí produkty V15 – opravená verze
+# Podprosečské domácí produkty V15.2 – opravená verze
 
 Objednávková stránka a administrace propojené s Google Tabulkou přes Google Apps Script.
 
@@ -22,3 +22,7 @@ Objednávková stránka a administrace propojené s Google Tabulkou přes Google
 - sjednocení aktivních souborů na verzi V15.
 
 Postup nasazení je v souboru `NAHRANI_NA_GITHUB.md`.
+
+
+## Oprava V15.2
+Administrace nyní správně zpracuje přihlašovací odpověď z vnořeného rámce Google Apps Scriptu. Google Apps Script `Code.gs` se proti předchozí opravené verzi nemění; stačí znovu nahrát obsah tohoto ZIPu na GitHub.

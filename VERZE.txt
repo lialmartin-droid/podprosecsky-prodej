@@ -1,1 +1,2 @@
-V15 OPRAVENO - bezpečnostní, validační a synchronizační opravy
+Podprosečské domácí produkty
+Verze 15.2 – oprava přihlášení administrace přes vnořený Apps Script iframe

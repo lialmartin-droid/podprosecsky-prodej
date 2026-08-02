@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "15";
-console.info("Podprosečské produkty – admin.js V15");
+window.PDP_ADMIN_VERSION = "15.2";
+console.info("Podprosečské produkty – admin.js V15.2");
 
 let products = [];
 let orders = [];
@@ -89,11 +89,27 @@ function processPostQueue() {
   form.submit();
 }
 
+function isTrustedAppsScriptOrigin(origin) {
+  try {
+    const parsed = new URL(origin);
+    return parsed.protocol === "https:" && (
+      parsed.hostname === "script.google.com" ||
+      parsed.hostname.endsWith(".googleusercontent.com")
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
 window.addEventListener("message", event => {
-  const frame = $("#adminSubmitFrame");
-  if (!frame || event.source !== frame.contentWindow) return;
   const data = event.data;
   if (!data || data.type !== "PDP_BACKEND_RESULT" || !activePost) return;
+
+  // Apps Script zobrazuje HtmlService odpověď uvnitř vlastního vnořeného iframe.
+  // Zdroj zprávy proto nemusí být přímo adminSubmitFrame.contentWindow.
+  const frame = $("#adminSubmitFrame");
+  const directFrameMessage = Boolean(frame && event.source === frame.contentWindow);
+  if (!directFrameMessage && !isTrustedAppsScriptOrigin(event.origin)) return;
 
   clearTimeout(requestTimer);
   const job = activePost;
