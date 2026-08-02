@@ -28,6 +28,7 @@ function setup() {
   const watchlist = getOrCreateSheet_(CONFIG.WATCHLIST_SHEET);
 
   formatOrdersSheet_(orders);
+  ensureOrderNumbers_(orders);
   formatProductsSheet_(products);
   formatSettingsSheet_(settings);
   formatWatchlistSheet_(watchlist);
@@ -115,7 +116,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '16.1',
+      version: '16.3',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -146,6 +147,7 @@ function doPost(e) {
     if (action === 'manualOrder') return createOrder_(payload, true);
     if (action === 'saveEggSettings') return saveEggSettings_(payload);
     if (action === 'saveBusinessSettings') return saveBusinessSettings_(payload);
+    if (action === 'resendReadyEmail') return resendReadyEmail_(payload);
 
     throw new Error('Neznámá operace.');
   } catch (error) {
@@ -197,6 +199,7 @@ function createOrder_(payload, manual) {
   formatOrdersSheet_(sheet);
   const id = Utilities.getUuid();
   const createdAt = new Date();
+  const orderNumber = nextOrderNumber_(createdAt);
   const itemsText = order.items.map(i => `${i.qty}× ${i.name} (${i.qty * i.price} Kč)`).join(', ');
   let stockAdjusted = false;
 
@@ -209,7 +212,8 @@ function createOrder_(payload, manual) {
     sheet.appendRow([
       id, createdAt, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
       safeSheetText_(itemsText), order.total, safeSheetText_(order.note), manual ? 'Administrace' : 'Web', JSON.stringify(order.items), safeSheetText_(order.email),
-      safeSheetText_(order.contactMethod), order.splitOrder, order.preorderPickup, order.regularStatus, order.preorderStatus
+      safeSheetText_(order.contactMethod), order.splitOrder, order.preorderPickup, order.regularStatus, order.preorderStatus,
+      orderNumber, '', '', JSON.stringify([]), '', JSON.stringify([{type:'created', at:createdAt.toISOString(), text:'Objednávka vytvořena'}])
     ]);
   } catch (error) {
     if (stockAdjusted) adjustEggStock_(fulfilledQty);
@@ -221,9 +225,9 @@ function createOrder_(payload, manual) {
     try {
       MailApp.sendEmail({
         to: CONFIG.NOTIFICATION_EMAIL,
-        subject: `Nová objednávka – ${order.name} – ${order.total} Kč`,
-        body: buildTextEmail_(order, id, createdAt),
-        htmlBody: buildHtmlEmail_(order, id, createdAt),
+        subject: `Nová objednávka ${orderNumber} – ${order.name} – ${order.total} Kč`,
+        body: buildTextEmail_(order, orderNumber, createdAt),
+        htmlBody: buildHtmlEmail_(order, orderNumber, createdAt),
         name: CONFIG.BRAND_NAME,
         replyTo: order.email || CONFIG.NOTIFICATION_EMAIL
       });
@@ -236,8 +240,8 @@ function createOrder_(payload, manual) {
       MailApp.sendEmail({
         to: order.email,
         subject: `Potvrzení přijetí objednávky – ${CONFIG.BRAND_NAME}`,
-        body: buildCustomerTextEmail_(order, id),
-        htmlBody: buildCustomerHtmlEmail_(order, id),
+        body: buildCustomerTextEmail_(order, orderNumber),
+        htmlBody: buildCustomerHtmlEmail_(order, orderNumber),
         name: CONFIG.BRAND_NAME,
         replyTo: CONFIG.NOTIFICATION_EMAIL
       });
@@ -247,7 +251,7 @@ function createOrder_(payload, manual) {
     }
   }
 
-  return htmlResponse_(true, (manual ? 'Objednávka byla uložena.' : 'Objednávka byla přijata.') + emailWarning, id, {});
+  return htmlResponse_(true, (manual ? 'Objednávka byla uložena.' : 'Objednávka byla přijata.') + emailWarning, id, { orderNumber: orderNumber });
 }
 
 function saveProduct_(payload) {
@@ -322,6 +326,15 @@ function saveOrder_(payload) {
   const created = values[row - 1][1] || new Date();
   const source = values[row - 1][9] || 'Administrace';
   const itemsText = order.items.map(i => `${i.qty}× ${i.name} (${i.qty * i.price} Kč)`).join(', ');
+  const orderNumber = oldOrder.orderNumber || nextOrderNumber_(created);
+  let communication = Array.isArray(oldOrder.communication) ? oldOrder.communication.slice() : [];
+  let timeline = Array.isArray(oldOrder.timeline) ? oldOrder.timeline.slice() : [];
+  const regularBecameReady = (order.splitOrder ? order.regularStatus : order.status) === 'Připraveno' && (oldOrder.splitOrder ? oldOrder.regularStatus : oldOrder.status) !== 'Připraveno';
+  const preorderBecameReady = order.splitOrder && order.preorderStatus === 'Připraveno' && oldOrder.preorderStatus !== 'Připraveno';
+  if ((order.splitOrder ? order.regularStatus : order.status) !== (oldOrder.splitOrder ? oldOrder.regularStatus : oldOrder.status)) timeline.push({type:'status', at:new Date().toISOString(), text:'Stav dostupné části: ' + (order.splitOrder ? order.regularStatus : order.status)});
+  if (order.splitOrder && order.preorderStatus !== oldOrder.preorderStatus) timeline.push({type:'status', at:new Date().toISOString(), text:'Stav předobjednané části: ' + order.preorderStatus});
+  let regularEmailAt = oldOrder.readyEmailRegularAt || '';
+  let preorderEmailAt = oldOrder.readyEmailPreorderAt || '';
   let appliedStockDelta = 0;
 
   try {
@@ -340,11 +353,24 @@ function saveOrder_(payload) {
       adjustEggStock_(appliedStockDelta);
     }
 
-    sheet.getRange(row, 1, 1, 17).setValues([[
+    if (String(order.contactMethod || oldOrder.contactMethod || 'SMS') === 'E-mail') {
+      if (regularBecameReady && !regularEmailAt) {
+        sendReadyEmail_(Object.assign({}, order, {orderNumber:orderNumber}), 'regular');
+        regularEmailAt = new Date().toISOString();
+        communication.push({type:'ready-regular', at:regularEmailAt, text:'E-mail o připravené objednávce'});
+      }
+      if (preorderBecameReady && !preorderEmailAt) {
+        sendReadyEmail_(Object.assign({}, order, {orderNumber:orderNumber}), 'preorder');
+        preorderEmailAt = new Date().toISOString();
+        communication.push({type:'ready-preorder', at:preorderEmailAt, text:'E-mail o připravené předobjednané části'});
+      }
+    }
+    sheet.getRange(row, 1, 1, 23).setValues([[
       id, created, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
       safeSheetText_(itemsText), order.total, safeSheetText_(order.note), source, JSON.stringify(order.items), safeSheetText_(order.email),
       safeSheetText_(order.contactMethod || oldOrder.contactMethod || 'SMS'), order.splitOrder, order.preorderPickup,
-      order.regularStatus, order.preorderStatus
+      order.regularStatus, order.preorderStatus, orderNumber, regularEmailAt, preorderEmailAt,
+      JSON.stringify(communication), safeSheetText_(submitted.internalNote || oldOrder.internalNote || ''), JSON.stringify(timeline)
     ]]);
   } catch (error) {
     if (appliedStockDelta) adjustEggStock_(-appliedStockDelta);
@@ -599,6 +625,7 @@ function readProducts_() {
 function readOrders_() {
   const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
   formatOrdersSheet_(sheet);
+  ensureOrderNumbers_(sheet);
   const rows = sheet.getDataRange().getValues().slice(1);
   return rows.filter(row => row[0] !== '').map(orderFromSheetRow_).reverse();
 }
@@ -632,7 +659,13 @@ function orderFromSheetRow_(row) {
     splitOrder: toBool_(row[13]),
     preorderPickup: formatSheetDate_(row[14]),
     regularStatus: String(row[15] || row[2] || 'Nová'),
-    preorderStatus: String(row[16] || 'Nová')
+    preorderStatus: String(row[16] || 'Nová'),
+    orderNumber: String(row[17] || row[0] || ''),
+    readyEmailRegularAt: String(row[18] || ''),
+    readyEmailPreorderAt: String(row[19] || ''),
+    communication: parseJsonArray_(row[20]),
+    internalNote: restoreSheetText_(row[21] || ''),
+    timeline: parseJsonArray_(row[22])
   };
 }
 
@@ -818,9 +851,23 @@ function productFromSheetRow_(row) {
 }
 
 function formatOrdersSheet_(sheet) {
-  const headers = ['ID objednávky', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON', 'E-mail', 'Kontakt před vyzvednutím', 'Rozdělená objednávka', 'Termín předobjednávky', 'Stav dostupné části', 'Stav předobjednávky'];
+  const headers = ['Interní ID', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON', 'E-mail', 'Kontakt před vyzvednutím', 'Rozdělená objednávka', 'Termín předobjednávky', 'Stav dostupné části', 'Stav předobjednávky', 'Číslo objednávky', 'E-mail připraveno 1', 'E-mail připraveno 2', 'Komunikace JSON', 'Interní poznámka', 'Časová osa JSON'];
   ensureHeaders_(sheet, headers);
   sheet.setFrozenRows(1);
+}
+
+
+function ensureOrderNumbers_(sheet) {
+  if (sheet.getLastRow() < 2) return;
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 18).getValues();
+  let changed = false;
+  for (let i = 0; i < values.length; i++) {
+    if (!values[i][0] || values[i][17]) continue;
+    const created = values[i][1] instanceof Date ? values[i][1] : new Date();
+    values[i][17] = nextOrderNumber_(created);
+    changed = true;
+  }
+  if (changed) sheet.getRange(2, 1, values.length, 18).setValues(values);
 }
 
 function formatProductsSheet_(sheet) {
@@ -1188,6 +1235,76 @@ function buildTextEmail_(order, id, createdAt) {
 function buildHtmlEmail_(order, id) {
   const rows = order.items.map(item => `<tr><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml_(item.qty + '× ' + item.name)}</td><td style="text-align:right;font-weight:700">${item.qty * item.price} Kč</td></tr>`).join('');
   return `<div style="font-family:Arial;max-width:600px"><h2>${escapeHtml_(CONFIG.BRAND_NAME)}</h2><p><b>Jméno:</b> ${escapeHtml_(order.name)}<br><b>Telefon:</b> ${escapeHtml_(order.phone)}<br><b>E-mail:</b> ${escapeHtml_(order.email || 'neuveden')}<br><b>Vyzvednutí:</b> ${escapeHtml_(order.pickup || 'neuvedeno')}</p><table style="width:100%;border-collapse:collapse">${rows}</table><p style="font-size:22px;text-align:right"><b>Celkem: ${order.total} Kč</b></p><p><b>Poznámka:</b> ${escapeHtml_(order.note || '—')}</p><small>ID: ${escapeHtml_(id)}</small></div>`;
+}
+
+
+function parseJsonArray_(value) {
+  try { const x = JSON.parse(String(value || '[]')); return Array.isArray(x) ? x : []; } catch (_) { return []; }
+}
+
+function nextOrderNumber_(date) {
+  const year = Utilities.formatDate(date || new Date(), CONFIG.TIME_ZONE, 'yyyy');
+  const props = PropertiesService.getScriptProperties();
+  const key = 'ORDER_COUNTER_' + year;
+  const next = Number(props.getProperty(key) || 0) + 1;
+  props.setProperty(key, String(next));
+  return 'PP-' + year + '-' + String(next).padStart(4, '0');
+}
+
+function readyItems_(order, part) {
+  if (!order.splitOrder) return order.items || [];
+  const products = readProducts_();
+  const byId = {}; products.forEach(p => byId[String(p.id)] = p);
+  return (order.items || []).filter(item => {
+    const p = byId[String(item.productId)] || {};
+    const isPre = Boolean(p.preorder);
+    return part === 'preorder' ? isPre : !isPre;
+  });
+}
+
+function readyAnimalPhrase_(order, part) {
+  return customerAnimalPhrase_(Object.assign({}, order, {items: readyItems_(order, part)}));
+}
+
+function buildReadyTextEmail_(order, part) {
+  const greeting = firstNameVocative_(order.name);
+  const date = part === 'preorder' ? order.preorderPickup : order.pickup;
+  const partText = order.splitOrder ? (part === 'preorder' ? 'Předobjednaná část vaší objednávky' : 'První část vaší objednávky') : 'Vaše objednávka';
+  return [
+    `Dobrý den${greeting ? ', ' + greeting : ''},`, '',
+    `${readyAnimalPhrase_(order, part)} dokončily práci.`, '',
+    `${partText} je připravena k vyzvednutí.`, '',
+    'Prosíme o její vyzvednutí dne', '', formatCustomerPickupDate_(date), '',
+    'na adrese', '', 'Pod Prosečí 102/2', 'Jablonec nad Nisou', '',
+    'Pokud se vám termín nehodí, odpovězte na tento e-mail nebo nás kontaktujte na telefonním čísle +420 732 687 040.', '',
+    'Těšíme se na vás.', '', CONFIG.BRAND_NAME, `Číslo objednávky: ${order.orderNumber}`
+  ].join('\n');
+}
+
+function buildReadyHtmlEmail_(order, part) {
+  return '<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;line-height:1.6;color:#2b241f">' +
+    buildReadyTextEmail_(order, part).split('\n').map(line => line ? '<p style="margin:8px 0">'+escapeHtml_(line)+'</p>' : '<br>').join('') + '</div>';
+}
+
+function sendReadyEmail_(order, part) {
+  MailApp.sendEmail({to:order.email, subject:'📦 Vaše objednávka je připravena k vyzvednutí – ' + order.orderNumber,
+    body:buildReadyTextEmail_(order, part), htmlBody:buildReadyHtmlEmail_(order, part), name:CONFIG.BRAND_NAME, replyTo:CONFIG.NOTIFICATION_EMAIL});
+}
+
+function resendReadyEmail_(payload) {
+  const id = cleanIdentifier_(payload.id, 'ID objednávky');
+  const part = payload.part === 'preorder' ? 'preorder' : 'regular';
+  const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET); formatOrdersSheet_(sheet);
+  const values = sheet.getDataRange().getValues();
+  for (let i=1;i<values.length;i++) if (String(values[i][0])===id) {
+    const order=orderFromSheetRow_(values[i]);
+    if (!order.email) throw new Error('Objednávka nemá e-mail.');
+    sendReadyEmail_(order, part);
+    const comm=order.communication || []; comm.push({type:'ready-'+part+'-resend',at:new Date().toISOString(),text:'E-mail o připravené objednávce odeslán znovu'});
+    sheet.getRange(i+1,21).setValue(JSON.stringify(comm));
+    return htmlResponse_(true,'E-mail byl odeslán znovu.',id,{});
+  }
+  throw new Error('Objednávka nebyla nalezena.');
 }
 
 function isValidEmail_(value) {

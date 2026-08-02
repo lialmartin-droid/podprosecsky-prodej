@@ -1,2 +1,1 @@
-Podprosečský prodej V16.2
-Blokace termínů dovolené a veřejný limit předobjednávek.
+V16.3 – čísla objednávek, automatické e-maily Připraveno, komunikace a interní poznámky

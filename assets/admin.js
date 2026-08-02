@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "16";
-console.info("Podprosečské produkty – admin.js V16");
+window.PDP_ADMIN_VERSION = "16.3";
+console.info("Podprosečské produkty – admin.js V16.3");
 
 let products = [];
 let orders = [];
@@ -248,8 +248,8 @@ function renderOrders() {
     <article class="card">
       <div class="card-head">
         <div>
-          <h3>${esc(order.name)}</h3>
-          <div class="meta">${esc(order.created)} · ${esc(order.phone || "bez telefonu")}${order.email ? ` · ${esc(order.email)}` : ""}</div>
+          <h3>${esc(order.name)} <span class="badge gray">${esc(order.orderNumber || order.id)}</span></h3>
+          <div class="meta">${esc(order.created)} · ${order.contactMethod === "E-mail" ? "✉️ E-mail" : "📱 SMS"} · ${esc(order.phone || "bez telefonu")}${order.email ? ` · ${esc(order.email)}` : ""}</div>
           <div class="badges">
             <span class="badge blue">${esc(localDate(order.pickup))}</span>
             ${eggQty(order) ? `<span class="badge green">🥚 ${eggQty(order)} ks</span>` : ""}
@@ -259,7 +259,7 @@ function renderOrders() {
         <strong>${money(order.total)}</strong>
       </div>
       <div class="item-list">${itemHtml(order)}</div>
-      ${order.note ? `<div class="meta">Poznámka: ${esc(order.note)}</div>` : ""}
+      ${order.note ? `<div class="meta">Poznámka zákazníka: ${esc(order.note)}</div>` : ""}${order.internalNote ? `<div class="meta"><strong>Interní poznámka:</strong> ${esc(order.internalNote)}</div>` : ""}
       ${order.splitOrder ? `<div class="split-parts"><div class="split-part"><strong>1. Dostupné produkty</strong><div class="meta">${esc(localDate(order.pickup))}</div><select class="status-select" data-regular-status="${esc(order.id)}">${statusOptions(order.regularStatus || order.status)}</select></div><div class="split-part"><strong>2. Předobjednané produkty</strong><div class="meta">${esc(localDate(order.preorderPickup))}</div><select class="status-select" data-preorder-status="${esc(order.id)}">${statusOptions(order.preorderStatus || "Nová")}</select></div></div>` : ""}
       <div class="card-bottom">
         ${order.splitOrder ? "" : `<select class="status-select" data-status="${esc(order.id)}">${statusOptions(order.status)}</select>`}
@@ -272,7 +272,7 @@ function renderOrders() {
         <div class="form-grid">
           <label><span>Jméno</span><input data-on="${esc(order.id)}" value="${esc(order.name)}"></label>
           <label><span>Telefon</span><input data-op="${esc(order.id)}" value="${esc(order.phone)}"></label>
-          <label><span>E-mail</span><input data-oe="${esc(order.id)}" type="email" value="${esc(order.email || "")}"></label>
+          <label><span>E-mail</span><input data-oe="${esc(order.id)}" type="email" value="${esc(order.email || "")}"></label><label><span>Preferované upozornění</span><select data-oc="${esc(order.id)}"><option ${order.contactMethod !== "E-mail" ? "selected" : ""}>SMS</option><option ${order.contactMethod === "E-mail" ? "selected" : ""}>E-mail</option></select></label>
           <label><span>${order.splitOrder ? "Termín 1. části" : "Termín"}</span><input data-od="${esc(order.id)}" type="date" value="${esc(order.pickup)}"></label>
           ${order.splitOrder ? `<label><span>Stav 1. části</span><select data-ors="${esc(order.id)}">${statusOptions(order.regularStatus || order.status)}</select></label><label><span>Termín 2. části</span><input data-opd="${esc(order.id)}" type="date" value="${esc(order.preorderPickup || "")}"></label><label><span>Stav 2. části</span><select data-ops="${esc(order.id)}">${statusOptions(order.preorderStatus || "Nová")}</select></label>` : `<label><span>Stav</span><select data-os="${esc(order.id)}">${statusOptions(order.status)}</select></label>`}
           <div class="full">
@@ -284,9 +284,9 @@ function renderOrders() {
               }).join("")}
             </div>
           </div>
-          <label class="full"><span>Poznámka</span><textarea data-ot="${esc(order.id)}">${esc(order.note)}</textarea></label>
+          <label class="full"><span>Poznámka zákazníka</span><textarea data-ot="${esc(order.id)}">${esc(order.note)}</textarea></label><label class="full"><span>Interní poznámka (vidíš jen ty)</span><textarea data-oin="${esc(order.id)}">${esc(order.internalNote || "")}</textarea></label><div class="full"><span class="field-label">Komunikace</span><div class="meta">${(order.communication || []).length ? (order.communication || []).map(x => `✔ ${esc(x.text)} · ${esc(new Date(x.at).toLocaleString("cs-CZ"))}`).join("<br>") : "Zatím bez dalších zpráv."}</div></div><div class="full"><span class="field-label">Časová osa</span><div class="meta">${(order.timeline || []).length ? (order.timeline || []).map(x => `${esc(x.text)} · ${esc(new Date(x.at).toLocaleString("cs-CZ"))}`).join("<br>") : "Bez záznamu."}</div></div>
         </div>
-        <div class="actions"><button class="primary-small" data-save-order="${esc(order.id)}">Uložit změny</button></div>
+        <div class="actions"><button class="primary-small" data-save-order="${esc(order.id)}">Uložit změny</button><button class="secondary-button" data-preview-ready="${esc(order.id)}">Náhled e-mailu</button><button class="secondary-button" data-resend-ready="${esc(order.id)}" data-part="regular">Odeslat znovu 1. část</button>${order.splitOrder ? `<button class="secondary-button" data-resend-ready="${esc(order.id)}" data-part="preorder">Odeslat znovu 2. část</button>` : ""}</div>
       </div>
     </article>`).join("") : '<div class="empty">Žádné objednávky.</div>';
 
@@ -316,6 +316,7 @@ function renderOrders() {
       order.name = document.querySelector(dataSelector("on", id)).value;
       order.phone = document.querySelector(dataSelector("op", id)).value;
       order.email = document.querySelector(dataSelector("oe", id)).value;
+      order.contactMethod = document.querySelector(dataSelector("oc", id)).value;
       order.pickup = document.querySelector(dataSelector("od", id)).value;
       if (order.splitOrder) {
         order.regularStatus = document.querySelector(dataSelector("ors", id)).value;
@@ -325,11 +326,26 @@ function renderOrders() {
         order.status = document.querySelector(dataSelector("os", id)).value;
       }
       order.note = document.querySelector(dataSelector("ot", id)).value;
+      order.internalNote = document.querySelector(dataSelector("oin", id)).value;
       order.items = products.map(product => {
         const quantity = Number(document.querySelector(dataSelector("oi", `${id}-${product.id}`)).value) || 0;
         return { productId: String(product.id), name: product.name, qty: quantity, price: product.price };
       }).filter(item => item.qty > 0);
       saveOrder(order);
+    };
+  });
+
+  document.querySelectorAll("[data-preview-ready]").forEach(button => {
+    button.onclick = () => {
+      const order = orders.find(item => item.id === button.dataset.previewReady);
+      const animal = (order.items || []).some(i => String(i.name).toLowerCase().includes("vejce")) && (order.items || []).some(i => /med|včel/i.test(String(i.name))) ? "naše slepičky a včeličky" : (order.items || []).some(i => String(i.name).toLowerCase().includes("vejce")) ? "naše slepičky" : "naše včeličky";
+      alert(`Dobrý den, ${order.name.split(/\s+/)[0]},\n\n${animal} dokončily práci.\n\nVaše objednávka je připravena k vyzvednutí.\n\nTermín: ${localDate(order.pickup)}\n\nPod Prosečí 102/2\nJablonec nad Nisou\n\nTelefon: +420 732 687 040\n\nČíslo objednávky: ${order.orderNumber || order.id}`);
+    };
+  });
+  document.querySelectorAll("[data-resend-ready]").forEach(button => {
+    button.onclick = () => {
+      if (!confirm("Opravdu odeslat e-mail zákazníkovi znovu?")) return;
+      post("resendReadyEmail", {id: button.dataset.resendReady, part: button.dataset.part}, data => data.ok ? (alert(data.message), loadData()) : alert(data.message));
     };
   });
 
