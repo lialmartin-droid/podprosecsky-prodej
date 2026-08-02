@@ -23,6 +23,7 @@ const submitButton = document.getElementById("submitOrder");
 let submissionPending = false;
 let submissionFinished = false;
 let submitTimeout = null;
+let watchPending = null;
 
 function backendUrl() {
   return window.PDP_CONFIG && String(window.PDP_CONFIG.APPS_SCRIPT_URL || "").trim();
@@ -140,6 +141,8 @@ function normalizeProducts(input) {
     leadDays: isEggProduct(product) ? 0 : Math.max(0, Number(product.leadDays || 0)),
     preorder: Boolean(product.preorder),
     restock: String(product.restock || ""),
+    capacity: Math.max(0, Number(product.capacity || 0)),
+    reserved: Math.max(0, Number(product.reserved || 0)),
     quick: quickButtonsForProduct(product)
   }));
 }
@@ -232,6 +235,31 @@ function eggQuantity() {
   }, 0);
 }
 
+function pickupBlockActive() {
+  return Boolean(businessSettings.ordersPaused && businessSettings.pauseFrom && businessSettings.pauseTo);
+}
+
+function isPickupDateBlocked(dateKey) {
+  if (!pickupBlockActive() || !dateKey) return false;
+  return dateKey >= businessSettings.pauseFrom && dateKey <= businessSettings.pauseTo;
+}
+
+function nextPickupDateOutsideBlock(dateKey) {
+  if (!isPickupDateBlocked(dateKey)) return dateKey;
+  return addDaysKey(businessSettings.pauseTo, 1);
+}
+
+function vacationNoticeText() {
+  if (!pickupBlockActive()) return "";
+  const firstAfter = addDaysKey(businessSettings.pauseTo, 1);
+  return businessSettings.pauseMessage || `V době od ${localDate(businessSettings.pauseFrom)} do ${localDate(businessSettings.pauseTo)} nebude možné objednávky vyzvednout. Nejbližší vyzvednutí po dovolené je ${localDate(firstAfter)}.`;
+}
+
+function remainingCapacity(product) {
+  if (!product || !product.capacity) return 500;
+  return Math.max(0, Math.floor(product.capacity - product.reserved));
+}
+
 function nonEggLeadMinimum() {
   let minimum = todayKey();
 
@@ -245,7 +273,7 @@ function nonEggLeadMinimum() {
     if (product.preorder && selectedSplitMode() !== "split" && product.restock && product.restock > minimum) minimum = product.restock;
   });
 
-  return minimum;
+  return nextPickupDateOutsideBlock(minimum);
 }
 
 function calculatePickupMinimum() {
@@ -265,7 +293,7 @@ function calculatePickupMinimum() {
   }
 
   const earliest = eggAvailability.days.find(day =>
-    day.date >= leadMinimum && Number(day.maxAdditional || 0) >= eggs
+    day.date >= leadMinimum && !isPickupDateBlocked(day.date) && Number(day.maxAdditional || 0) >= eggs
   );
 
   if (!earliest) {
@@ -332,12 +360,15 @@ function updatePickupAvailability() {
     availabilityEl.classList.remove("availability-error");
   }
 
-  if (ordersArePaused()) {
-    availabilityEl.textContent = businessSettings.pauseMessage || "Příjem objednávek je dočasně pozastaven.";
-    availabilityEl.classList.remove("hidden");
-    availabilityEl.classList.add("availability-error");
+  if (pickupBlockActive()) {
+    const vacationText = vacationNoticeText();
+    if (vacationText) {
+      availabilityEl.textContent = vacationText;
+      availabilityEl.classList.remove("hidden");
+      availabilityEl.classList.remove("availability-error");
+    }
   }
-  submitButton.disabled = submissionPending || availabilityBlocked || ordersArePaused();
+  submitButton.disabled = submissionPending || availabilityBlocked;
 }
 
 function formatRestock(value) {
@@ -368,10 +399,11 @@ function selectedContactMethod() {
 }
 
 function latestPreorderDate() {
-  return preorderProductsInCart().map(p => p.restock || p.preorderDate || "").filter(Boolean).sort().pop() || "";
+  const date = preorderProductsInCart().map(p => p.restock || p.preorderDate || "").filter(Boolean).sort().pop() || "";
+  return nextPickupDateOutsideBlock(date);
 }
 
-function renderSplitOptions() {
+function renderSplitOptions(forceNearest = false) {
   const mixed = preorderProductsInCart().length > 0 && regularProductsInCart().length > 0;
   const box = document.getElementById("splitOrderBox");
   if (box) box.classList.toggle("hidden", !mixed);
@@ -379,10 +411,22 @@ function renderSplitOptions() {
     const together = document.querySelector('input[name="splitOrder"][value="together"]');
     if (together) together.checked = true;
   }
+  const isSplit = mixed && selectedSplitMode() === "split";
   const label = document.getElementById("pickupDateLabel");
-  if (label) label.textContent = mixed && selectedSplitMode() === "split"
-    ? "Termín prvního vyzvednutí"
-    : "Termín vyzvednutí";
+  if (label) label.textContent = isSplit ? "Termín prvního vyzvednutí" : "Termín vyzvednutí";
+  const summary = document.getElementById("splitPickupSummary");
+  if (summary) {
+    summary.classList.toggle("hidden", !isSplit);
+    if (isSplit) {
+      const rules = calculatePickupMinimum();
+      const second = latestPreorderDate();
+      summary.innerHTML = `<strong>Objednávka bude rozdělena:</strong><br>1. dostupné produkty: ${rules.minimum ? esc(localDate(rules.minimum)) : "nejbližší možný termín"}<br>2. předobjednané produkty: ${second ? esc(localDate(second)) : "po naskladnění"}`;
+      if (forceNearest && rules.minimum) {
+        pickupInput.value = rules.minimum;
+        feedbackEl.textContent = `První vyzvednutí bylo automaticky nastaveno na nejbližší možný termín ${localDate(rules.minimum)}.`;
+      }
+    }
+  }
 }
 
 function renderPublicBanner() {
@@ -401,10 +445,31 @@ function renderPublicBanner() {
 }
 
 function ordersArePaused() {
-  if (!businessSettings.ordersPaused) return false;
-  const today = todayKey();
-  return (!businessSettings.pauseFrom || today >= businessSettings.pauseFrom) &&
-    (!businessSettings.pauseTo || today <= businessSettings.pauseTo);
+  return false;
+}
+
+function subscribeStockWatch(product, article) {
+  const input = article.querySelector("[data-watch-email]");
+  const feedback = article.querySelector("[data-watch-feedback]");
+  const email = String(input?.value || "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    feedback.textContent = "Zadejte platnou e-mailovou adresu.";
+    input?.focus();
+    return;
+  }
+  const form = document.getElementById("backendOrderForm");
+  form.action = backendUrl();
+  form.querySelector('[name="action"]').value = "subscribeStock";
+  document.getElementById("backendPayload").value = JSON.stringify({ productId: String(product.id), email });
+  feedback.textContent = "Ukládám hlídání…";
+  watchPending = { feedback, input };
+  form.submit();
+  setTimeout(() => {
+    if (watchPending && watchPending.feedback === feedback) {
+      feedback.textContent = "Potvrzení trvá déle. Zkuste hlídání případně odeslat znovu.";
+      watchPending = null;
+    }
+  }, 20000);
 }
 
 function renderProducts() {
@@ -434,13 +499,17 @@ function renderProducts() {
           <div class="price">${money(product.price)} <small>/ ${esc(product.unit)}</small></div>
           ${isEggProduct(product) ? `<div class="notice" data-egg-pickup-notice>Po zvolení počtu vajec se zobrazí nejbližší možný termín vyzvednutí.</div>` : ""}
           ${!isEggProduct(product) && product.leadDays ? `<div class="notice">Tento produkt je potřeba objednat minimálně ${Math.max(0, Math.floor(Number(product.leadDays) || 0))} dní předem.</div>` : ""}
-          ${product.preorder ? `<div class="notice"><strong>Předobjednávka.</strong> Předpokládané naskladnění: ${product.restock ? esc(formatRestock(product.restock)) : "termín bude upřesněn"}.</div>` : (product.soldOut ? `<div class="notice">Momentálně vyprodáno${product.restock ? `. Předpokládané doplnění: ${esc(formatRestock(product.restock))}.` : "."}</div>` : "")}
+          ${product.preorder ? `<div class="notice"><strong>Předobjednávka.</strong> Předpokládané naskladnění: ${product.restock ? esc(formatRestock(nextPickupDateOutsideBlock(product.restock))) : "termín bude upřesněn"}.${product.capacity ? ` K rezervaci zbývá <strong>${Math.max(0, product.capacity - product.reserved)} z ${product.capacity} ${esc(product.unit)}</strong>.` : ""}</div>` : (product.soldOut ? `<div class="notice">Momentálně vyprodáno${product.restock ? `. Předpokládané doplnění: ${esc(formatRestock(product.restock))}.` : "."}</div><div class="stock-watch"><strong>Hlídací pes</strong><p class="field-help">Pošleme vám jednorázový e-mail, až bude produkt znovu skladem.</p><div class="watch-row"><input type="email" data-watch-email placeholder="vas@email.cz"><button type="button" data-watch-button>Hlídat naskladnění</button></div><div class="field-help" data-watch-feedback></div></div>` : "")}
           <div class="product-controls"></div>
         </div>
       </div>`;
 
     productsEl.appendChild(article);
 
+    const watchButton = article.querySelector("[data-watch-button]");
+    if (watchButton) {
+      watchButton.addEventListener("click", () => subscribeStockWatch(product, article));
+    }
     const controls = article.querySelector(".product-controls");
     if (product.soldOut && !product.preorder) return;
 
@@ -486,7 +555,7 @@ function renderProducts() {
     input.className = "qty-input";
     input.type = "number";
     input.min = "0";
-    input.max = "500";
+    input.max = String(remainingCapacity(product));
     input.step = "1";
     input.inputMode = "numeric";
     input.dataset.qtyId = String(product.id);
@@ -512,14 +581,22 @@ function updateQuantityInput(id) {
 }
 
 function changeQty(id, amount) {
-  cart[id] = Math.min(500, Math.max(0, (cart[id] || 0) + amount));
+  const product = products.find(item => String(item.id) === String(id));
+  const limit = remainingCapacity(product);
+  const requested = Math.max(0, (cart[id] || 0) + amount);
+  cart[id] = Math.min(limit, requested);
+  if (requested > limit) feedbackEl.textContent = `U produktu ${product.name} lze nyní rezervovat nejvýše ${limit} ${product.unit}.`;
   if (!cart[id]) delete cart[id];
   updateQuantityInput(id);
   renderSummary();
 }
 
 function setQty(id, value) {
-  const quantity = Math.min(500, Math.max(0, Math.floor(Number(value) || 0)));
+  const product = products.find(item => String(item.id) === String(id));
+  const limit = remainingCapacity(product);
+  const requested = Math.max(0, Math.floor(Number(value) || 0));
+  const quantity = Math.min(limit, requested);
+  if (requested > limit) feedbackEl.textContent = `U produktu ${product.name} lze nyní rezervovat nejvýše ${limit} ${product.unit}.`;
   if (quantity) cart[id] = quantity;
   else delete cart[id];
   renderSummary();
@@ -612,7 +689,7 @@ function isTrustedAppsScriptOrigin(origin) {
 
 window.addEventListener("message", event => {
   const data = event.data;
-  if (!submissionPending || !data || data.type !== "PDP_BACKEND_RESULT") return;
+  if ((!submissionPending && !watchPending) || !data || data.type !== "PDP_BACKEND_RESULT") return;
 
   // HtmlService vrací výsledek z vnořeného rámce Googlu. Zdroj proto
   // nemusí být přímo orderSubmitFrame.contentWindow.
@@ -620,12 +697,13 @@ window.addEventListener("message", event => {
   const directFrameMessage = Boolean(frame && event.source === frame.contentWindow);
   if (!directFrameMessage && !isTrustedAppsScriptOrigin(event.origin)) return;
 
-  finish(
-    Boolean(data.ok),
-    data.ok
-      ? "Objednávka byla odeslána. Brzy se vám ozveme."
-      : (data.message || "Objednávku se nepodařilo odeslat.")
-  );
+  if (watchPending) {
+    watchPending.feedback.textContent = data.ok ? "Hlídací pes je zapnutý. Až bude produkt skladem, přijde vám jednorázový e-mail." : (data.message || "Hlídacího psa se nepodařilo zapnout.");
+    if (data.ok) watchPending.input.value = "";
+    watchPending = null;
+    return;
+  }
+  finish(Boolean(data.ok), data.ok ? "Objednávka byla odeslána. Brzy se vám ozveme." : (data.message || "Objednávku se nepodařilo odeslat."));
 });
 
 submitButton.addEventListener("click", () => {
@@ -651,7 +729,6 @@ submitButton.addEventListener("click", () => {
   const note = document.getElementById("customerNote").value.trim();
   const pickupRules = calculatePickupMinimum();
 
-  if (ordersArePaused()) return feedbackEl.textContent = businessSettings.pauseMessage || "Příjem objednávek je dočasně pozastaven.";
   if (!items.length) return feedbackEl.textContent = "Nejprve vyberte alespoň jeden produkt.";
   if (!name) return feedbackEl.textContent = "Vyplňte jméno.";
   if (!phone) return feedbackEl.textContent = "Vyplňte telefon.";
@@ -662,6 +739,7 @@ submitButton.addEventListener("click", () => {
   }
   if (pickupRules.blocked) return feedbackEl.textContent = pickupRules.message;
   if (!pickup) return feedbackEl.textContent = "Vyberte termín vyzvednutí.";
+  if (isPickupDateBlocked(pickup)) return feedbackEl.textContent = `V tomto termínu nebude možné objednávku vyzvednout. Zvolte nejdříve ${localDate(addDaysKey(businessSettings.pauseTo, 1))}.`;
   if (pickupRules.minimum && pickup < pickupRules.minimum) {
     return feedbackEl.textContent = `Nejbližší možný termín je ${localDate(pickupRules.minimum)}.`;
   }
@@ -709,12 +787,16 @@ submitButton.addEventListener("click", () => {
 });
 
 document.querySelectorAll('input[name="splitOrder"]').forEach(input => input.addEventListener("change", () => {
-  renderSplitOptions();
+  renderSplitOptions(selectedSplitMode() === "split");
   updatePickupAvailability();
 }));
 pickupInput.addEventListener("change", () => {
   const rules = calculatePickupMinimum();
-  if (rules.minimum && pickupInput.value < rules.minimum) {
+  if (isPickupDateBlocked(pickupInput.value)) {
+    const next = addDaysKey(businessSettings.pauseTo, 1);
+    pickupInput.value = next;
+    feedbackEl.textContent = `Zvolený termín spadá do dovolené. Termín byl změněn na ${localDate(next)}.`;
+  } else if (rules.minimum && pickupInput.value < rules.minimum) {
     feedbackEl.textContent = `Nejbližší možný termín je ${localDate(rules.minimum)}.`;
     pickupInput.value = rules.minimum;
   }

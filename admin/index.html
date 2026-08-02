@@ -187,12 +187,12 @@
           <label><span>Zobrazit od</span><input id="bannerFrom" type="date"></label>
           <label><span>Zobrazit do</span><input id="bannerTo" type="date"></label>
         </div>
-        <h3>Pozastavení objednávek</h3>
+        <h3>Dovolená / blokace vyzvednutí</h3>
         <div class="form-grid">
-          <label><input id="ordersPaused" type="checkbox"> Dočasně nepřijímat objednávky</label>
+          <label><input id="ordersPaused" type="checkbox"> Zablokovat vyzvednutí v zadaném období</label>
           <label><span>Od</span><input id="pauseFrom" type="date"></label>
           <label><span>Do</span><input id="pauseTo" type="date"></label>
-          <label class="full"><span>Zpráva zákazníkům</span><textarea id="pauseMessage" rows="3"></textarea></label>
+          <label class="full"><span>Upozornění zákazníkům</span><textarea id="pauseMessage" rows="3" placeholder="Např. Máme dovolenou. Objednávky přijímáme, vyzvednutí bude možné nejdříve od..."></textarea></label>
           <label><span>Max. objednávek na den</span><input id="dailyOrderLimit" type="number" min="0" placeholder="0 = bez limitu"></label>
         </div>
         <div class="actions"><button id="saveBusinessSettings" class="primary-small" type="button">Uložit nastavení webu</button></div>
@@ -209,6 +209,6 @@
   <input id="adminPayload" name="payload" type="hidden">
 </form>
 <script src="../assets/config.js?v=15-20260802-fix2"></script>
-<script src="../assets/admin.js?v=16-20260802"></script>
+<script src="../assets/admin.js?v=16-2-20260802"></script>
 </body>
 </html>

@@ -260,8 +260,9 @@ function renderOrders() {
       </div>
       <div class="item-list">${itemHtml(order)}</div>
       ${order.note ? `<div class="meta">Poznámka: ${esc(order.note)}</div>` : ""}
+      ${order.splitOrder ? `<div class="split-parts"><div class="split-part"><strong>1. Dostupné produkty</strong><div class="meta">${esc(localDate(order.pickup))}</div><select class="status-select" data-regular-status="${esc(order.id)}">${statusOptions(order.regularStatus || order.status)}</select></div><div class="split-part"><strong>2. Předobjednané produkty</strong><div class="meta">${esc(localDate(order.preorderPickup))}</div><select class="status-select" data-preorder-status="${esc(order.id)}">${statusOptions(order.preorderStatus || "Nová")}</select></div></div>` : ""}
       <div class="card-bottom">
-        <select class="status-select" data-status="${esc(order.id)}">${statusOptions(order.status)}</select>
+        ${order.splitOrder ? "" : `<select class="status-select" data-status="${esc(order.id)}">${statusOptions(order.status)}</select>`}
         <div class="actions">
           <button class="secondary-button" data-edit-order="${esc(order.id)}">Upravit</button>
           <button class="danger-button" data-delete-order="${esc(order.id)}">Smazat</button>
@@ -272,8 +273,8 @@ function renderOrders() {
           <label><span>Jméno</span><input data-on="${esc(order.id)}" value="${esc(order.name)}"></label>
           <label><span>Telefon</span><input data-op="${esc(order.id)}" value="${esc(order.phone)}"></label>
           <label><span>E-mail</span><input data-oe="${esc(order.id)}" type="email" value="${esc(order.email || "")}"></label>
-          <label><span>Termín</span><input data-od="${esc(order.id)}" type="date" value="${esc(order.pickup)}"></label>
-          <label><span>Stav</span><select data-os="${esc(order.id)}">${statusOptions(order.status)}</select></label>
+          <label><span>${order.splitOrder ? "Termín 1. části" : "Termín"}</span><input data-od="${esc(order.id)}" type="date" value="${esc(order.pickup)}"></label>
+          ${order.splitOrder ? `<label><span>Stav 1. části</span><select data-ors="${esc(order.id)}">${statusOptions(order.regularStatus || order.status)}</select></label><label><span>Termín 2. části</span><input data-opd="${esc(order.id)}" type="date" value="${esc(order.preorderPickup || "")}"></label><label><span>Stav 2. části</span><select data-ops="${esc(order.id)}">${statusOptions(order.preorderStatus || "Nová")}</select></label>` : `<label><span>Stav</span><select data-os="${esc(order.id)}">${statusOptions(order.status)}</select></label>`}
           <div class="full">
             <span class="field-label">Položky</span>
             <div class="quantity-list">
@@ -297,6 +298,13 @@ function renderOrders() {
     };
   });
 
+  document.querySelectorAll("[data-regular-status]").forEach(select => {
+    select.onchange = () => { const order = orders.find(item => item.id === select.dataset.regularStatus); order.regularStatus = select.value; saveOrder(order); };
+  });
+  document.querySelectorAll("[data-preorder-status]").forEach(select => {
+    select.onchange = () => { const order = orders.find(item => item.id === select.dataset.preorderStatus); order.preorderStatus = select.value; saveOrder(order); };
+  });
+
   document.querySelectorAll("[data-edit-order]").forEach(button => {
     button.onclick = () => document.getElementById("oe" + button.dataset.editOrder)?.classList.toggle("open");
   });
@@ -309,7 +317,13 @@ function renderOrders() {
       order.phone = document.querySelector(dataSelector("op", id)).value;
       order.email = document.querySelector(dataSelector("oe", id)).value;
       order.pickup = document.querySelector(dataSelector("od", id)).value;
-      order.status = document.querySelector(dataSelector("os", id)).value;
+      if (order.splitOrder) {
+        order.regularStatus = document.querySelector(dataSelector("ors", id)).value;
+        order.preorderPickup = document.querySelector(dataSelector("opd", id)).value;
+        order.preorderStatus = document.querySelector(dataSelector("ops", id)).value;
+      } else {
+        order.status = document.querySelector(dataSelector("os", id)).value;
+      }
       order.note = document.querySelector(dataSelector("ot", id)).value;
       order.items = products.map(product => {
         const quantity = Number(document.querySelector(dataSelector("oi", `${id}-${product.id}`)).value) || 0;
@@ -609,6 +623,10 @@ $("#saveEggSettings").onclick = () => {
 
 
 $("#saveBusinessSettings").onclick = () => {
+  if ($("#ordersPaused").checked) {
+    if (!$("#pauseFrom").value || !$("#pauseTo").value) return alert("Vyplňte začátek i konec blokace vyzvednutí.");
+    if ($("#pauseFrom").value > $("#pauseTo").value) return alert("Konec blokace nesmí být před jejím začátkem.");
+  }
   const settings = {
     bannerEnabled: $("#bannerEnabled").checked,
     bannerStyle: $("#bannerStyle").value,

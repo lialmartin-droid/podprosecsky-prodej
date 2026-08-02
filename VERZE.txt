@@ -1,3 +1,2 @@
-Podprosečské domácí produkty V16
-Datum: 2. 8. 2026
-Dashboard, banner, předobjednávky, rozdělené vyzvednutí, kontakt SMS/e-mail, kapacity produktů, obsazenost a statistiky.
+Podprosečský prodej V16.2
+Blokace termínů dovolené a veřejný limit předobjednávek.
