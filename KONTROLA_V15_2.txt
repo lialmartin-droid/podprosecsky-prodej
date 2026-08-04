@@ -1,7 +1,0 @@
-Kontrola opravy V15.2
-
-- admin.js: syntaxe OK
-- opraveno přijímání postMessage z vnořeného iframe Google Apps Scriptu
-- povolené zdroje: script.google.com a *.googleusercontent.com přes HTTPS
-- cache-busting administrace změněn na fix2
-- struktura ZIPu zachována pro přímé nahrání na GitHub
