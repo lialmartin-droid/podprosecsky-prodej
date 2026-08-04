@@ -1,1 +1,0 @@
-V16.1: automatické datum první části, samostatné stavy částí, hlídací pes e-mailem.
