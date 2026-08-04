@@ -1,0 +1,5 @@
+Podprosečské domácí produkty 2.0.6
+- Dočasně odstraněna sekce Z vlastní zahrádky.
+- Přidána lokální mezipaměť nabídky: při další návštěvě se produkty zobrazí okamžitě.
+- Aktuální data se při každém otevření stále načítají z Google Apps Scriptu na pozadí.
+- Přidán preconnect pro rychlejší navázání spojení se serverem Google.
