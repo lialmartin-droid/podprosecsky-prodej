@@ -1,1 +1,0 @@
-Syntaxe admin.js a Code.gs ověřena. Struktura ZIP ověřena. V16.3.
