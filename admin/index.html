@@ -154,10 +154,11 @@
             <div class="image-upload-row">
               <input id="newProductImage" placeholder="Obrázek se doplní automaticky">
               <button id="newProductImageButton" class="secondary-button" type="button">Nahrát obrázek</button>
+              <button id="newProductGalleryButton" class="secondary-button" type="button">Vybrat z galerie</button>
               <input id="newProductImageFile" type="file" accept="image/jpeg,image/png,image/webp" hidden>
             </div>
             <img id="newProductImagePreview" class="admin-image-preview hidden" alt="Náhled obrázku produktu">
-            <small>Vyberte fotografii z telefonu nebo počítače. Automaticky se zmenší a nahraje přímo na GitHub.</small>
+            <small>Vyberte fotografii z telefonu nebo počítače, nebo použijte obrázek z galerie.</small>
           </label>
           <label><span>Minimální předstih (dny)</span><input id="newProductLead" type="number" min="0" value="0"></label>
           <label><span>Předpokládané naskladnění</span><input id="newProductRestock" type="date"></label>
@@ -219,7 +220,7 @@
   <input id="adminToken" name="token" type="hidden">
   <input id="adminPayload" name="payload" type="hidden">
 </form>
-<script src="../assets/config.js?v=22-20260804-github1"></script>
-<script src="../assets/admin.js?v=22-20260804-github1"></script>
+<script src="../assets/config.js?v=23-20260804-gallery1"></script>
+<script src="../assets/admin.js?v=23-20260804-gallery1"></script>
 </body>
 </html>

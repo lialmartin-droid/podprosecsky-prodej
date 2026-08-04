@@ -19,7 +19,8 @@ const CONFIG = Object.freeze({
   DEFAULT_EGG_DAILY_PRODUCTION: 10,
   DEFAULT_EGG_SAFETY_RESERVE: 0,
   DEFAULT_EGG_PLANNING_DAYS: 60,
-  MAX_IMAGE_BYTES: 1600000
+  MAX_IMAGE_BYTES: 1600000,
+  PRODUCT_IMAGES_FOLDER: 'Podprosecske_produkty_obrazky'
 });
 
 function setup() {
@@ -117,7 +118,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '17.1',
+      version: '18.0',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -142,6 +143,8 @@ function doPost(e) {
     requireToken_(token);
 
     if (action === 'uploadProductImage') return uploadProductImage_(payload);
+    if (action === 'listProductImages') return listProductImages_();
+    if (action === 'deleteProductImage') return deleteProductImage_(payload);
     if (action === 'saveProduct') return saveProduct_(payload);
     if (action === 'deleteProduct') return deleteProduct_(payload);
     if (action === 'saveOrder') return saveOrder_(payload);
@@ -162,46 +165,23 @@ function doPost(e) {
 
 
 /**
- * JEDNORÁZOVÉ NASTAVENÍ NAHRÁVÁNÍ OBRÁZKŮ NA GITHUB
+ * JEDNORÁZOVÉ POVOLENÍ GALERIE
  *
- * 1. Doplňte níže vlastní údaje.
- * 2. V horním seznamu funkcí vyberte nastavitGitHubObrazky.
- * 3. Klikněte na Spustit a potvrďte oprávnění.
- *
- * Token se uloží pouze do vlastností Apps Scriptu a nikdy se neposílá do prohlížeče.
+ * V horním seznamu funkcí vyberte povolitGaleriiObrazku,
+ * klikněte na Spustit a potvrďte přístup ke Google Disku.
  */
-function nastavitGitHubObrazky() {
-  const GITHUB_UZIVATEL = 'SEM_NAPISTE_GITHUB_UZIVATELE';
-  const GITHUB_REPOZITAR = 'SEM_NAPISTE_NAZEV_REPOZITARE';
-  const GITHUB_VETEV = 'main';
-  const GITHUB_TOKEN = 'SEM_VLOZTE_FINE_GRAINED_TOKEN';
+function povolitGaleriiObrazku() {
+  const folder = getProductImagesFolder_();
+  Logger.log('Galerie je připravena: ' + folder.getName());
+}
 
-  if (
-    !GITHUB_UZIVATEL || GITHUB_UZIVATEL.indexOf('SEM_') === 0 ||
-    !GITHUB_REPOZITAR || GITHUB_REPOZITAR.indexOf('SEM_') === 0 ||
-    !GITHUB_TOKEN || GITHUB_TOKEN.indexOf('SEM_') === 0
-  ) {
-    throw new Error('Nejdříve doplňte uživatele, repozitář a GitHub token ve funkci nastavitGitHubObrazky.');
-  }
+function getProductImagesFolder_() {
+  const folders = DriveApp.getFoldersByName(CONFIG.PRODUCT_IMAGES_FOLDER);
+  if (folders.hasNext()) return folders.next();
 
-  PropertiesService.getScriptProperties().setProperties({
-    GITHUB_IMAGE_OWNER: GITHUB_UZIVATEL.trim(),
-    GITHUB_IMAGE_REPO: GITHUB_REPOZITAR.trim(),
-    GITHUB_IMAGE_BRANCH: (GITHUB_VETEV || 'main').trim(),
-    GITHUB_IMAGE_TOKEN: GITHUB_TOKEN.trim()
-  });
-
-  const test = githubRequest_(
-    '/repos/' + encodeURIComponent(GITHUB_UZIVATEL.trim()) + '/' +
-    encodeURIComponent(GITHUB_REPOZITAR.trim()),
-    'get'
-  );
-
-  if (!test || !test.full_name) {
-    throw new Error('Nastavení se uložilo, ale repozitář se nepodařilo ověřit.');
-  }
-
-  Logger.log('GitHub obrázky nastaveny pro: ' + test.full_name);
+  const folder = DriveApp.createFolder(CONFIG.PRODUCT_IMAGES_FOLDER);
+  folder.setDescription('Produktové fotografie pro Podprosečské domácí produkty.');
+  return folder;
 }
 
 function uploadProductImage_(payload) {
@@ -212,21 +192,10 @@ function uploadProductImage_(payload) {
   if (!match) throw new Error('Vyberte obrázek JPG, PNG nebo WEBP.');
 
   const mimeType = match[1];
-  const base64Data = match[2];
-  const estimatedBytes = Math.floor(base64Data.length * 0.75);
-  if (!estimatedBytes) throw new Error('Obrázek je prázdný.');
-  if (estimatedBytes > CONFIG.MAX_IMAGE_BYTES) {
+  const bytes = Utilities.base64Decode(match[2]);
+  if (!bytes.length) throw new Error('Obrázek je prázdný.');
+  if (bytes.length > CONFIG.MAX_IMAGE_BYTES) {
     throw new Error('Obrázek je po zmenšení stále příliš velký. Zvolte menší fotografii.');
-  }
-
-  const props = PropertiesService.getScriptProperties();
-  const owner = String(props.getProperty('GITHUB_IMAGE_OWNER') || '').trim();
-  const repo = String(props.getProperty('GITHUB_IMAGE_REPO') || '').trim();
-  const branch = String(props.getProperty('GITHUB_IMAGE_BRANCH') || 'main').trim();
-  const token = String(props.getProperty('GITHUB_IMAGE_TOKEN') || '').trim();
-
-  if (!owner || !repo || !token) {
-    throw new Error('Nahrávání na GitHub ještě není nastavené. V Apps Scriptu spusťte funkci nastavitGitHubObrazky.');
   }
 
   const extension = mimeType === 'image/png' ? 'png' : (mimeType === 'image/webp' ? 'webp' : 'jpg');
@@ -241,76 +210,51 @@ function uploadProductImage_(payload) {
 
   const stamp = Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyyMMdd-HHmmss');
   const fileName = baseName + '-' + stamp + '.' + extension;
-  const repositoryPath = 'assets/images/products/' + fileName;
-
-  const result = githubRequest_(
-    '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) +
-    '/contents/' + repositoryPath.split('/').map(encodeURIComponent).join('/'),
-    'put',
-    {
-      message: 'Nahrán obrázek produktu ' + fileName,
-      content: base64Data,
-      branch: branch
-    },
-    token
+  const file = getProductImagesFolder_().createFile(
+    Utilities.newBlob(bytes, mimeType, fileName)
   );
 
-  if (!result || !result.content || !result.content.path) {
-    throw new Error('GitHub nepotvrdil uložení obrázku.');
-  }
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
-  // Relativní cesta funguje přímo na GitHub Pages.
-  // Parametr v= zabrání zobrazení staré fotografie z mezipaměti.
-  const imagePath = repositoryPath + '?v=' + stamp;
-
-  return htmlResponse_(true, 'Obrázek byl nahrán na GitHub.', '', {
-    image: imagePath,
-    fileName: fileName,
-    repositoryPath: repositoryPath
+  return htmlResponse_(true, 'Obrázek byl nahrán do galerie.', '', {
+    image: publicDriveImageUrl_(file.getId()),
+    fileId: file.getId(),
+    fileName: fileName
   });
 }
 
-function githubRequest_(path, method, body, explicitToken) {
-  const props = PropertiesService.getScriptProperties();
-  const token = String(explicitToken || props.getProperty('GITHUB_IMAGE_TOKEN') || '').trim();
-  if (!token) throw new Error('Chybí GitHub token.');
+function listProductImages_() {
+  const files = getProductImagesFolder_().getFiles();
+  const images = [];
 
-  const options = {
-    method: String(method || 'get').toLowerCase(),
-    muteHttpExceptions: true,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: 'Bearer ' + token,
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'Podprosecske-produkty'
-    }
-  };
+  while (files.hasNext()) {
+    const file = files.next();
+    const mimeType = String(file.getMimeType() || '');
+    if (mimeType.indexOf('image/') !== 0) continue;
 
-  if (body !== undefined) {
-    options.contentType = 'application/json';
-    options.payload = JSON.stringify(body);
+    images.push({
+      id: file.getId(),
+      name: file.getName(),
+      image: publicDriveImageUrl_(file.getId()),
+      created: file.getDateCreated().toISOString()
+    });
   }
 
-  const response = UrlFetchApp.fetch('https://api.github.com' + path, options);
-  const status = response.getResponseCode();
-  const text = response.getContentText();
-  let data = {};
+  images.sort((a, b) => String(b.created).localeCompare(String(a.created)));
+  return htmlResponse_(true, '', '', { images: images.slice(0, 100) });
+}
 
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch (error) {
-    data = {};
-  }
+function deleteProductImage_(payload) {
+  const fileId = cleanText_(payload && payload.fileId, 200);
+  if (!fileId) throw new Error('Chybí identifikátor obrázku.');
 
-  if (status < 200 || status >= 300) {
-    const githubMessage = data && data.message ? data.message : ('HTTP ' + status);
-    if (status === 401) throw new Error('GitHub token je neplatný nebo vypršel.');
-    if (status === 403) throw new Error('GitHub token nemá oprávnění zapisovat do repozitáře.');
-    if (status === 404) throw new Error('Repozitář nebyl nalezen. Zkontrolujte uživatele a název repozitáře.');
-    throw new Error('GitHub: ' + githubMessage);
-  }
+  const file = DriveApp.getFileById(fileId);
+  file.setTrashed(true);
+  return htmlResponse_(true, 'Obrázek byl přesunut do koše.');
+}
 
-  return data;
+function publicDriveImageUrl_(fileId) {
+  return 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fileId) + '=w1600';
 }
 
 

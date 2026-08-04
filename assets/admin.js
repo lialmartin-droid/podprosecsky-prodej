@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "17.1";
-console.info("Podprosečské produkty – admin.js V17.1 – obrázky na GitHub");
+window.PDP_ADMIN_VERSION = "18.0";
+console.info("Podprosečské produkty – admin.js V18 – galerie obrázků");
 
 let products = [];
 let orders = [];
@@ -93,7 +93,7 @@ async function uploadSelectedImage(file, button, onUploaded) {
       button.disabled = false;
       button.textContent = originalText;
       if (!result.ok || !result.image) {
-        alert(result.message || "Obrázek se nepodařilo nahrát na GitHub.");
+        alert(result.message || "Obrázek se nepodařilo nahrát do galerie.");
         return;
       }
       onUploaded(result.image);
@@ -103,6 +103,70 @@ async function uploadSelectedImage(file, button, onUploaded) {
     button.textContent = originalText;
     alert(error.message || "Obrázek se nepodařilo připravit.");
   }
+}
+
+
+function ensureGalleryModal() {
+  let modal = document.getElementById("imageGalleryModal");
+  if (modal) return modal;
+
+  modal = document.createElement("div");
+  modal.id = "imageGalleryModal";
+  modal.className = "gallery-modal hidden";
+  modal.innerHTML = `
+    <div class="gallery-dialog">
+      <div class="gallery-head">
+        <div><strong>Galerie produktových obrázků</strong><p>Vyberte dříve nahraný obrázek.</p></div>
+        <button type="button" class="secondary-button" data-gallery-close>Zavřít</button>
+      </div>
+      <div class="gallery-status">Načítám galerii…</div>
+      <div class="gallery-grid"></div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  modal.querySelector("[data-gallery-close]").onclick = () => modal.classList.add("hidden");
+  modal.onclick = event => {
+    if (event.target === modal) modal.classList.add("hidden");
+  };
+  return modal;
+}
+
+function openImageGallery(onSelect) {
+  const modal = ensureGalleryModal();
+  const grid = modal.querySelector(".gallery-grid");
+  const status = modal.querySelector(".gallery-status");
+  modal.classList.remove("hidden");
+  grid.innerHTML = "";
+  status.textContent = "Načítám galerii…";
+
+  post("listProductImages", {}, result => {
+    if (!result.ok) {
+      status.textContent = result.message || "Galerii se nepodařilo načíst.";
+      return;
+    }
+
+    const images = Array.isArray(result.images) ? result.images : [];
+    if (!images.length) {
+      status.textContent = "Galerie je zatím prázdná. Nejprve nahrajte nový obrázek.";
+      return;
+    }
+
+    status.textContent = "";
+    grid.innerHTML = images.map(item => `
+      <button type="button" class="gallery-item" data-gallery-select="${esc(item.id)}">
+        <img src="${esc(item.image)}" alt="${esc(item.name)}" loading="lazy">
+        <span>${esc(item.name)}</span>
+      </button>`).join("");
+
+    grid.querySelectorAll("[data-gallery-select]").forEach(button => {
+      button.onclick = () => {
+        const selected = images.find(item => String(item.id) === String(button.dataset.gallerySelect));
+        if (!selected) return;
+        onSelect(selected.image);
+        modal.classList.add("hidden");
+      };
+    });
+  });
 }
 
 function setImagePreview(image, url) {
@@ -512,6 +576,7 @@ function renderProducts() {
             <div class="image-upload-row">
               <input data-pimg="${esc(product.id)}" value="${esc(product.image || "")}" placeholder="Obrázek se doplní automaticky">
               <button class="secondary-button" type="button" data-pimg-button="${esc(product.id)}">Nahrát obrázek</button>
+              <button class="secondary-button" type="button" data-pgallery-button="${esc(product.id)}">Vybrat z galerie</button>
               <input type="file" accept="image/jpeg,image/png,image/webp" data-pimg-file="${esc(product.id)}" hidden>
             </div>
             <img class="admin-image-preview ${product.image ? "" : "hidden"}" data-pimg-preview="${esc(product.id)}" src="${esc(product.image || "")}" alt="Náhled produktu">
@@ -539,6 +604,19 @@ function renderProducts() {
     button.onclick = () => document.getElementById("pe" + button.dataset.ep)?.classList.toggle("open");
   });
 
+
+
+  document.querySelectorAll("[data-pgallery-button]").forEach(button => {
+    button.onclick = () => {
+      const id = button.dataset.pgalleryButton;
+      openImageGallery(imageUrl => {
+        const field = document.querySelector(dataSelector("pimg", id));
+        const preview = document.querySelector(dataSelector("pimg-preview", id));
+        field.value = imageUrl;
+        setImagePreview(preview, imageUrl);
+      });
+    };
+  });
 
   document.querySelectorAll("[data-pimg-button]").forEach(button => {
     button.onclick = () => document.querySelector(dataSelector("pimg-file", button.dataset.pimgButton))?.click();
@@ -701,6 +779,17 @@ document.querySelectorAll(".tab").forEach(tab => {
   $("#" + id).addEventListener(id === "searchOrders" ? "input" : "change", renderOrders);
 });
 
+
+
+const newProductGalleryButton = $("#newProductGalleryButton");
+if (newProductGalleryButton) {
+  newProductGalleryButton.onclick = () => {
+    openImageGallery(imageUrl => {
+      $("#newProductImage").value = imageUrl;
+      setImagePreview($("#newProductImagePreview"), imageUrl);
+    });
+  };
+}
 
 const newProductImageButton = $("#newProductImageButton");
 const newProductImageFile = $("#newProductImageFile");

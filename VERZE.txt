@@ -1,6 +1,6 @@
-Podprosečské domácí produkty 2.0.9
-- Produktové fotografie se nahrávají z administrace přímo do GitHub repozitáře.
-- Google Disk ani DriveApp se už nepoužívá.
-- GitHub token je bezpečně uložen pouze ve vlastnostech Apps Scriptu.
-- Obrázky se ukládají do assets/images/products.
-- Vyžaduje jednorázové nastavení GitHub uživatele, repozitáře a fine-grained tokenu.
+Podprosečské domácí produkty 2.1.0
+- Přidána galerie produktových obrázků přímo v administraci.
+- Obrázky se ukládají do samostatné složky na Google Disku.
+- Není potřeba GitHub token.
+- U produktu lze nahrát nový obrázek nebo vybrat dříve nahraný z galerie.
+- Manifest obsahuje potřebné oprávnění k Disku.

@@ -1,9 +1,18 @@
-# Verze 2.0.9 – obrázky přímo na GitHub
+# Verze 2.1.0 – galerie obrázků
 
-1. Rozbalte ZIP a nahrajte celý obsah do kořene repozitáře.
-2. Potvrďte **Commit changes**.
-3. V Apps Scriptu nahraďte celý stávající kód souborem `google-apps-script/Code.gs`.
-4. Proveďte jednorázové nastavení podle souboru `NASTAVENI_GITHUB_OBRAZKU.md`.
-5. Vytvořte novou verzi nasazení Apps Scriptu.
+## 1. GitHub
+Rozbalte ZIP, nahrajte celý obsah do kořene repozitáře a potvrďte **Commit changes**.
 
-Google Disk ani Drive API nejsou potřeba. E-maily, objednávky a tabulka zůstávají stejné.
+## 2. Google Apps Script
+1. Nahraďte celý kód souborem `google-apps-script/Code.gs`.
+2. V nastavení projektu zapněte zobrazení souboru manifestu `appsscript.json`.
+3. Nahraďte jeho obsah souborem `google-apps-script/appsscript.json` z balíčku.
+4. V horním seznamu funkcí vyberte `povolitGaleriiObrazku` a klikněte na **Spustit**.
+5. Potvrďte požadovaný přístup ke Google Disku.
+6. Klikněte **Nasadit → Spravovat nasazení → tužka → Nová verze → Nasadit**.
+
+## Použití
+V administraci produktu můžete kliknout na **Nahrát obrázek** nebo **Vybrat z galerie**.
+Po výběru fotografie ještě u produktu klikněte na **Uložit**.
+
+E-maily, objednávky, ceny a současná data zůstávají beze změny.
