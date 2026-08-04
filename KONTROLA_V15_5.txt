@@ -1,1 +1,0 @@
-V15.5: přidán režim předobjednávky, datum naskladnění, kontrola termínu na webu i serveru.
