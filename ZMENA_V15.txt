@@ -1,7 +1,0 @@
-V15 – oprava automatického přičítání vajec
-
-- Datum posledního fyzického stavu se správně načte i tehdy, když ho Google Tabulka převede na interní datum.
-- Datum se nově ukládá jako text YYYY-MM-DD.
-- Aktuální sklad = poslední potvrzený fyzický stav + počet uplynulých dnů × denní snáška.
-- Administrace ukazuje, kolik vajec bylo automaticky připočteno a od jakého data.
-- Při ručním uložení skladu se zadané číslo stane novým fyzickým stavem pro dnešní den.
