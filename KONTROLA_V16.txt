@@ -1,6 +1,0 @@
-V16 – závěrečná kontrola
-- customer.js: syntaxe OK
-- admin.js: syntaxe OK
-- Code.gs: syntaxe OK
-- HTML ID: bez duplicit a bez chybějících pevných odkazů
-- Zachována kompatibilita se stávajícími listy; nové sloupce a nastavení se doplní automaticky
