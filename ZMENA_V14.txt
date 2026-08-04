@@ -1,7 +1,0 @@
-V14
-
-- Odstraněny výchozí ukázkové produkty a cena medu 190 Kč z customer.js.
-- Před odpovědí Google Apps Scriptu se zobrazuje pouze načítání.
-- Při chybě se nezobrazí zastaralé ceny, ale možnost Načíst znovu.
-- Objednávku nelze odeslat, dokud nejsou načteny aktuální produkty.
-- Apps Script se nemění.
