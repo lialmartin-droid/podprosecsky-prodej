@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "18.0";
-console.info("Podprosečské produkty – admin.js V18 – galerie obrázků");
+window.PDP_ADMIN_VERSION = "18.1";
+console.info("Podprosečské produkty – admin.js V18.1 – sklad a storno e-mail");
 
 let products = [];
 let orders = [];
@@ -586,9 +586,13 @@ function renderProducts() {
           <label><span>Předstih dní</span><input data-pl="${esc(product.id)}" type="number" value="${product.leadDays}"></label>
           <label class="full"><span>Rychlá tlačítka</span><input data-pq="${esc(product.id)}" value="${(product.quick || []).join(", ")}"></label>
           <label><span>Plánované množství / kapacita</span><input data-pcap="${esc(product.id)}" type="number" min="0" value="${Number(product.capacity || 0)}"></label>
+          <label><span>Počet skladem</span><input data-pstock="${esc(product.id)}" type="number" min="0" value="${Number(product.stock || 0)}" ${String(product.id) === "2" ? "disabled" : ""}></label>
+          <label><span>Jednotka skladu</span><input data-pstockunit="${esc(product.id)}" value="${esc(product.stockUnit || "ks")}" ${String(product.id) === "2" ? "disabled" : ""}></label>
+          <label><span>Text při vyprodání</span><select data-psoldtext="${esc(product.id)}"><option ${product.soldOutText !== "Vyprodáno" ? "selected" : ""}>Momentálně vyprodáno</option><option ${product.soldOutText === "Vyprodáno" ? "selected" : ""}>Vyprodáno</option></select></label>
           <label><span>Text v potvrzovacím e-mailu</span><select data-peg="${esc(product.id)}"><option value="SLEPICKY" ${product.emailGroup === "SLEPICKY" ? "selected" : ""}>🐔 Naše slepičky</option><option value="VCELICKY" ${product.emailGroup === "VCELICKY" ? "selected" : ""}>🐝 Naše včeličky</option><option value="FARMARI" ${product.emailGroup === "FARMARI" ? "selected" : ""}>🌿 Podprosečští farmáři</option><option value="VLASTNI" ${product.emailGroup === "VLASTNI" ? "selected" : ""}>✍️ Vlastní označení</option></select></label>
           <label class="full"><span>Vlastní označení</span><input data-pet="${esc(product.id)}" maxlength="120" value="${esc(product.emailText || "")}" placeholder="např. naše levandulová zahrada"><small>Použije se jen při volbě Vlastní označení.</small></label>
           <div><span class="field-label">Rezervováno</span><strong>${Number(product.reserved || 0)}${product.capacity ? ` / ${product.capacity}` : ""}</strong></div>
+          <div><span class="field-label">Dostupné zákazníkům</span><strong>${Number(product.availableStock || 0)} ${esc(product.stockUnit || "ks")}</strong></div>
         </div>
         <div class="actions">
           <label><input data-pv="${esc(product.id)}" type="checkbox" ${product.visible ? "checked" : ""}> Zobrazovat</label>
@@ -655,6 +659,11 @@ function renderProducts() {
       product.leadDays = Number(document.querySelector(dataSelector("pl", id)).value) || 0;
       product.quick = document.querySelector(dataSelector("pq", id)).value.split(",").map(value => Number(value.trim())).filter(Boolean);
       product.capacity = Number(document.querySelector(dataSelector("pcap", id)).value) || 0;
+      if (String(product.id) !== "2") {
+        product.stock = Number(document.querySelector(dataSelector("pstock", id)).value) || 0;
+        product.stockUnit = document.querySelector(dataSelector("pstockunit", id)).value.trim() || "ks";
+      }
+      product.soldOutText = document.querySelector(dataSelector("psoldtext", id)).value;
       product.emailGroup = document.querySelector(dataSelector("peg", id)).value;
       product.emailText = document.querySelector(dataSelector("pet", id)).value.trim();
       if (product.emailGroup === "VLASTNI" && !product.emailText) return alert("U vlastního textu vyplňte vlastní označení.");
@@ -857,6 +866,9 @@ $("#saveNewProduct").onclick = () => {
     leadDays: Number($("#newProductLead").value) || 0,
     quick: $("#newProductQuick").value.split(",").map(value => Number(value.trim())).filter(Boolean),
     capacity: Number($("#newProductCapacity").value) || 0,
+    stock: Number($("#newProductStock").value) || 0,
+    stockUnit: $("#newProductStockUnit").value.trim() || "ks",
+    soldOutText: $("#newProductSoldOutText").value || "Momentálně vyprodáno",
     visible: true,
     soldOut: false,
     preorder: $("#newProductPreorder")?.checked || false,

@@ -1,6 +1,11 @@
-Podprosečské domácí produkty 2.1.0
-- Přidána galerie produktových obrázků přímo v administraci.
-- Obrázky se ukládají do samostatné složky na Google Disku.
-- Není potřeba GitHub token.
-- U produktu lze nahrát nový obrázek nebo vybrat dříve nahraný z galerie.
-- Manifest obsahuje potřebné oprávnění k Disku.
+Podprosečské domácí produkty 2.1.1
+
+- Zobrazení aktuálního skladu na kartě každého produktu.
+- U vajec se stav počítá z aktuálního skladu, snášky a rezervací.
+- U ostatních produktů lze nastavit počet skladem a jednotku.
+- Při vyčerpání skladu se automaticky zobrazí zvolený text „Momentálně vyprodáno“ nebo „Vyprodáno“.
+- Přidán informační text o každodenním doplňování vajec.
+- Při změně celé objednávky na Zrušeno se odešle zákazníkovi e-mail.
+- E-mail o zrušení se neodesílá opakovaně.
+- Při Vyzvednuto se odečte fyzický sklad všech produktů; při vrácení stavu se sklad vrátí.
+- Při Vyzvednuto se zákazníkovi žádný e-mail neposílá.

@@ -1,4 +1,4 @@
-window.PDP_CUSTOMER_VERSION = "17";
+window.PDP_CUSTOMER_VERSION = "17.1";
 console.info("Podprosečské produkty – customer.js V17");
 
 // Produkty se nikdy nevykreslují z ukázkových hodnot.
@@ -167,6 +167,10 @@ function normalizeProducts(input) {
     restock: String(product.restock || ""),
     capacity: Math.max(0, Number(product.capacity || 0)),
     reserved: Math.max(0, Number(product.reserved || 0)),
+    stock: Math.max(0, Number(product.stock || 0)),
+    availableStock: Math.max(0, Number(product.availableStock || 0)),
+    stockUnit: String(product.stockUnit || "ks"),
+    soldOutText: String(product.soldOutText || "Momentálně vyprodáno"),
     quick: quickButtonsForProduct(product)
   }));
 }
@@ -565,9 +569,10 @@ function renderProducts() {
           <p class="lead">${esc(product.short)}</p>
           <div class="story">${esc(product.detail)}</div>
           <div class="price">${money(product.price)} <small>/ ${esc(product.unit)}</small></div>
-          ${isEggProduct(product) ? `<div class="notice" data-egg-pickup-notice>Po zvolení počtu vajec se zobrazí nejbližší možný termín vyzvednutí.</div>` : ""}
+          <div class="stock-line">📦 Skladem: <strong>${Math.max(0, Number(product.availableStock || 0))} ${esc(product.stockUnit || "ks")}</strong></div>
+          ${isEggProduct(product) ? `<div class="notice egg-info">Každý den přibývají čerstvá vejce od našich slepiček. Pokud dnes není požadované množství skladem, systém Vám automaticky nabídne nejbližší možný termín vyzvednutí.</div><div class="notice" data-egg-pickup-notice>Po zvolení počtu vajec se zobrazí nejbližší možný termín vyzvednutí.</div>` : ""}
           ${!isEggProduct(product) && product.leadDays ? `<div class="notice">Tento produkt je potřeba objednat minimálně ${Math.max(0, Math.floor(Number(product.leadDays) || 0))} dní předem.</div>` : ""}
-          ${product.preorder ? `<div class="notice"><strong>Předobjednávka.</strong> Předpokládané naskladnění: ${product.restock ? esc(formatRestock(nextPickupDateOutsideBlock(product.restock))) : "termín bude upřesněn"}.${product.capacity ? ` K rezervaci zbývá <strong>${Math.max(0, product.capacity - product.reserved)} z ${product.capacity} ${esc(product.unit)}</strong>.` : ""}</div>` : (product.soldOut ? `<div class="notice">Momentálně vyprodáno${product.restock ? `. Předpokládané doplnění: ${esc(formatRestock(product.restock))}.` : "."}</div><div class="stock-watch"><strong>Hlídací pes</strong><p class="field-help">Pošleme vám jednorázový e-mail, až bude produkt znovu skladem.</p><div class="watch-row"><input type="email" data-watch-email placeholder="vas@email.cz"><button type="button" data-watch-button>Hlídat naskladnění</button></div><div class="field-help" data-watch-feedback></div></div>` : "")}
+          ${product.preorder ? `<div class="notice"><strong>Předobjednávka.</strong> Předpokládané naskladnění: ${product.restock ? esc(formatRestock(nextPickupDateOutsideBlock(product.restock))) : "termín bude upřesněn"}.${product.capacity ? ` K rezervaci zbývá <strong>${Math.max(0, product.capacity - product.reserved)} z ${product.capacity} ${esc(product.unit)}</strong>.` : ""}</div>` : ((product.soldOut || (!isEggProduct(product) && product.availableStock <= 0)) ? `<div class="notice"><strong>${esc(product.soldOutText || "Momentálně vyprodáno")}</strong>${product.restock ? `. Předpokládané doplnění: ${esc(formatRestock(product.restock))}.` : "."}</div><div class="stock-watch"><strong>Hlídací pes</strong><p class="field-help">Pošleme vám jednorázový e-mail, až bude produkt znovu skladem.</p><div class="watch-row"><input type="email" data-watch-email placeholder="vas@email.cz"><button type="button" data-watch-button>Hlídat naskladnění</button></div><div class="field-help" data-watch-feedback></div></div>` : "")}
           <div class="product-controls"></div>
         </div>
       </div>`;
@@ -579,7 +584,7 @@ function renderProducts() {
       watchButton.addEventListener("click", () => subscribeStockWatch(product, article));
     }
     const controls = article.querySelector(".product-controls");
-    if (product.soldOut && !product.preorder) return;
+    if ((product.soldOut || (!isEggProduct(product) && product.availableStock <= 0)) && !product.preorder) return;
 
     const quickAmounts = quickButtonsForProduct(product);
     if (quickAmounts.length) {

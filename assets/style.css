@@ -244,3 +244,8 @@ body{background:#f8f3e9}
 .gallery-item img{width:100%;height:150px;object-fit:cover;border-radius:10px;background:#eee}
 .gallery-item span{display:block;padding:8px 3px 2px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:760px){.gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.gallery-dialog{padding:14px}.gallery-item img{height:125px}}
+
+/* V2.1.1 – sklad produktu */
+.stock-line{margin:14px 0 10px;padding:10px 12px;border-radius:12px;background:#f3f7ef;color:var(--green-dark);font-size:16px}
+.stock-line strong{font-size:18px}
+.egg-info{line-height:1.55}

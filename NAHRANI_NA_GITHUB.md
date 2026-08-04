@@ -1,18 +1,22 @@
-# Verze 2.1.0 – galerie obrázků
+# Verze 2.1.1 – sklad a e-mail o zrušení
 
-## 1. GitHub
-Rozbalte ZIP, nahrajte celý obsah do kořene repozitáře a potvrďte **Commit changes**.
+## GitHub
+1. Rozbalte ZIP.
+2. Nahrajte celý obsah do kořene repozitáře.
+3. Potvrďte přepsání souborů a klikněte na **Commit changes**.
 
-## 2. Google Apps Script
-1. Nahraďte celý kód souborem `google-apps-script/Code.gs`.
-2. V nastavení projektu zapněte zobrazení souboru manifestu `appsscript.json`.
-3. Nahraďte jeho obsah souborem `google-apps-script/appsscript.json` z balíčku.
-4. V horním seznamu funkcí vyberte `povolitGaleriiObrazku` a klikněte na **Spustit**.
-5. Potvrďte požadovaný přístup ke Google Disku.
-6. Klikněte **Nasadit → Spravovat nasazení → tužka → Nová verze → Nasadit**.
+## Google Apps Script
+1. Nahraďte celý obsah současného `.gs` souboru obsahem `google-apps-script/Code.gs`.
+2. `appsscript.json` může zůstat z verze 2.1.0.
+3. Klikněte **Nasadit → Spravovat nasazení → tužka → Nová verze → Nasadit**.
 
-## Použití
-V administraci produktu můžete kliknout na **Nahrát obrázek** nebo **Vybrat z galerie**.
-Po výběru fotografie ještě u produktu klikněte na **Uložit**.
+## Po nasazení
+U každého produktu kromě vajec nastavte v administraci:
+- Počet skladem
+- Jednotku skladu
+- Text při vyprodání
 
-E-maily, objednávky, ceny a současná data zůstávají beze změny.
+Vejce se nadále nastavují v samostatné záložce **Vejce**.
+
+Při změně celé objednávky na **Zrušeno** se odešle zákazníkovi e-mail.
+Při změně na **Vyzvednuto** se žádný e-mail neposílá.

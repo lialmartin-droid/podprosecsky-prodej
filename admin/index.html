@@ -164,6 +164,9 @@
           <label><span>Předpokládané naskladnění</span><input id="newProductRestock" type="date"></label>
           <label><span>Rychlá tlačítka (oddělit čárkou)</span><input id="newProductQuick" placeholder="6, 10, 30"></label>
           <label><span>Plánované množství / kapacita</span><input id="newProductCapacity" type="number" min="0" placeholder="např. 120"></label>
+          <label><span>Počet skladem</span><input id="newProductStock" type="number" min="0" value="0"></label>
+          <label><span>Jednotka skladu</span><input id="newProductStockUnit" value="ks" placeholder="ks, sklenic, balení"></label>
+          <label><span>Text při vyprodání</span><select id="newProductSoldOutText"><option>Momentálně vyprodáno</option><option>Vyprodáno</option></select></label>
           <label><span>Text v potvrzovacím e-mailu</span><select id="newProductEmailGroup"><option value="SLEPICKY">🐔 Naše slepičky</option><option value="VCELICKY">🐝 Naše včeličky</option><option value="FARMARI" selected>🌿 Podprosečští farmáři</option><option value="VLASTNI">✍️ Vlastní označení</option></select></label>
           <label class="full"><span>Vlastní označení</span><input id="newProductEmailText" maxlength="120" placeholder="např. naše levandulová zahrada"><small>Použije se jen při volbě Vlastní označení.</small></label>
           <label><input id="newProductPreorder" type="checkbox"> Povolit předobjednávky</label>
@@ -220,7 +223,7 @@
   <input id="adminToken" name="token" type="hidden">
   <input id="adminPayload" name="payload" type="hidden">
 </form>
-<script src="../assets/config.js?v=23-20260804-gallery1"></script>
-<script src="../assets/admin.js?v=23-20260804-gallery1"></script>
+<script src="../assets/config.js?v=24-20260804-stock1"></script>
+<script src="../assets/admin.js?v=24-20260804-stock1"></script>
 </body>
 </html>
