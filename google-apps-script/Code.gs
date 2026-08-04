@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V16
+ * Podprosečské domácí produkty — sdílený backend V17
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -18,7 +18,9 @@ const CONFIG = Object.freeze({
   DEFAULT_EGG_STOCK: 0,
   DEFAULT_EGG_DAILY_PRODUCTION: 10,
   DEFAULT_EGG_SAFETY_RESERVE: 0,
-  DEFAULT_EGG_PLANNING_DAYS: 60
+  DEFAULT_EGG_PLANNING_DAYS: 60,
+  PRODUCT_IMAGES_FOLDER: 'Podprosecske_produkty_obrazky',
+  MAX_IMAGE_BYTES: 1600000
 });
 
 function setup() {
@@ -116,7 +118,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '16.3',
+      version: '17.0',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -140,6 +142,7 @@ function doPost(e) {
     const token = cleanText_(e.parameter.token || payload.token || '', 100);
     requireToken_(token);
 
+    if (action === 'uploadProductImage') return uploadProductImage_(payload);
     if (action === 'saveProduct') return saveProduct_(payload);
     if (action === 'deleteProduct') return deleteProduct_(payload);
     if (action === 'saveOrder') return saveOrder_(payload);
@@ -156,6 +159,47 @@ function doPost(e) {
   } finally {
     try { lock.releaseLock(); } catch (_) {}
   }
+}
+
+
+function uploadProductImage_(payload) {
+  const dataUrl = String(payload && payload.dataUrl || '');
+  const originalName = cleanText_(payload && payload.fileName || 'produkt.jpg', 120);
+
+  const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) throw new Error('Vyberte obrázek JPG, PNG nebo WEBP.');
+
+  const mimeType = match[1];
+  const bytes = Utilities.base64Decode(match[2]);
+  if (!bytes.length) throw new Error('Obrázek je prázdný.');
+  if (bytes.length > CONFIG.MAX_IMAGE_BYTES) {
+    throw new Error('Obrázek je po zmenšení stále příliš velký. Zvolte menší fotografii.');
+  }
+
+  const extension = mimeType === 'image/png' ? 'png' : (mimeType === 'image/webp' ? 'webp' : 'jpg');
+  const baseName = originalName
+    .replace(/\.[^.]+$/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'produkt';
+
+  const stamp = Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyyMMdd-HHmmss');
+  const fileName = baseName + '-' + stamp + '.' + extension;
+  const blob = Utilities.newBlob(bytes, mimeType, fileName);
+
+  const folders = DriveApp.getFoldersByName(CONFIG.PRODUCT_IMAGES_FOLDER);
+  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(CONFIG.PRODUCT_IMAGES_FOLDER);
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  const imageUrl = 'https://drive.google.com/uc?export=view&id=' + file.getId();
+  return htmlResponse_(true, 'Obrázek byl nahrán.', '', {
+    image: imageUrl,
+    fileId: file.getId(),
+    fileName: fileName
+  });
 }
 
 function login_(payload) {

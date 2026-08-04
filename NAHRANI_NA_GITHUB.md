@@ -1,13 +1,17 @@
-# Nahrání verze 2.0.6 na GitHub
+# Verze 2.0.8 – nahrávání obrázků z administrace
 
-1. Rozbalte ZIP.
-2. Nahrajte celý obsah rozbalené složky do kořene repozitáře.
-3. Potvrďte přepsání souborů a klikněte na **Commit changes**.
+## 1. GitHub
+Rozbalte ZIP, nahrajte celý obsah do kořene repozitáře a potvrďte **Commit changes**.
 
-## Změny
-- dočasně odstraněna karta `Z vlastní zahrádky`
-- rychlejší opakované načítání produktů pomocí mezipaměti v prohlížeči
-- aktuální nabídka se vždy na pozadí znovu ověří na serveru
-- rychlejší navázání spojení s Google Apps Scriptem
+## 2. Google Apps Script – nutné jednou aktualizovat
+1. Otevřete současný projekt Apps Scriptu.
+2. Nahraďte celý obsah souboru `Code.gs` obsahem souboru `google-apps-script/Code.gs` z tohoto balíčku.
+3. Klikněte **Nasadit → Spravovat nasazení**.
+4. U současného nasazení klikněte na tužku.
+5. U verze zvolte **Nová verze** a potvrďte **Nasadit**.
+6. Při prvním nahrání fotografie Google požádá o oprávnění k Disku – potvrďte je.
 
-Google Apps Script není kvůli této verzi nutné znovu nasazovat.
+Adresa webové aplikace `/exec` zůstane stejná. E-maily, objednávky i tabulka zůstávají beze změny.
+
+## Použití
+V administraci otevřete Produkty → Upravit → Nahrát obrázek. Po nahrání ještě klikněte na **Uložit** u produktu.

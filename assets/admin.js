@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "16.3";
-console.info("Podprosečské produkty – admin.js V16.4");
+window.PDP_ADMIN_VERSION = "17.0";
+console.info("Podprosečské produkty – admin.js V17 – nahrávání obrázků");
 
 let products = [];
 let orders = [];
@@ -27,6 +27,93 @@ function url() {
 
 function dataSelector(name, value) {
   return `[data-${name}="${CSS.escape(String(value))}"]`;
+}
+
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Soubor se nepodařilo načíst."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Obrázek se nepodařilo otevřít."));
+    image.src = dataUrl;
+  });
+}
+
+async function prepareImageForUpload(file) {
+  if (!file || !/^image\/(jpeg|png|webp)$/.test(file.type)) {
+    throw new Error("Vyberte obrázek JPG, PNG nebo WEBP.");
+  }
+
+  const source = await readFileAsDataUrl(file);
+  const image = await loadImage(source);
+  const maxSide = 1400;
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: false });
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+
+  let quality = 0.86;
+  let dataUrl = canvas.toDataURL("image/jpeg", quality);
+  while (dataUrl.length > 1900000 && quality > 0.52) {
+    quality -= 0.08;
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+  }
+  if (dataUrl.length > 2200000) throw new Error("Fotografie je příliš velká. Zkuste menší obrázek.");
+
+  return {
+    dataUrl,
+    fileName: String(file.name || "produkt.jpg").replace(/\.[^.]+$/, "") + ".jpg"
+  };
+}
+
+async function uploadSelectedImage(file, button, onUploaded) {
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Nahrávám…";
+
+  try {
+    const prepared = await prepareImageForUpload(file);
+    post("uploadProductImage", prepared, result => {
+      button.disabled = false;
+      button.textContent = originalText;
+      if (!result.ok || !result.image) {
+        alert(result.message || "Obrázek se nepodařilo nahrát.");
+        return;
+      }
+      onUploaded(result.image);
+    });
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = originalText;
+    alert(error.message || "Obrázek se nepodařilo připravit.");
+  }
+}
+
+function setImagePreview(image, url) {
+  if (!image) return;
+  if (!url) {
+    image.removeAttribute("src");
+    image.classList.add("hidden");
+    return;
+  }
+  image.src = url;
+  image.classList.remove("hidden");
 }
 
 function localDate(value) {
@@ -421,7 +508,15 @@ function renderProducts() {
           <label><span>Jednotka</span><input data-pu="${esc(product.id)}" value="${esc(product.unit)}"></label>
           <label class="full"><span>Krátký popis</span><input data-ps="${esc(product.id)}" value="${esc(product.short)}"></label>
           <label class="full"><span>Podrobnosti</span><textarea data-pd="${esc(product.id)}">${esc(product.detail)}</textarea></label>
-          <label class="full"><span>Fotografie produktu</span><input data-pimg="${esc(product.id)}" value="${esc(product.image || "")}" placeholder="assets/images/products/med.jpg nebo https://…"><small>Fotografii nahrajte do složky assets/images/products a vložte její cestu.</small></label>
+          <label class="full"><span>Fotografie produktu</span>
+            <div class="image-upload-row">
+              <input data-pimg="${esc(product.id)}" value="${esc(product.image || "")}" placeholder="Obrázek se doplní automaticky">
+              <button class="secondary-button" type="button" data-pimg-button="${esc(product.id)}">Nahrát obrázek</button>
+              <input type="file" accept="image/jpeg,image/png,image/webp" data-pimg-file="${esc(product.id)}" hidden>
+            </div>
+            <img class="admin-image-preview ${product.image ? "" : "hidden"}" data-pimg-preview="${esc(product.id)}" src="${esc(product.image || "")}" alt="Náhled produktu">
+            <small>Vyberte fotografii z telefonu nebo počítače. Automaticky se zmenší a nahraje.</small>
+          </label>
           <label><span>Předpokládané naskladnění</span><input data-pr="${esc(product.id)}" type="date" value="${esc(product.restock || "")}"></label>
           <label><span>Předstih dní</span><input data-pl="${esc(product.id)}" type="number" value="${product.leadDays}"></label>
           <label class="full"><span>Rychlá tlačítka</span><input data-pq="${esc(product.id)}" value="${(product.quick || []).join(", ")}"></label>
@@ -442,6 +537,27 @@ function renderProducts() {
 
   document.querySelectorAll("[data-ep]").forEach(button => {
     button.onclick = () => document.getElementById("pe" + button.dataset.ep)?.classList.toggle("open");
+  });
+
+
+  document.querySelectorAll("[data-pimg-button]").forEach(button => {
+    button.onclick = () => document.querySelector(dataSelector("pimg-file", button.dataset.pimgButton))?.click();
+  });
+
+  document.querySelectorAll("[data-pimg-file]").forEach(input => {
+    input.onchange = () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const id = input.dataset.pimgFile;
+      const button = document.querySelector(dataSelector("pimg-button", id));
+      uploadSelectedImage(file, button, imageUrl => {
+        const field = document.querySelector(dataSelector("pimg", id));
+        const preview = document.querySelector(dataSelector("pimg-preview", id));
+        field.value = imageUrl;
+        setImagePreview(preview, imageUrl);
+      });
+      input.value = "";
+    };
   });
 
   document.querySelectorAll("[data-sp]").forEach(button => {
@@ -583,6 +699,26 @@ document.querySelectorAll(".tab").forEach(tab => {
 
 ["searchOrders", "statusFilter", "archiveFilter"].forEach(id => {
   $("#" + id).addEventListener(id === "searchOrders" ? "input" : "change", renderOrders);
+});
+
+
+const newProductImageButton = $("#newProductImageButton");
+const newProductImageFile = $("#newProductImageFile");
+if (newProductImageButton && newProductImageFile) {
+  newProductImageButton.onclick = () => newProductImageFile.click();
+  newProductImageFile.onchange = () => {
+    const file = newProductImageFile.files && newProductImageFile.files[0];
+    if (!file) return;
+    uploadSelectedImage(file, newProductImageButton, imageUrl => {
+      $("#newProductImage").value = imageUrl;
+      setImagePreview($("#newProductImagePreview"), imageUrl);
+    });
+    newProductImageFile.value = "";
+  };
+}
+
+$("#newProductImage")?.addEventListener("input", event => {
+  setImagePreview($("#newProductImagePreview"), event.target.value.trim());
 });
 
 $("#loginButton").onclick = login;

@@ -1,5 +1,6 @@
-Podprosečské domácí produkty 2.0.6
-- Dočasně odstraněna sekce Z vlastní zahrádky.
-- Přidána lokální mezipaměť nabídky: při další návštěvě se produkty zobrazí okamžitě.
-- Aktuální data se při každém otevření stále načítají z Google Apps Scriptu na pozadí.
-- Přidán preconnect pro rychlejší navázání spojení se serverem Google.
+Podprosečské domácí produkty 2.0.8
+- Přidáno nahrávání produktových fotografií přímo v administraci.
+- Fotografie lze vybrat z telefonu nebo počítače.
+- Před odesláním se automaticky zmenší.
+- Obrázek se uloží do veřejné složky na Google Disku a jeho adresa se doplní k produktu.
+- Vyžaduje jednorázovou aktualizaci a nové nasazení Google Apps Scriptu.

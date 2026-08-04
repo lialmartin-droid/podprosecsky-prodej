@@ -220,3 +220,12 @@ body{background:#f8f3e9}
 /* V2.0.6: po dočasném odstranění zahrádky se dvě karty rozdělí rovnoměrně. */
 .origin-grid:has(> article:nth-child(2):last-child){grid-template-columns:repeat(2,minmax(0,1fr));max-width:900px;margin-left:auto;margin-right:auto}
 @media(max-width:760px){.origin-grid:has(> article:nth-child(2):last-child){grid-template-columns:1fr;max-width:none}}
+
+
+/* V2.0.8 – nahrávání obrázků v administraci */
+.image-upload-row{display:flex;gap:10px;align-items:center}
+.image-upload-row input[type="text"],.image-upload-row input:not([type]){flex:1}
+.image-upload-row .secondary-button{white-space:nowrap}
+.admin-image-preview{display:block;width:min(100%,360px);height:210px;object-fit:contain;margin-top:12px;border:1px solid var(--line);border-radius:14px;background:#f7f1e4}
+.admin-image-preview.hidden{display:none}
+@media(max-width:620px){.image-upload-row{align-items:stretch;flex-direction:column}.image-upload-row .secondary-button{width:100%}}
