@@ -1,17 +1,9 @@
-# Verze 2.0.8 – nahrávání obrázků z administrace
+# Verze 2.0.9 – obrázky přímo na GitHub
 
-## 1. GitHub
-Rozbalte ZIP, nahrajte celý obsah do kořene repozitáře a potvrďte **Commit changes**.
+1. Rozbalte ZIP a nahrajte celý obsah do kořene repozitáře.
+2. Potvrďte **Commit changes**.
+3. V Apps Scriptu nahraďte celý stávající kód souborem `google-apps-script/Code.gs`.
+4. Proveďte jednorázové nastavení podle souboru `NASTAVENI_GITHUB_OBRAZKU.md`.
+5. Vytvořte novou verzi nasazení Apps Scriptu.
 
-## 2. Google Apps Script – nutné jednou aktualizovat
-1. Otevřete současný projekt Apps Scriptu.
-2. Nahraďte celý obsah souboru `Code.gs` obsahem souboru `google-apps-script/Code.gs` z tohoto balíčku.
-3. Klikněte **Nasadit → Spravovat nasazení**.
-4. U současného nasazení klikněte na tužku.
-5. U verze zvolte **Nová verze** a potvrďte **Nasadit**.
-6. Při prvním nahrání fotografie Google požádá o oprávnění k Disku – potvrďte je.
-
-Adresa webové aplikace `/exec` zůstane stejná. E-maily, objednávky i tabulka zůstávají beze změny.
-
-## Použití
-V administraci otevřete Produkty → Upravit → Nahrát obrázek. Po nahrání ještě klikněte na **Uložit** u produktu.
+Google Disk ani Drive API nejsou potřeba. E-maily, objednávky a tabulka zůstávají stejné.

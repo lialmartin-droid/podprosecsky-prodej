@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "17.0";
-console.info("Podprosečské produkty – admin.js V17 – nahrávání obrázků");
+window.PDP_ADMIN_VERSION = "17.1";
+console.info("Podprosečské produkty – admin.js V17.1 – obrázky na GitHub");
 
 let products = [];
 let orders = [];
@@ -93,7 +93,7 @@ async function uploadSelectedImage(file, button, onUploaded) {
       button.disabled = false;
       button.textContent = originalText;
       if (!result.ok || !result.image) {
-        alert(result.message || "Obrázek se nepodařilo nahrát.");
+        alert(result.message || "Obrázek se nepodařilo nahrát na GitHub.");
         return;
       }
       onUploaded(result.image);

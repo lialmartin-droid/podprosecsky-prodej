@@ -1,6 +1,6 @@
-Podprosečské domácí produkty 2.0.8
-- Přidáno nahrávání produktových fotografií přímo v administraci.
-- Fotografie lze vybrat z telefonu nebo počítače.
-- Před odesláním se automaticky zmenší.
-- Obrázek se uloží do veřejné složky na Google Disku a jeho adresa se doplní k produktu.
-- Vyžaduje jednorázovou aktualizaci a nové nasazení Google Apps Scriptu.
+Podprosečské domácí produkty 2.0.9
+- Produktové fotografie se nahrávají z administrace přímo do GitHub repozitáře.
+- Google Disk ani DriveApp se už nepoužívá.
+- GitHub token je bezpečně uložen pouze ve vlastnostech Apps Scriptu.
+- Obrázky se ukládají do assets/images/products.
+- Vyžaduje jednorázové nastavení GitHub uživatele, repozitáře a fine-grained tokenu.
