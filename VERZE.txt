@@ -1,11 +1,9 @@
-Podprosečské domácí produkty 2.1.1
+Podprosečské domácí produkty 2.1.2
 
-- Zobrazení aktuálního skladu na kartě každého produktu.
-- U vajec se stav počítá z aktuálního skladu, snášky a rezervací.
-- U ostatních produktů lze nastavit počet skladem a jednotku.
-- Při vyčerpání skladu se automaticky zobrazí zvolený text „Momentálně vyprodáno“ nebo „Vyprodáno“.
-- Přidán informační text o každodenním doplňování vajec.
-- Při změně celé objednávky na Zrušeno se odešle zákazníkovi e-mail.
-- E-mail o zrušení se neodesílá opakovaně.
-- Při Vyzvednuto se odečte fyzický sklad všech produktů; při vrácení stavu se sklad vrátí.
-- Při Vyzvednuto se zákazníkovi žádný e-mail neposílá.
+OPRAVA TERMÍNU PO ZMĚNĚ KOŠÍKU
+
+- Pokud zákazník vloží předobjednávku s termínem za několik měsíců a potom ji odstraní,
+  termín vyzvednutí se automaticky přepočítá podle zbývajících produktů.
+- Pokud v košíku zůstanou pouze vejce, nastaví se nejbližší termín podle jejich dostupnosti.
+- Ručně zvolený pozdější termín zákazníka se při běžné změně košíku zachová.
+- Google Apps Script se kvůli této opravě nemusí měnit ani znovu nasazovat.
