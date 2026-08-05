@@ -1,0 +1,17 @@
+Podprosečské domácí produkty 2.2.0
+
+JEDNOTNÝ SKLAD PRO VŠECHNY PRODUKTY
+
+- Jeden zdroj pravdy: fyzický sklad produktu.
+- Aktivní objednávky pouze rezervují kusy; fyzický sklad se odečte až při skutečném převzetí.
+- Při zrušení se rezervace uvolní bez změny fyzického skladu.
+- Při vrácení stavu z Vyzvednuto se fyzický sklad automaticky vrátí.
+- Logika funguje pro vejce, med, svíčky i všechny budoucí produkty.
+- Rozdělené objednávky se počítají po částech: dostupná a předobjednaná část.
+- Vyzvednutá vejce už nezůstávají jako rezervace jen kvůli budoucímu termínu jiné položky.
+- Zákaznický údaj „Skladem“ ukazuje skutečně prodejný počet nyní:
+  fyzický sklad minus aktivní rezervace minus bezpečnostní rezerva.
+- Plánování vajec dál samostatně připočítává budoucí snášku.
+- Tržba se připíše okamžitě při skutečném převzetí každé části objednávky.
+- U rozdělené objednávky se může tržba za vejce započítat dříve než tržba za předobjednávku.
+- Opraveno pořadí zápisu času převzetí a kompatibilita se staršími objednávkami.
