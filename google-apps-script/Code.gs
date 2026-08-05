@@ -480,7 +480,7 @@ function saveProduct_(payload) {
   ]];
 
   if (row) sheet.getRange(row, 1, 1, 22).setValues(record);
-  else sheet.getRange(sheet.getLastRow() + 1, 1, 22).setValues(record);
+  else sheet.getRange(sheet.getLastRow() + 1, 1, 1, 22).setValues(record);
 
   const becameAvailable = product.visible && !product.soldOut && (!oldProduct || !oldProduct.visible || oldProduct.soldOut);
   if (becameAvailable) notifyStockWatchers_(product);

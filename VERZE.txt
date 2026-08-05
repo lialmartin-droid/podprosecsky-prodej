@@ -1,13 +1,1 @@
-Podprosečské domácí produkty 2.2.2
-
-KONTROLA SKLADU A TRŽBY
-
-- Údaj „Skladem“ u vajec používá stejný výpočet jako nejbližší možný termín.
-- Pokud lze dnes objednat 36 vajec, karta zobrazí „Skladem: 36 ks“.
-- Změnil se klíč zákaznické mezipaměti, takže starý chybný údaj „0 skladem“ se už znovu nenačte.
-- Čas skutečného převzetí se předává ve formátu, který administrace správně započítá do tržby daného měsíce.
-- Měsíční tržba používá časové pásmo Europe/Prague.
-- Při označení objednávky jako „Vyzvednuto“ se fyzický sklad odečte okamžitě bez ohledu na původně plánovaný termín.
-- Odečet skladu funguje také pro ostatní produkty a nově vytvořené produkty.
-
-DŮLEŽITÉ: Kvůli opravě měsíční tržby je nutné nahrát web na GitHub a současně znovu nasadit Code.gs jako novou verzi Google Apps Scriptu.
+2.2.4 – Oprava přidání nového produktu
