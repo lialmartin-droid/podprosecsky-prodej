@@ -1,15 +1,14 @@
-# Verze 2.1.2 – oprava termínu po změně košíku
+# Verze 2.1.3 – oprava termínu košíku
 
 1. Rozbalte ZIP.
 2. Nahrajte celý obsah do kořene GitHub repozitáře.
 3. Potvrďte přepsání souborů a klikněte na **Commit changes**.
 
-## Co oprava řeší
-Když zákazník vložil produkt s naskladněním za několik měsíců, systém automaticky
-nastavil vzdálený termín. Po odstranění tohoto produktu ale datum zůstalo stejné.
+Tato oprava vynuceně přepočítá datum při snížení nebo odstranění položky.
+Google Apps Script není nutné měnit ani znovu nasazovat.
 
-Nově se automaticky nastavené datum po každé změně košíku přepočítá. Pokud zákazník
-datum změnil ručně na pozdější, jeho volba zůstane zachována.
-
-## Apps Script
-Google Apps Script není nutné měnit ani znovu nasazovat. Jde pouze o opravu zákaznické stránky.
+Po zveřejnění proveďte test:
+1. vložte předobjednávku s termínem za několik měsíců,
+2. přidejte vejce,
+3. předobjednávku snižte na nulu,
+4. termín se musí ihned změnit na nejbližší datum dostupnosti vajec.

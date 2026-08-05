@@ -1,5 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "17.1";
-console.info("Podprosečské produkty – customer.js V17");
+window.PDP_CUSTOMER_VERSION = "17.3";
+console.info("Podprosečské produkty – customer.js V17.3 – vynucený přepočet termínu");
 
 // Produkty se nikdy nevykreslují z ukázkových hodnot.
 // Stránka čeká na aktuální data z Google Tabulky, aby zákazník neviděl starou cenu.
@@ -9,6 +9,7 @@ let productsLoadFailed = false;
 let eggAvailability = null;
 let availabilityBlocked = false;
 let businessSettings = {};
+let autoPickupDate = "";
 const cart = {};
 
 const productsEl = document.getElementById("products");
@@ -382,7 +383,7 @@ function calculatePickupMinimum() {
   };
 }
 
-function updatePickupAvailability() {
+function updatePickupAvailability(forceNearest = false) {
   if (!productsLoaded) {
     availabilityBlocked = true;
     availabilityEl.textContent = "";
@@ -399,9 +400,22 @@ function updatePickupAvailability() {
   if (hasEggs && eggAvailability && eggAvailability.horizonEnd) pickupInput.max = eggAvailability.horizonEnd;
   else pickupInput.removeAttribute("max");
 
-  if (result.minimum && (!pickupInput.value || pickupInput.value < result.minimum)) {
+  const previousAutoPickupDate = autoPickupDate;
+  const shouldSetAutomaticDate = Boolean(
+    result.minimum && (
+      forceNearest ||
+      !pickupInput.value ||
+      pickupInput.value < result.minimum ||
+      pickupInput.value === previousAutoPickupDate ||
+      isPickupDateBlocked(pickupInput.value)
+    )
+  );
+
+  if (shouldSetAutomaticDate) {
     pickupInput.value = result.minimum;
   }
+
+  autoPickupDate = result.minimum || "";
 
   const eggNotices = document.querySelectorAll("[data-egg-pickup-notice]");
   let productMessage = "Po zvolení počtu vajec se zobrazí nejbližší možný termín vyzvednutí.";
@@ -656,26 +670,34 @@ function updateQuantityInput(id) {
 function changeQty(id, amount) {
   const product = products.find(item => String(item.id) === String(id));
   const limit = remainingCapacity(product);
-  const requested = Math.max(0, (cart[id] || 0) + amount);
-  cart[id] = Math.min(limit, requested);
+  const previousQuantity = Math.max(0, Number(cart[id] || 0));
+  const requested = Math.max(0, previousQuantity + amount);
+  const newQuantity = Math.min(limit, requested);
+  cart[id] = newQuantity;
   if (requested > limit) feedbackEl.textContent = `U produktu ${product.name} lze nyní rezervovat nejvýše ${limit} ${product.unit}.`;
   if (!cart[id]) delete cart[id];
   updateQuantityInput(id);
-  renderSummary();
+
+  // Při snížení nebo odstranění položky se musí termín vždy přepočítat dolů.
+  // Tím se odstraní starý vzdálený termín po odebrání předobjednávky.
+  renderSummary(newQuantity < previousQuantity);
 }
 
 function setQty(id, value) {
   const product = products.find(item => String(item.id) === String(id));
   const limit = remainingCapacity(product);
+  const previousQuantity = Math.max(0, Number(cart[id] || 0));
   const requested = Math.max(0, Math.floor(Number(value) || 0));
   const quantity = Math.min(limit, requested);
   if (requested > limit) feedbackEl.textContent = `U produktu ${product.name} lze nyní rezervovat nejvýše ${limit} ${product.unit}.`;
   if (quantity) cart[id] = quantity;
   else delete cart[id];
-  renderSummary();
+
+  // Stejná oprava platí i při ručním přepsání počtu na nižší hodnotu nebo nulu.
+  renderSummary(quantity < previousQuantity);
 }
 
-function renderSummary() {
+function renderSummary(forceNearestPickup = false) {
   if (!productsLoaded) {
     countEl.textContent = productsLoadFailed ? "Nedostupné" : "Načítám…";
     summaryEl.className = "muted";
@@ -730,7 +752,7 @@ function renderSummary() {
   }
 
   renderSplitOptions();
-  updatePickupAvailability();
+  updatePickupAvailability(forceNearestPickup);
 }
 
 function renderAll() {
@@ -749,6 +771,7 @@ function finish(success, message) {
 
   if (success) {
     Object.keys(cart).forEach(key => delete cart[key]);
+    autoPickupDate = "";
     ["customerName", "customerPhone", "customerEmail", "pickupDate", "customerNote"].forEach(id => {
       document.getElementById(id).value = "";
     });
@@ -879,10 +902,15 @@ pickupInput.addEventListener("change", () => {
   if (isPickupDateBlocked(pickupInput.value)) {
     const next = addDaysKey(businessSettings.pauseTo, 1);
     pickupInput.value = next;
+    autoPickupDate = next;
     feedbackEl.textContent = `Zvolený termín spadá do dovolené. Termín byl změněn na ${localDate(next)}.`;
   } else if (rules.minimum && pickupInput.value < rules.minimum) {
     feedbackEl.textContent = `Nejbližší možný termín je ${localDate(rules.minimum)}.`;
     pickupInput.value = rules.minimum;
+    autoPickupDate = rules.minimum;
+  } else {
+    // Zákazník zvolil pozdější termín ručně. Ten při dalších změnách košíku zachováme.
+    autoPickupDate = "";
   }
 });
 
