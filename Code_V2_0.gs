@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V19
+ * Podprosečské domácí produkty — sdílený backend V19.1
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -216,7 +216,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '19.0',
+      version: '19.1',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -884,10 +884,17 @@ function statusTimelineTimestamp_(timeline, expectedText) {
   return match && match.at ? String(match.at) : '';
 }
 
+function formatFulfilledTimestamp_(value) {
+  if (!value) return '';
+  const date = Object.prototype.toString.call(value) === '[object Date]' ? value : new Date(value);
+  if (isNaN(date)) return String(value);
+  return Utilities.formatDate(date, CONFIG.TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ss");
+}
+
 function partFulfilledTimestamp_(rowValue, timeline, status, expectedText) {
-  if (rowValue) return formatDateTime_(rowValue);
   if (String(status || '') !== 'Vyzvednuto') return '';
-  return statusTimelineTimestamp_(timeline, expectedText);
+  const source = rowValue || statusTimelineTimestamp_(timeline, expectedText);
+  return formatFulfilledTimestamp_(source);
 }
 
 function orderFromSheetRow_(row) {

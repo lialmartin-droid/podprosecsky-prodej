@@ -188,6 +188,17 @@ function localDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("cs-CZ");
 }
 
+function currentPragueMonthKey() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Prague",
+    year: "numeric",
+    month: "2-digit"
+  }).formatToParts(new Date());
+  const year = parts.find(part => part.type === "year")?.value || "";
+  const month = parts.find(part => part.type === "month")?.value || "";
+  return year && month ? `${year}-${month}` : new Date().toISOString().slice(0, 7);
+}
+
 function showLogin(message = "") {
   $("#adminLogin").classList.remove("hidden");
   $("#adminApp").classList.add("hidden");
@@ -475,7 +486,7 @@ function renderStats() {
     .reduce((sum, item) => sum + Number(item.qty || 0), 0);
   $("#statEggStock").textContent = eggSettings ? eggSettings.currentStock : "—";
   $("#statEggDaily").textContent = eggSettings ? `${eggSettings.dailyProduction} / den` : "—";
-  const month = new Date().toISOString().slice(0, 7);
+  const month = currentPragueMonthKey();
   const monthEntries = fulfilledRevenueEntries().filter(entry => (entry.at || "").slice(0, 7) === month);
   $("#statMonthRevenue").textContent = money(monthEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0));
   $("#statMonthOrders").textContent = new Set(monthEntries.map(entry => entry.orderId)).size;

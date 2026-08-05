@@ -1,5 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "18.0";
-console.info("Podprosečské produkty – customer.js V18 – jednotný sklad");
+window.PDP_CUSTOMER_VERSION = "18.2";
+console.info("Podprosečské produkty – customer.js V18.2 – sklad vajec a nová mezipaměť");
 
 // Produkty se nikdy nevykreslují z ukázkových hodnot.
 // Stránka čeká na aktuální data z Google Tabulky, aby zákazník neviděl starou cenu.
@@ -177,7 +177,7 @@ function normalizeProducts(input) {
 }
 
 
-const PRODUCTS_CACHE_KEY = "pdp-products-cache-v1";
+const PRODUCTS_CACHE_KEY = "pdp-products-cache-v3-eggstockfix";
 const PRODUCTS_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 
 function saveProductsCache(data) {
@@ -325,6 +325,18 @@ function vacationNoticeText() {
   if (!pickupBlockActive()) return "";
   const firstAfter = addDaysKey(businessSettings.pauseTo, 1);
   return businessSettings.pauseMessage || `V době od ${localDate(businessSettings.pauseFrom)} do ${localDate(businessSettings.pauseTo)} nebude možné objednávky vyzvednout. Nejbližší vyzvednutí po dovolené je ${localDate(firstAfter)}.`;
+}
+
+
+function displayedAvailableStock(product) {
+  if (!product) return 0;
+
+  if (isEggProduct(product) && eggAvailability && Array.isArray(eggAvailability.days)) {
+    const today = eggAvailability.days.find(day => day.date === todayKey()) || eggAvailability.days[0];
+    if (today) return Math.max(0, Math.floor(Number(today.maxAdditional || 0)));
+  }
+
+  return Math.max(0, Math.floor(Number(product.availableStock || 0)));
 }
 
 function remainingCapacity(product) {
@@ -583,7 +595,7 @@ function renderProducts() {
           <p class="lead">${esc(product.short)}</p>
           <div class="story">${esc(product.detail)}</div>
           <div class="price">${money(product.price)} <small>/ ${esc(product.unit)}</small></div>
-          <div class="stock-line">📦 Skladem: <strong>${Math.max(0, Number(product.availableStock || 0))} ${esc(product.stockUnit || "ks")}</strong></div>
+          <div class="stock-line">📦 Skladem: <strong>${displayedAvailableStock(product)} ${esc(product.stockUnit || "ks")}</strong></div>
           ${isEggProduct(product) ? `<div class="notice egg-info">Každý den přibývají čerstvá vejce od našich slepiček. Pokud dnes není požadované množství skladem, systém Vám automaticky nabídne nejbližší možný termín vyzvednutí.</div><div class="notice" data-egg-pickup-notice>Po zvolení počtu vajec se zobrazí nejbližší možný termín vyzvednutí.</div>` : ""}
           ${!isEggProduct(product) && product.leadDays ? `<div class="notice">Tento produkt je potřeba objednat minimálně ${Math.max(0, Math.floor(Number(product.leadDays) || 0))} dní předem.</div>` : ""}
           ${product.preorder ? `<div class="notice"><strong>Předobjednávka.</strong> Předpokládané naskladnění: ${product.restock ? esc(formatRestock(nextPickupDateOutsideBlock(product.restock))) : "termín bude upřesněn"}.${product.capacity ? ` K rezervaci zbývá <strong>${Math.max(0, product.capacity - product.reserved)} z ${product.capacity} ${esc(product.unit)}</strong>.` : ""}</div>` : ((product.soldOut || (!isEggProduct(product) && product.availableStock <= 0)) ? `<div class="notice"><strong>${esc(product.soldOutText || "Momentálně vyprodáno")}</strong>${product.restock ? `. Předpokládané doplnění: ${esc(formatRestock(product.restock))}.` : "."}</div><div class="stock-watch"><strong>Hlídací pes</strong><p class="field-help">Pošleme vám jednorázový e-mail, až bude produkt znovu skladem.</p><div class="watch-row"><input type="email" data-watch-email placeholder="vas@email.cz"><button type="button" data-watch-button>Hlídat naskladnění</button></div><div class="field-help" data-watch-feedback></div></div>` : "")}
