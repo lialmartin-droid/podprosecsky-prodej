@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "18.1";
-console.info("Podprosečské produkty – admin.js V18.1 – sklad a storno e-mail");
+window.PDP_ADMIN_VERSION = "18.3";
+console.info("Podprosečské produkty – admin.js V18.3 – tržba při převzetí");
 
 let products = [];
 let orders = [];
@@ -235,7 +235,7 @@ function processPostQueue() {
     setTimeout(() => {
       postCooldown = false;
       processPostQueue();
-    }, 650);
+    }, 100);
   }, 20000);
 
   form.submit();
@@ -271,8 +271,19 @@ window.addEventListener("message", event => {
   setTimeout(() => {
     postCooldown = false;
     processPostQueue();
-  }, 650);
+  }, 100);
 });
+
+
+function applyAdminData(data) {
+  products = data.products || [];
+  orders = data.orders || [];
+  eggSettings = data.eggSettings || null;
+  eggAvailability = data.eggAvailability || null;
+  businessSettings = data.businessSettings || {};
+  showApp();
+  renderAll();
+}
 
 function login() {
   const password = $("#adminPassword").value;
@@ -291,7 +302,11 @@ function login() {
     token = data.token;
     sessionStorage.setItem("pdp-admin-token", token);
     $("#adminPassword").value = "";
-    loadData();
+    if (Array.isArray(data.products) && Array.isArray(data.orders)) {
+      applyAdminData(data);
+    } else {
+      loadData();
+    }
   });
 }
 
@@ -316,13 +331,7 @@ function loadData() {
       return showLogin(data?.message || "Přihlaste se znovu.");
     }
 
-    products = data.products || [];
-    orders = data.orders || [];
-    eggSettings = data.eggSettings || null;
-    eggAvailability = data.eggAvailability || null;
-    businessSettings = data.businessSettings || {};
-    showApp();
-    renderAll();
+    applyAdminData(data);
   };
 
   script.src = `${endpoint}?action=adminData&token=${encodeURIComponent(token)}&callback=PDP_ADMIN_DATA&t=${Date.now()}`;
@@ -347,10 +356,14 @@ function eggQty(order) {
     .reduce((sum, item) => sum + Number(item.qty || 0), 0);
 }
 
+function fulfilledRevenueOrders() {
+  return orders.filter(order => order.status === "Vyzvednuto" && order.fulfilledAt);
+}
+
 function renderStats() {
   $("#statNew").textContent = orders.filter(order => order.status === "Nová").length;
   $("#statRevenue").textContent = money(
-    orders.filter(order => order.status !== "Zrušeno").reduce((sum, order) => sum + Number(order.total || 0), 0)
+    fulfilledRevenueOrders().reduce((sum, order) => sum + Number(order.total || 0), 0)
   );
   $("#statEggs").textContent = orders
     .filter(order => order.status !== "Zrušeno")
@@ -363,7 +376,7 @@ function renderStats() {
   $("#statEggStock").textContent = eggSettings ? eggSettings.currentStock : "—";
   $("#statEggDaily").textContent = eggSettings ? `${eggSettings.dailyProduction} / den` : "—";
   const month = new Date().toISOString().slice(0, 7);
-  const monthOrders = orders.filter(order => (order.created || "").slice(0, 7) === month && order.status !== "Zrušeno");
+  const monthOrders = fulfilledRevenueOrders().filter(order => (order.fulfilledAt || "").slice(0, 7) === month);
   $("#statMonthRevenue").textContent = money(monthOrders.reduce((sum, order) => sum + Number(order.total || 0), 0));
   $("#statMonthOrders").textContent = monthOrders.length;
   $("#statPreorders").textContent = orders.filter(order => activeReservation(order) && (order.items || []).some(item => products.find(p => String(p.id) === String(item.productId))?.preorder)).length;
@@ -722,7 +735,7 @@ function renderEggSettings() {
 
 
 function renderInsights() {
-  const valid = orders.filter(order => order.status !== "Zrušeno");
+  const valid = fulfilledRevenueOrders();
   const productTotals = {};
   valid.forEach(order => (order.items || []).forEach(item => {
     const key = item.name || item.productId;
@@ -742,7 +755,7 @@ function renderInsights() {
 
   const months = {};
   valid.forEach(order => {
-    const key = (order.created || "").slice(0,7);
+    const key = (order.fulfilledAt || "").slice(0,7);
     if (key) months[key] = (months[key] || 0) + Number(order.total || 0);
   });
   const entries = Object.entries(months).sort().slice(-12);

@@ -1,5 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "17.3";
-console.info("Podprosečské produkty – customer.js V17.3 – vynucený přepočet termínu");
+window.PDP_CUSTOMER_VERSION = "17.4";
+console.info("Podprosečské produkty – customer.js V17.4 – rychlé načítání");
 
 // Produkty se nikdy nevykreslují z ukázkových hodnot.
 // Stránka čeká na aktuální data z Google Tabulky, aby zákazník neviděl starou cenu.
@@ -251,7 +251,7 @@ function loadProducts() {
     } else {
       showProductsLoadError("Načtení aktuální nabídky trvá příliš dlouho. Zkuste to znovu.");
     }
-  }, 20000);
+  }, 12000);
 
   window.PDP_PRODUCTS_CALLBACK = data => {
     if (finished) return;
@@ -914,5 +914,5 @@ pickupInput.addEventListener("change", () => {
   }
 });
 
-showProductsLoading();
+if (!loadProductsCache()) showProductsLoading();
 loadProducts();

@@ -1,10 +1,11 @@
-Podprosečské domácí produkty 2.1.3
+Podprosečské domácí produkty 2.1.5
 
-OPRAVA TERMÍNU PO ODEBRÁNÍ PŘEDOBJEDNÁVKY
+OPRAVA TRŽBY PŘI DŘÍVĚJŠÍM VYZVEDNUTÍ
 
-- Při snížení množství nebo úplném odstranění produktu se termín vyzvednutí vždy
-  znovu nastaví na nejbližší možný termín podle aktuálního obsahu košíku.
-- Pokud zákazník odstraní produkt naskladňovaný za několik měsíců a ponechá jen vejce,
-  vzdálený termín se okamžitě nahradí termínem dostupnosti vajec.
-- Oprava funguje při použití tlačítka minus i při ručním přepsání množství na nulu.
-- Google Apps Script není nutné měnit ani znovu nasazovat.
+- Při označení objednávky jako Vyzvednuto se uloží skutečný čas převzetí.
+- Tržba se započítá okamžitě v den skutečného převzetí.
+- Původně zákazníkem zvolený budoucí termín už výdělek neodkládá.
+- Celková i měsíční tržba počítá skutečně vyzvednuté objednávky.
+- Graf tržeb používá skutečné datum převzetí.
+- Při vrácení objednávky z Vyzvednuto na aktivní stav se zápis převzetí zruší.
+- Zákazníkovi se při označení Vyzvednuto žádný e-mail neposílá.

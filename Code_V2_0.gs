@@ -82,17 +82,96 @@ function changeAdminPassword() {
   });
 }
 
+
+function reservationMapFromOrders_(orders) {
+  const map = {};
+  (orders || []).forEach(order => {
+    if (!isReservingStatus_(order.status)) return;
+    (order.items || []).forEach(item => {
+      const id = String(item.productId || '');
+      if (!id) return;
+      map[id] = (map[id] || 0) + Math.max(0, Number(item.qty) || 0);
+    });
+  });
+  return map;
+}
+
+function buildPublicPayload_() {
+  const orders = readOrdersForAvailability_();
+  const reservations = reservationMapFromOrders_(orders);
+  const availability = buildEggAvailability_('');
+  return {
+    ok: true,
+    products: readProductsFast_(reservations, availability),
+    availability: availability,
+    settings: publicBusinessSettings_()
+  };
+}
+
+function buildAdminPayload_() {
+  const orders = readOrders_();
+  const reservations = reservationMapFromOrders_(orders);
+  const availability = buildEggAvailability_('');
+  return {
+    ok: true,
+    products: readProductsFast_(reservations, availability),
+    orders: orders,
+    eggSettings: availability.settings,
+    eggAvailability: availability,
+    businessSettings: publicBusinessSettings_()
+  };
+}
+
+function readProductsFast_(reservationMap, eggAvailability) {
+  const sheet = getOrCreateSheet_(CONFIG.PRODUCTS_SHEET);
+  formatProductsSheet_(sheet);
+  seedProducts_(sheet);
+  repairDefaultProductSettings_(sheet);
+  const rows = sheet.getDataRange().getValues().slice(1);
+  const eggToday = eggAvailability && eggAvailability.days && eggAvailability.days.length
+    ? eggAvailability.days[0]
+    : null;
+
+  return rows.filter(row => row[0] !== '').map(row => {
+    const id = String(row[0]);
+    const reserved = Math.max(0, Number((reservationMap || {})[id] || 0));
+    const stock = Math.max(0, Number(row[19] || 0));
+    return {
+      id: id,
+      emoji: restoreSheetText_(row[1] || '📦'),
+      name: restoreSheetText_(row[2] || ''),
+      price: Number(row[3] || 0),
+      unit: restoreSheetText_(row[4] || 'kus'),
+      short: restoreSheetText_(row[5] || ''),
+      detail: restoreSheetText_(row[6] || ''),
+      visible: toBool_(row[7]),
+      soldOut: toBool_(row[8]),
+      restock: formatSheetDate_(row[9]),
+      leadDays: id === CONFIG.EGG_PRODUCT_ID ? 0 : Number(row[10] || 0),
+      quick: quickButtonsForProduct_(row[0], row[1], row[2], row[11]),
+      preorder: toBool_(row[13]),
+      preorderDate: formatSheetDate_(row[14]) || formatSheetDate_(row[9]),
+      capacity: Number(row[15] || 0),
+      emailGroup: normalizeEmailGroup_(row[16], row[2]),
+      emailText: restoreSheetText_(row[17] || ''),
+      image: restoreSheetText_(row[18] || ''),
+      stock: stock,
+      stockUnit: restoreSheetText_(row[20] || 'ks'),
+      soldOutText: restoreSheetText_(row[21] || 'Momentálně vyprodáno'),
+      reserved: reserved,
+      availableStock: id === CONFIG.EGG_PRODUCT_ID
+        ? (eggToday ? Math.max(0, Number(eggToday.maxAdditional || 0)) : 0)
+        : Math.max(0, Math.floor(stock - reserved))
+    };
+  });
+}
+
 function doGet(e) {
   try {
     const action = cleanText_(e && e.parameter && e.parameter.action || 'health', 40);
 
     if (action === 'products') {
-      return jsonpResponse_(e, {
-        ok: true,
-        products: readProducts_(),
-        availability: publicEggAvailability_(),
-        settings: publicBusinessSettings_()
-      });
+      return jsonpResponse_(e, buildPublicPayload_());
     }
 
     if (action === 'availability') {
@@ -104,21 +183,13 @@ function doGet(e) {
 
     if (action === 'adminData') {
       requireToken_(e.parameter.token || '');
-      const availability = buildEggAvailability_('');
-      return jsonpResponse_(e, {
-        ok: true,
-        products: readProducts_(),
-        orders: readOrders_(),
-        eggSettings: availability.settings,
-        eggAvailability: availability,
-        businessSettings: publicBusinessSettings_()
-      });
+      return jsonpResponse_(e, buildAdminPayload_());
     }
 
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '18.1',
+      version: '18.3',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -267,7 +338,9 @@ function login_(payload) {
   const token = Utilities.getUuid().replace(/-/g, '');
   const sessionVersion = getSessionVersion_();
   CacheService.getScriptCache().put('session:' + token, sessionVersion, CONFIG.SESSION_SECONDS);
-  return htmlResponse_(true, 'Přihlášení bylo úspěšné.', '', { token: token });
+  const adminData = buildAdminPayload_();
+  adminData.token = token;
+  return htmlResponse_(true, 'Přihlášení bylo úspěšné.', '', adminData);
 }
 
 function requireToken_(token) {
@@ -313,7 +386,8 @@ function createOrder_(payload, manual) {
       id, createdAt, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
       safeSheetText_(itemsText), order.total, safeSheetText_(order.note), manual ? 'Administrace' : 'Web', JSON.stringify(order.items), safeSheetText_(order.email),
       safeSheetText_(order.contactMethod), order.splitOrder, order.preorderPickup, order.regularStatus, order.preorderStatus,
-      orderNumber, '', '', JSON.stringify([]), '', JSON.stringify([{type:'created', at:createdAt.toISOString(), text:'Objednávka vytvořena'}])
+      orderNumber, '', '', JSON.stringify([]), '', JSON.stringify([{type:'created', at:createdAt.toISOString(), text:'Objednávka vytvořena'}]),
+      isFulfilledStatus_(order.status) ? createdAt : ''
     ]);
   } catch (error) {
     if (stockAdjusted) adjustEggStock_(fulfilledQty);
@@ -423,8 +497,16 @@ function saveOrder_(payload) {
   const oldAggregateStatus = aggregateOrderStatus_(oldOrder);
   const newAggregateStatus = aggregateOrderStatus_(order);
 
+  // Tržba se připíše podle skutečného převzetí, nikoli podle plánovaného termínu.
+  if (newAggregateStatus === 'Vyzvednuto' && oldAggregateStatus !== 'Vyzvednuto') {
+    fulfilledAt = new Date();
+  } else if (newAggregateStatus !== 'Vyzvednuto' && oldAggregateStatus === 'Vyzvednuto') {
+    fulfilledAt = '';
+  }
+
   const created = values[row - 1][1] || new Date();
   const source = values[row - 1][9] || 'Administrace';
+  let fulfilledAt = values[row - 1][23] || '';
   const itemsText = order.items.map(i => `${i.qty}× ${i.name} (${i.qty * i.price} Kč)`).join(', ');
   const orderNumber = oldOrder.orderNumber || nextOrderNumber_(created);
   let communication = Array.isArray(oldOrder.communication) ? oldOrder.communication.slice() : [];
@@ -468,12 +550,13 @@ function saveOrder_(payload) {
       }
     }
 
-    sheet.getRange(row, 1, 1, 23).setValues([[
+    sheet.getRange(row, 1, 1, 24).setValues([[
       id, created, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
       safeSheetText_(itemsText), order.total, safeSheetText_(order.note), source, JSON.stringify(order.items), safeSheetText_(order.email),
       safeSheetText_(order.contactMethod || oldOrder.contactMethod || 'SMS'), order.splitOrder, order.preorderPickup,
       order.regularStatus, order.preorderStatus, orderNumber, regularEmailAt, preorderEmailAt,
-      JSON.stringify(communication), safeSheetText_(submitted.internalNote || oldOrder.internalNote || ''), JSON.stringify(timeline)
+      JSON.stringify(communication), safeSheetText_(submitted.internalNote || oldOrder.internalNote || ''), JSON.stringify(timeline),
+      fulfilledAt
     ]]);
   } catch (error) {
     if (stockChangesApplied) {
@@ -777,7 +860,8 @@ function orderFromSheetRow_(row) {
     readyEmailPreorderAt: String(row[19] || ''),
     communication: parseJsonArray_(row[20]),
     internalNote: restoreSheetText_(row[21] || ''),
-    timeline: parseJsonArray_(row[22])
+    timeline: parseJsonArray_(row[22]),
+    fulfilledAt: formatDateTime_(row[23])
   };
 }
 
@@ -985,7 +1069,7 @@ function productFromSheetRow_(row) {
 }
 
 function formatOrdersSheet_(sheet) {
-  const headers = ['Interní ID', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON', 'E-mail', 'Kontakt před vyzvednutím', 'Rozdělená objednávka', 'Termín předobjednávky', 'Stav dostupné části', 'Stav předobjednávky', 'Číslo objednávky', 'E-mail připraveno 1', 'E-mail připraveno 2', 'Komunikace JSON', 'Interní poznámka', 'Časová osa JSON'];
+  const headers = ['Interní ID', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON', 'E-mail', 'Kontakt před vyzvednutím', 'Rozdělená objednávka', 'Termín předobjednávky', 'Stav dostupné části', 'Stav předobjednávky', 'Číslo objednávky', 'E-mail připraveno 1', 'E-mail připraveno 2', 'Komunikace JSON', 'Interní poznámka', 'Časová osa JSON', 'Skutečně vyzvednuto'];
   ensureHeaders_(sheet, headers);
   sheet.setFrozenRows(1);
 }
