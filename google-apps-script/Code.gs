@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V19.1
+ * Podprosečské domácí produkty — sdílený backend V20.1
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -8,6 +8,7 @@ const CONFIG = Object.freeze({
   PRODUCTS_SHEET: 'Produkty',
   SETTINGS_SHEET: 'Nastavení',
   WATCHLIST_SHEET: 'Hlídací pes',
+  VISITS_SHEET: 'Návštěvnost',
   BRAND_NAME: 'Podprosečské domácí produkty',
   TIME_ZONE: 'Europe/Prague',
   SESSION_SECONDS: 21600,
@@ -20,7 +21,8 @@ const CONFIG = Object.freeze({
   DEFAULT_EGG_SAFETY_RESERVE: 0,
   DEFAULT_EGG_PLANNING_DAYS: 60,
   MAX_IMAGE_BYTES: 1600000,
-  PRODUCT_IMAGES_FOLDER: 'Podprosecske_produkty_obrazky'
+  PRODUCT_IMAGES_FOLDER: 'Podprosecske_produkty_obrazky',
+  PUBLIC_CACHE_SECONDS: 300
 });
 
 function setup() {
@@ -28,12 +30,14 @@ function setup() {
   const products = getOrCreateSheet_(CONFIG.PRODUCTS_SHEET);
   const settings = getOrCreateSheet_(CONFIG.SETTINGS_SHEET);
   const watchlist = getOrCreateSheet_(CONFIG.WATCHLIST_SHEET);
+  const visits = getOrCreateSheet_(CONFIG.VISITS_SHEET);
 
   formatOrdersSheet_(orders);
   ensureOrderNumbers_(orders);
   formatProductsSheet_(products);
   formatSettingsSheet_(settings);
   formatWatchlistSheet_(watchlist);
+  formatVisitsSheet_(visits);
   seedProducts_(products);
   repairDefaultProductSettings_(products);
   seedEggSettings_(settings);
@@ -121,17 +125,49 @@ function reservationMapFromOrders_(orders, preorderMap) {
   return map;
 }
 
+function publicPayloadCacheKey_() {
+  return 'public-payload-v23';
+}
+
+function invalidatePublicPayloadCache_() {
+  try { CacheService.getScriptCache().remove(publicPayloadCacheKey_()); } catch (error) { console.error('Vymazání veřejné cache selhalo.', error); }
+}
+
+function refreshPublicPayloadCache_() {
+  invalidatePublicPayloadCache_();
+  try { buildPublicPayload_(); } catch (error) { console.error('Předehřátí veřejné nabídky selhalo.', error); }
+}
+
 function buildPublicPayload_() {
+  const cache = CacheService.getScriptCache();
+  try {
+    const cached = cache.get(publicPayloadCacheKey_());
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && parsed.ok && Array.isArray(parsed.products)) return parsed;
+    }
+  } catch (error) {
+    console.error('Načtení veřejné cache selhalo.', error);
+  }
+
   const orders = readOrdersForAvailability_();
   const preorderMap = productPreorderMap_();
   const reservations = reservationMapFromOrders_(orders, preorderMap);
   const availability = buildEggAvailability_('', orders, preorderMap);
-  return {
+  const payload = {
     ok: true,
     products: readProductsFast_(reservations, availability),
     availability: availability,
-    settings: publicBusinessSettings_()
+    settings: publicBusinessSettings_(),
+    generatedAt: new Date().toISOString()
   };
+
+  try {
+    cache.put(publicPayloadCacheKey_(), JSON.stringify(payload), CONFIG.PUBLIC_CACHE_SECONDS);
+  } catch (error) {
+    console.error('Uložení veřejné cache selhalo.', error);
+  }
+  return payload;
 }
 
 function buildAdminPayload_() {
@@ -145,7 +181,8 @@ function buildAdminPayload_() {
     orders: orders,
     eggSettings: availability.settings,
     eggAvailability: availability,
-    businessSettings: publicBusinessSettings_()
+    businessSettings: publicBusinessSettings_(),
+    visitStats: buildVisitStats_()
   };
 }
 
@@ -208,6 +245,10 @@ function doGet(e) {
       });
     }
 
+    if (action === 'trackVisit') {
+      return jsonpResponse_(e, trackVisitFromRequest_(e));
+    }
+
     if (action === 'adminData') {
       requireToken_(e.parameter.token || '');
       return jsonpResponse_(e, buildAdminPayload_());
@@ -216,7 +257,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '19.1',
+      version: '20.1',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -251,6 +292,7 @@ function doPost(e) {
     if (action === 'saveEggSettings') return saveEggSettings_(payload);
     if (action === 'saveBusinessSettings') return saveBusinessSettings_(payload);
     if (action === 'resendReadyEmail') return resendReadyEmail_(payload);
+    if (action === 'sendPickupReminder') return sendPickupReminder_(payload);
 
     throw new Error('Neznámá operace.');
   } catch (error) {
@@ -259,6 +301,107 @@ function doPost(e) {
   } finally {
     try { lock.releaseLock(); } catch (_) {}
   }
+}
+
+
+function trackVisitFromRequest_(e) {
+  return trackVisit_({
+    visitorId: e && e.parameter && (e.parameter.visitorId || e.parameter.visitor || ''),
+    source: e && e.parameter && (e.parameter.source || e.parameter.src || ''),
+    path: e && e.parameter && (e.parameter.path || '/'),
+    title: e && e.parameter && (e.parameter.title || '')
+  });
+}
+
+function normalizeVisitSource_(value) {
+  const source = cleanText_(value || '', 40).toLowerCase();
+  if (['qr', 'qrcode', 'qrkod', 'qr-kod'].includes(source)) return 'QR kód';
+  return 'Přímý odkaz';
+}
+
+function formatVisitsSheet_(sheet) {
+  const headers = ['Čas', 'Den', 'Návštěvník ID', 'Zdroj', 'Cesta', 'Titulek'];
+  ensureHeaders_(sheet, headers);
+  sheet.setFrozenRows(1);
+}
+
+function trackVisit_(payload) {
+  const visitorId = String(payload && payload.visitorId || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 80) || Utilities.getUuid().replace(/-/g, '');
+  const source = normalizeVisitSource_(payload && payload.source || '');
+  const path = cleanText_(payload && payload.path || '/', 200);
+  const title = cleanText_(payload && payload.title || '', 150);
+
+  const sheet = getOrCreateSheet_(CONFIG.VISITS_SHEET);
+  formatVisitsSheet_(sheet);
+  sheet.appendRow([new Date(), todayKey_(), safeSheetText_(visitorId), safeSheetText_(source), safeSheetText_(path), safeSheetText_(title)]);
+
+  return { ok: true, tracked: true };
+}
+
+function readVisits_() {
+  const sheet = getOrCreateSheet_(CONFIG.VISITS_SHEET);
+  formatVisitsSheet_(sheet);
+  return sheet.getDataRange().getValues().slice(1)
+    .filter(row => row[0] !== '')
+    .map(row => ({
+      at: formatFulfilledTimestamp_(row[0]),
+      day: normalizeDateKey_(row[1], formatSheetDate_(row[0]) || todayKey_()),
+      visitorId: restoreSheetText_(row[2] || ''),
+      source: restoreSheetText_(row[3] || 'Přímý odkaz'),
+      path: restoreSheetText_(row[4] || '/'),
+      title: restoreSheetText_(row[5] || '')
+    }));
+}
+
+function buildVisitStats_() {
+  const visits = readVisits_();
+  const today = todayKey_();
+  const start30 = addDaysKey_(today, -29);
+  const start14 = addDaysKey_(today, -13);
+  const inRange = (day, start, end) => day && day >= start && day <= end;
+  const uniqueCount = items => new Set((items || []).map(item => String(item.visitorId || '')).filter(Boolean)).size;
+
+  const todayVisits = visits.filter(item => item.day === today);
+  const last30 = visits.filter(item => inRange(item.day, start30, today));
+  const bySourceLabels = ['QR kód', 'Přímý odkaz'];
+  const bySource = bySourceLabels.map(label => {
+    const all = visits.filter(item => item.source === label);
+    const all30 = last30.filter(item => item.source === label);
+    const allToday = todayVisits.filter(item => item.source === label);
+    return {
+      source: label,
+      total: all.length,
+      unique: uniqueCount(all),
+      last30: all30.length,
+      uniqueLast30: uniqueCount(all30),
+      today: allToday.length,
+      uniqueToday: uniqueCount(allToday)
+    };
+  });
+
+  const daily = [];
+  for (let i = 0; i < 14; i++) {
+    const day = addDaysKey_(start14, i);
+    const rows = visits.filter(item => item.day === day);
+    daily.push({
+      day: day,
+      visits: rows.length,
+      unique: uniqueCount(rows)
+    });
+  }
+
+  return {
+    totalVisits: visits.length,
+    uniqueVisitors: uniqueCount(visits),
+    todayVisits: todayVisits.length,
+    uniqueToday: uniqueCount(todayVisits),
+    last30Visits: last30.length,
+    uniqueLast30: uniqueCount(last30),
+    bySource: bySource,
+    daily: daily
+  };
 }
 
 
@@ -421,6 +564,8 @@ function createOrder_(payload, manual) {
     throw error;
   }
 
+  refreshPublicPayloadCache_();
+
   let emailWarning = '';
   if (!manual) {
     try {
@@ -484,6 +629,7 @@ function saveProduct_(payload) {
 
   const becameAvailable = product.visible && !product.soldOut && (!oldProduct || !oldProduct.visible || oldProduct.soldOut);
   if (becameAvailable) notifyStockWatchers_(product);
+  refreshPublicPayloadCache_();
 
   return htmlResponse_(true, 'Produkt byl uložen.', String(product.id), { product: product });
 }
@@ -498,6 +644,7 @@ function deleteProduct_(payload) {
   for (let i = values.length - 1; i >= 1; i--) {
     if (String(values[i][0]) === id) sheet.deleteRow(i + 1);
   }
+  refreshPublicPayloadCache_();
   return htmlResponse_(true, 'Produkt byl smazán.', id, {});
 }
 
@@ -606,6 +753,7 @@ function saveOrder_(payload) {
     throw error;
   }
 
+  refreshPublicPayloadCache_();
   return htmlResponse_(true, 'Objednávka byla upravena.', id, {});
 }
 
@@ -616,6 +764,7 @@ function deleteOrder_(payload) {
   for (let i = values.length - 1; i >= 1; i--) {
     if (String(values[i][0]) === id) sheet.deleteRow(i + 1);
   }
+  refreshPublicPayloadCache_();
   return htmlResponse_(true, 'Objednávka byla smazána.', id, {});
 }
 
@@ -634,6 +783,7 @@ function saveEggSettings_(payload) {
     planningDays: planningDays
   });
 
+  refreshPublicPayloadCache_();
   return htmlResponse_(true, 'Nastavení vajec bylo uloženo.', '', {
     eggSettings: readEggSettings_()
   });
@@ -1252,6 +1402,7 @@ function saveBusinessSettings_(payload) {
   setTextSetting_(sheet, 'PAUSE_TO', pauseTo, 'Blokace vyzvednutí do');
   setTextSetting_(sheet, 'PAUSE_MESSAGE', cleanText_(settings.pauseMessage, 800), 'Upozornění při blokaci vyzvednutí');
   setSetting_(sheet, 'DAILY_ORDER_LIMIT', Math.max(0, Math.floor(Number(settings.dailyOrderLimit) || 0)), 'Maximum objednávek na den');
+  refreshPublicPayloadCache_();
   return htmlResponse_(true, 'Nastavení webu bylo uloženo.', '', { settings: publicBusinessSettings_() });
 }
 
@@ -1328,6 +1479,87 @@ function aggregateOrderStatus_(order) {
   return order && order.splitOrder
     ? aggregateSplitStatus_(order.regularStatus, order.preorderStatus)
     : String(order && order.status || 'Nová');
+}
+
+
+function reminderOpenStatus_(status) {
+  return !['Vyzvednuto', 'Zrušeno'].includes(String(status || 'Nová'));
+}
+
+function overduePickupParts_(order) {
+  const today = todayKey_();
+  const result = [];
+  if (!order) return result;
+
+  if (!order.splitOrder) {
+    if (reminderOpenStatus_(order.status) && order.pickup && order.pickup < today) {
+      result.push({label:'objednávka', date:order.pickup});
+    }
+    return result;
+  }
+
+  if (reminderOpenStatus_(order.regularStatus) && order.pickup && order.pickup < today) {
+    result.push({label:'první část objednávky', date:order.pickup});
+  }
+  if (reminderOpenStatus_(order.preorderStatus) && order.preorderPickup && order.preorderPickup < today) {
+    result.push({label:'předobjednaná část objednávky', date:order.preorderPickup});
+  }
+  return result;
+}
+
+function buildPickupReminderText_(order, parts) {
+  const greeting = firstNameVocative_(order.name);
+  const number = order.orderNumber || order.id || '';
+  const lines = (parts || []).map(part => `- ${part.label}: původní termín ${formatCustomerPickupDate_(part.date)}`);
+  return [
+    `Dobrý den${greeting ? ', ' + greeting : ''},`, '',
+    `připomínáme vyzvednutí Vaší objednávky${number ? ' č. ' + number : ''}.`, '',
+    ...lines, '',
+    'Prosíme, ozvěte se nám, kdy si objednávku můžete vyzvednout. Pokud ji již nechcete, dejte nám prosím vědět, abychom mohli produkty nabídnout dalším zákazníkům.', '',
+    'Adresa vyzvednutí:',
+    'Pod Prosečí 102/2',
+    'Jablonec nad Nisou', '',
+    'Telefon: +420 732 687 040', '',
+    'S přáním krásného dne', '',
+    'Martin Dvořák',
+    CONFIG.BRAND_NAME
+  ].join('\n');
+}
+
+function sendPickupReminder_(payload) {
+  const id = cleanIdentifier_(payload.id, 'ID objednávky');
+  const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
+  formatOrdersSheet_(sheet);
+  const values = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]) !== id) continue;
+    const order = orderFromSheetRow_(values[i]);
+    if (!isValidEmail_(order.email)) throw new Error('Objednávka nemá platný e-mail. Použijte SMS připomínku.');
+    const parts = overduePickupParts_(order);
+    if (!parts.length) throw new Error('Objednávka už není po termínu nebo byla vyzvednuta.');
+
+    const text = buildPickupReminderText_(order, parts);
+    MailApp.sendEmail({
+      to: order.email,
+      subject: `Připomenutí vyzvednutí objednávky ${order.orderNumber || ''} – ${CONFIG.BRAND_NAME}`,
+      body: text,
+      htmlBody: '<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;line-height:1.6;color:#2b241f">' +
+        text.split('\n').map(line => line ? '<p style="margin:8px 0">' + escapeHtml_(line) + '</p>' : '<br>').join('') + '</div>',
+      name: CONFIG.BRAND_NAME,
+      replyTo: CONFIG.NOTIFICATION_EMAIL
+    });
+
+    const now = new Date().toISOString();
+    const communication = Array.isArray(order.communication) ? order.communication.slice() : [];
+    const timeline = Array.isArray(order.timeline) ? order.timeline.slice() : [];
+    communication.push({type:'pickup-reminder', at:now, text:'Odeslán e-mail s připomenutím vyzvednutí'});
+    timeline.push({type:'email', at:now, text:'Zákazníkovi odesláno připomenutí vyzvednutí'});
+    sheet.getRange(i + 1, 21).setValue(JSON.stringify(communication));
+    sheet.getRange(i + 1, 23).setValue(JSON.stringify(timeline));
+    return htmlResponse_(true, 'Připomínka byla odeslána e-mailem.', id, {});
+  }
+  throw new Error('Objednávka nebyla nalezena.');
 }
 
 function sendCancellationEmail_(order) {

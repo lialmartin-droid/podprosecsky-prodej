@@ -1,5 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "18.2";
-console.info("Podprosečské produkty – customer.js V18.2 – sklad vajec a nová mezipaměť");
+window.PDP_CUSTOMER_VERSION = "18.3";
+console.info("Podprosečské produkty – customer.js V18.3 – rychlé načítání a sledování návštěvnosti");
 
 // Produkty se nikdy nevykreslují z ukázkových hodnot.
 // Stránka čeká na aktuální data z Google Tabulky, aby zákazník neviděl starou cenu.
@@ -11,6 +11,9 @@ let availabilityBlocked = false;
 let businessSettings = {};
 let autoPickupDate = "";
 const cart = {};
+const VISITOR_ID_KEY = "pdp-visitor-id-v1";
+const VISIT_TRACKED_KEY = "pdp-visit-tracked-v1";
+const ADMIN_VISIT_EXCLUDE_KEY = "pdp-admin-exclude-visits";
 
 const productsEl = document.getElementById("products");
 const summaryEl = document.getElementById("summary");
@@ -28,6 +31,59 @@ let watchPending = null;
 
 function backendUrl() {
   return window.PDP_CONFIG && String(window.PDP_CONFIG.APPS_SCRIPT_URL || "").trim();
+}
+
+function adminExcludedFromVisitStats() {
+  try { return localStorage.getItem(ADMIN_VISIT_EXCLUDE_KEY) === "1"; } catch (_) { return false; }
+}
+
+function visitorId() {
+  try {
+    let value = localStorage.getItem(VISITOR_ID_KEY);
+    if (!value) {
+      value = (window.crypto && typeof window.crypto.randomUUID === "function"
+        ? window.crypto.randomUUID()
+        : `v${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`)
+        .replace(/[^a-zA-Z0-9_-]/g, "");
+      localStorage.setItem(VISITOR_ID_KEY, value);
+    }
+    return value;
+  } catch (_) {
+    return `anon${Date.now()}`;
+  }
+}
+
+function detectVisitSource() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const source = String(params.get("src") || params.get("source") || params.get("utm_source") || "").trim().toLowerCase();
+    if (["qr", "qrcode", "qrkod", "qr-kod"].includes(source)) return "qr";
+  } catch (_) {}
+  return "link";
+}
+
+function trackVisitOnce() {
+  if (adminExcludedFromVisitStats()) return;
+  const url = backendUrl();
+  if (!url || !url.endsWith("/exec")) return;
+
+  const source = detectVisitSource();
+  const sessionKey = `${VISIT_TRACKED_KEY}:${window.location.pathname}:${source}`;
+  try {
+    if (sessionStorage.getItem(sessionKey)) return;
+    sessionStorage.setItem(sessionKey, "1");
+  } catch (_) {}
+
+  const callbackName = `PDP_VISIT_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const cleanup = () => {
+    try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+  };
+  window[callbackName] = () => cleanup();
+  appendJsonp(
+    `${url}?action=trackVisit&visitorId=${encodeURIComponent(visitorId())}&source=${encodeURIComponent(source)}&path=${encodeURIComponent(window.location.pathname)}&title=${encodeURIComponent(document.title)}&callback=${encodeURIComponent(callbackName)}&t=${Date.now()}`,
+    callbackName,
+    cleanup
+  );
 }
 
 function showProductsLoading() {
@@ -177,7 +233,8 @@ function normalizeProducts(input) {
 }
 
 
-const PRODUCTS_CACHE_KEY = "pdp-products-cache-v3-eggstockfix";
+let productsRequestInFlight = false;
+const PRODUCTS_CACHE_KEY = "pdp-products-cache-v4-fastrefresh";
 const PRODUCTS_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 
 function saveProductsCache(data) {
@@ -229,39 +286,49 @@ function appendJsonp(url, callbackName, onError) {
   document.head.appendChild(script);
 }
 
-function loadProducts() {
-  const url = backendUrl();
+function useProductsCacheFallback(message) {
+  const restored = loadProductsCache();
+  if (restored && message) feedbackEl.textContent = message;
+  return restored;
+}
 
-  if (!productsLoaded || !products.length) loadProductsCache();
+function loadProducts(background = false) {
+  if (productsRequestInFlight) return;
+  const url = backendUrl();
   const hadCurrentProducts = productsLoaded && products.length > 0;
 
-  if (!hadCurrentProducts) showProductsLoading();
+  if (!hadCurrentProducts && !background) showProductsLoading();
 
   if (!url || !url.endsWith("/exec")) {
-    showProductsLoadError("Aktuální nabídku se nepodařilo načíst – chybí propojení se serverem.");
+    if (!hadCurrentProducts && !useProductsCacheFallback("Zobrazuji poslední uloženou nabídku.")) {
+      showProductsLoadError("Aktuální nabídku se nepodařilo načíst – chybí propojení se serverem.");
+    }
     return;
   }
 
+  productsRequestInFlight = true;
   let finished = false;
   const timeout = setTimeout(() => {
     if (finished) return;
     finished = true;
+    productsRequestInFlight = false;
     if (hadCurrentProducts) {
       feedbackEl.textContent = "Aktuální nabídku se nepodařilo obnovit. Zobrazená data zůstala beze změny.";
-    } else {
+    } else if (!useProductsCacheFallback("Server odpovídá pomalu. Dočasně zobrazujeme poslední uloženou nabídku.")) {
       showProductsLoadError("Načtení aktuální nabídky trvá příliš dlouho. Zkuste to znovu.");
     }
-  }, 12000);
+  }, 10000);
 
   window.PDP_PRODUCTS_CALLBACK = data => {
     if (finished) return;
     finished = true;
+    productsRequestInFlight = false;
     clearTimeout(timeout);
 
     if (!data || !data.ok || !Array.isArray(data.products)) {
       if (hadCurrentProducts) {
         feedbackEl.textContent = "Aktuální nabídku se nepodařilo obnovit. Zobrazená data zůstala beze změny.";
-      } else {
+      } else if (!useProductsCacheFallback("Zobrazuji poslední uloženou nabídku.")) {
         showProductsLoadError("Server nevrátil aktuální nabídku. Zkuste načtení zopakovat.");
       }
       return;
@@ -290,10 +357,11 @@ function loadProducts() {
     () => {
       if (finished) return;
       finished = true;
+      productsRequestInFlight = false;
       clearTimeout(timeout);
       if (hadCurrentProducts) {
         feedbackEl.textContent = "Aktuální nabídku se nepodařilo obnovit. Zobrazená data zůstala beze změny.";
-      } else {
+      } else if (!useProductsCacheFallback("Zobrazuji poslední uloženou nabídku.")) {
         showProductsLoadError("Aktuální nabídku se nepodařilo načíst. Zkontrolujte připojení a zkuste to znovu.");
       }
     }
@@ -926,5 +994,14 @@ pickupInput.addEventListener("change", () => {
   }
 });
 
-if (!loadProductsCache()) showProductsLoading();
+showProductsLoading();
+trackVisitOnce();
 loadProducts();
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) loadProducts(true);
+});
+window.addEventListener("focus", () => loadProducts(true));
+setInterval(() => {
+  if (!document.hidden) loadProducts(true);
+}, 30000);

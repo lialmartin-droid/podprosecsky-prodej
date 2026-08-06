@@ -1,17 +1,19 @@
-window.PDP_ADMIN_VERSION = "19.0";
-console.info("Podprosečské produkty – admin.js V19 – jednotný sklad a dílčí tržby");
+window.PDP_ADMIN_VERSION = "20.1";
+console.info("Podprosečské produkty – admin.js V20.1 – nevyzvednuté objednávky, rychlé načítání a návštěvnost");
 
 let products = [];
 let orders = [];
 let eggSettings = null;
 let eggAvailability = null;
 let businessSettings = {};
+let visitStats = null;
 let token = sessionStorage.getItem("pdp-admin-token") || "";
 let requestTimer = null;
 let activePost = null;
 let postCooldown = false;
 const postQueue = [];
-const ADMIN_CACHE_KEY = "pdp-admin-data-v1";
+const ADMIN_CACHE_KEY = "pdp-admin-data-v2";
+const ADMIN_VISIT_EXCLUDE_KEY = "pdp-admin-exclude-visits";
 const ADMIN_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 const $ = selector => document.querySelector(selector);
@@ -25,6 +27,10 @@ const esc = value => String(value ?? "")
 
 function url() {
   return window.PDP_CONFIG && String(window.PDP_CONFIG.APPS_SCRIPT_URL || "").trim();
+}
+
+function markThisDeviceAsAdminVisitor() {
+  try { localStorage.setItem(ADMIN_VISIT_EXCLUDE_KEY, "1"); } catch (_) {}
 }
 
 function dataSelector(name, value) {
@@ -199,6 +205,69 @@ function currentPragueMonthKey() {
   return year && month ? `${year}-${month}` : new Date().toISOString().slice(0, 7);
 }
 
+
+function currentPragueDateKey() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Prague",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const year = parts.find(part => part.type === "year")?.value || "";
+  const month = parts.find(part => part.type === "month")?.value || "";
+  const day = parts.find(part => part.type === "day")?.value || "";
+  return year && month && day ? `${year}-${month}-${day}` : new Date().toISOString().slice(0, 10);
+}
+
+function openPickupStatus(status) {
+  return !["Vyzvednuto", "Zrušeno"].includes(String(status || "Nová"));
+}
+
+function overdueOrderParts(order) {
+  const today = currentPragueDateKey();
+  const result = [];
+  if (!order) return result;
+  if (!order.splitOrder) {
+    if (openPickupStatus(order.status) && order.pickup && order.pickup < today) {
+      result.push({ label: "Objednávka", date: order.pickup });
+    }
+    return result;
+  }
+  if (openPickupStatus(order.regularStatus) && order.pickup && order.pickup < today) {
+    result.push({ label: "1. část", date: order.pickup });
+  }
+  if (openPickupStatus(order.preorderStatus) && order.preorderPickup && order.preorderPickup < today) {
+    result.push({ label: "2. část", date: order.preorderPickup });
+  }
+  return result;
+}
+
+function overdueDays(dateKey) {
+  if (!dateKey) return 0;
+  const today = new Date(`${currentPragueDateKey()}T12:00:00Z`);
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  return Math.max(1, Math.round((today - date) / 86400000));
+}
+
+function overdueBadgeText(part) {
+  const days = overdueDays(part.date);
+  return `${part.label} po termínu ${days} ${days === 1 ? "den" : days < 5 ? "dny" : "dní"}`;
+}
+
+function pickupReminderSmsText(order) {
+  const parts = overdueOrderParts(order);
+  const number = order.orderNumber || order.id || "";
+  const dates = parts.map(part => `${part.label.toLowerCase()} (${localDate(part.date)})`).join(" a ");
+  return `Dobrý den, připomínáme vyzvednutí Vaší objednávky${number ? " č. " + number : ""}${dates ? ", původní termín " + dates : ""}. Prosíme, napište nám, kdy si ji můžete vyzvednout. Podprosečské domácí produkty`;
+}
+
+function openSmsReminder(order) {
+  const phone = String(order.phone || "").replace(/[^+\d]/g, "");
+  if (!phone) return alert("Objednávka nemá telefonní číslo.");
+  const body = encodeURIComponent(pickupReminderSmsText(order));
+  window.location.href = `sms:${phone}?&body=${body}`;
+}
+
 function showLogin(message = "") {
   $("#adminLogin").classList.remove("hidden");
   $("#adminApp").classList.add("hidden");
@@ -297,7 +366,8 @@ function saveAdminCache(data) {
       orders: data.orders || [],
       eggSettings: data.eggSettings || null,
       eggAvailability: data.eggAvailability || null,
-      businessSettings: data.businessSettings || {}
+      businessSettings: data.businessSettings || {},
+      visitStats: data.visitStats || null
     }));
   } catch (error) {
     console.warn("Administrativní data se nepodařilo uložit do mezipaměti.", error);
@@ -341,6 +411,7 @@ function applyAdminData(data, saveCache = true) {
   eggSettings = data.eggSettings || null;
   eggAvailability = data.eggAvailability || null;
   businessSettings = data.businessSettings || {};
+  visitStats = data.visitStats || null;
   showApp();
   renderAll();
   if (saveCache) saveAdminCache(data);
@@ -361,6 +432,7 @@ function login() {
     if (!data.ok) return showLogin(data.message);
 
     token = data.token;
+    markThisDeviceAsAdminVisitor();
     sessionStorage.setItem("pdp-admin-token", token);
     $("#adminPassword").value = "";
 
@@ -473,6 +545,7 @@ function fulfilledRevenueEntries() {
 
 function renderStats() {
   $("#statNew").textContent = orders.filter(order => order.status === "Nová").length;
+  $("#statOverdue").textContent = orders.filter(order => overdueOrderParts(order).length > 0).length;
   $("#statRevenue").textContent = money(
     fulfilledRevenueEntries().reduce((sum, entry) => sum + Number(entry.amount || 0), 0)
   );
@@ -499,11 +572,14 @@ function filteredOrders() {
   const status = $("#statusFilter").value;
   const archive = $("#archiveFilter").value;
 
-  return orders.filter(order =>
-    (!query || order.name.toLowerCase().includes(query) || (order.phone || "").toLowerCase().includes(query)) &&
-    (!status || order.status === status) &&
-    (archive === "all" || (archive === "archive" ? archived(order) : !archived(order)))
-  );
+  return orders.filter(order => {
+    const matchesSearch = !query || order.name.toLowerCase().includes(query) || (order.phone || "").toLowerCase().includes(query);
+    const matchesStatus = !status || order.status === status;
+    const matchesArchive = archive === "all"
+      || (archive === "overdue" ? overdueOrderParts(order).length > 0
+        : archive === "archive" ? archived(order) : !archived(order));
+    return matchesSearch && matchesStatus && matchesArchive;
+  });
 }
 
 function itemHtml(order) {
@@ -534,7 +610,7 @@ function emailSubjectForOrder(order) {
 function renderOrders() {
   const list = filteredOrders();
   $("#ordersList").innerHTML = list.length ? list.map(order => `
-    <article class="card">
+    <article class="card ${overdueOrderParts(order).length ? "overdue-card" : ""}">
       <div class="card-head">
         <div>
           <h3>${esc(order.name)} <span class="badge gray">${esc(order.orderNumber || order.id)}</span></h3>
@@ -543,6 +619,7 @@ function renderOrders() {
             <span class="badge blue">${esc(localDate(order.pickup))}</span>
             ${eggQty(order) ? `<span class="badge green">🥚 ${eggQty(order)} ks</span>` : ""}
             ${archived(order) ? '<span class="badge gray">Archiv</span>' : ""}
+            ${overdueOrderParts(order).map(part => `<span class="badge red">⚠️ ${esc(overdueBadgeText(part))}</span>`).join("")}
           </div>
         </div>
         <strong>${money(order.total)}</strong>
@@ -553,6 +630,7 @@ function renderOrders() {
       <div class="card-bottom">
         ${order.splitOrder ? "" : `<select class="status-select" data-status="${esc(order.id)}">${statusOptions(order.status)}</select>`}
         <div class="actions">
+          ${overdueOrderParts(order).length ? `<button class="reminder-button" data-remind-order="${esc(order.id)}">Připomenout</button>` : ""}
           <button class="secondary-button" data-edit-order="${esc(order.id)}">Upravit</button>
           <button class="danger-button" data-delete-order="${esc(order.id)}">Smazat</button>
         </div>
@@ -592,6 +670,35 @@ function renderOrders() {
   });
   document.querySelectorAll("[data-preorder-status]").forEach(select => {
     select.onchange = () => { const order = orders.find(item => item.id === select.dataset.preorderStatus); order.preorderStatus = select.value; saveOrder(order); };
+  });
+
+
+  document.querySelectorAll("[data-remind-order]").forEach(button => {
+    button.onclick = () => {
+      const order = orders.find(item => item.id === button.dataset.remindOrder);
+      if (!order) return;
+      if (order.contactMethod === "E-mail" && order.email) {
+        if (!confirm(`Odeslat ${order.name} e-mail s připomenutím vyzvednutí?`)) return;
+        button.disabled = true;
+        const original = button.textContent;
+        button.textContent = "Odesílám…";
+        post("sendPickupReminder", { id: order.id }, data => {
+          button.disabled = false;
+          button.textContent = original;
+          if (!data.ok) return alert(data.message);
+          alert(data.message);
+          loadData(true);
+        });
+        return;
+      }
+      if (order.phone) return openSmsReminder(order);
+      if (order.email) {
+        if (!confirm(`Objednávka nemá telefon. Odeslat ${order.name} připomínku e-mailem?`)) return;
+        post("sendPickupReminder", { id: order.id }, data => data.ok ? (alert(data.message), loadData(true)) : alert(data.message));
+        return;
+      }
+      alert("Objednávka nemá telefon ani e-mail.");
+    };
   });
 
   document.querySelectorAll("[data-edit-order]").forEach(button => {
@@ -875,6 +982,26 @@ function renderInsights() {
   const entries = Object.entries(months).sort().slice(-12);
   const max = Math.max(1, ...entries.map(x => x[1]));
   $("#monthlyRevenue").innerHTML = entries.map(([month,total]) => `<div class="bar-row"><span>${esc(month)}</span><div class="bar-track"><i style="width:${Math.round(total/max*100)}%"></i></div><strong>${money(total)}</strong></div>`).join("") || '<div class="empty">Zatím bez dat.</div>';
+
+  const stats = visitStats || { totalVisits: 0, uniqueVisitors: 0, todayVisits: 0, uniqueToday: 0, last30Visits: 0, uniqueLast30: 0, bySource: [], daily: [] };
+  const sources = Array.isArray(stats.bySource) ? stats.bySource : [];
+  const dailyVisits = Array.isArray(stats.daily) ? stats.daily : [];
+  if ($("#visitSummary")) {
+    $("#visitSummary").innerHTML = [
+      `<div class="rank-row"><span>Návštěvy celkem</span><strong>${stats.totalVisits}</strong></div>`,
+      `<div class="rank-row"><span>Unikátní návštěvníci celkem</span><strong>${stats.uniqueVisitors}</strong></div>`,
+      `<div class="rank-row"><span>Návštěvy dnes</span><strong>${stats.todayVisits}</strong></div>`,
+      `<div class="rank-row"><span>Unikátní dnes</span><strong>${stats.uniqueToday}</strong></div>`,
+      `<div class="rank-row"><span>Posledních 30 dní</span><strong>${stats.last30Visits} <small>${stats.uniqueLast30} unik.</small></strong></div>`
+    ].join("");
+  }
+  if ($("#visitSources")) {
+    $("#visitSources").innerHTML = sources.map(item => `<div class="rank-row"><span>${esc(item.source)}</span><strong>${item.total} <small>${item.uniqueLast30} unik. / 30 dní</small></strong></div>`).join("") || '<div class="empty">Zatím bez dat.</div>';
+  }
+  if ($("#visitTimeline")) {
+    const maxVisits = Math.max(1, ...dailyVisits.map(item => Number(item.visits || 0)));
+    $("#visitTimeline").innerHTML = dailyVisits.map(item => `<div class="bar-row"><span>${esc(localDate(item.day))}</span><div class="bar-track"><i style="width:${Math.round((Number(item.visits || 0) / maxVisits) * 100)}%"></i></div><strong>${Number(item.visits || 0)} <small>${Number(item.unique || 0)} unik.</small></strong></div>`).join("") || '<div class="empty">Zatím bez dat.</div>';
+  }
 }
 
 function renderBusinessSettings() {
@@ -1055,6 +1182,7 @@ $("#saveBusinessSettings").onclick = () => {
 };
 
 if (token) {
+  markThisDeviceAsAdminVisitor();
   const cacheShown = loadAdminCache();
   if (!cacheShown) {
     showApp();

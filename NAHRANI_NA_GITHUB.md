@@ -1,27 +1,30 @@
-# Verze 2.2.2 – kontrola skladu a tržby
+# Verze 2.3.0 – nevyzvednuté objednávky a rychlejší aktualizace
 
-## 1. GitHub
+## GitHub
 
 1. Rozbalte ZIP.
-2. Nahrajte celý obsah do kořene GitHub repozitáře.
-3. Potvrďte přepsání souborů a klikněte na **Commit changes**.
+2. Nahrajte celý obsah do kořene repozitáře a potvrďte přepsání souborů.
+3. Klikněte na **Commit changes**.
+4. Počkejte, až GitHub Pages dokončí nové nasazení.
 
-Tím se opraví zobrazení skladu vajec a zahodí stará zákaznická mezipaměť.
+## Google Apps Script
 
-## 2. Google Apps Script
-
-1. Otevřete Google Tabulku s objednávkami.
-2. Zvolte **Rozšíření → Apps Script**.
-3. Nahraďte celý obsah souboru `Code.gs` obsahem souboru `google-apps-script/Code.gs`.
-4. Kód uložte.
-5. Otevřete **Nasadit → Spravovat implementace → Upravit**.
-6. Vyberte **Nová verze** a klikněte na **Implementovat**.
-7. Přístup ponechte nastavený na **Kdokoli**.
-
-Funkci `setup()` znovu spouštět nemusíte.
+1. V Google Tabulce otevřete **Rozšíření → Apps Script**.
+2. Nahraďte celý obsah současného `Code.gs` obsahem souboru `google-apps-script/Code.gs`.
+3. Klikněte na **Uložit**.
+4. Otevřete **Nasadit → Spravovat implementace**.
+5. U webové aplikace klikněte na tužku, vyberte novou verzi a potvrďte **Implementovat**.
+6. Adresa `/exec` zůstává stejná. Funkci `setup()` znovu spouštět nemusíte.
 
 ## Ověření
 
-- Když systém dovolí dnes objednat 36 vajec, zákaznická karta musí ukázat „Skladem: 36 ks“.
-- Po označení objednávky jako „Vyzvednuto“ se sklad ihned sníží.
-- Tržba se započítá do měsíce, ve kterém bylo skutečně potvrzeno převzetí.
+- Objednávka s minulým termínem a stavem jiným než Vyzvednuto/Zrušeno se zvýrazní červeně.
+- Ve filtru **Po termínu** se zobrazí pouze nevyzvednuté objednávky.
+- Tlačítko **Připomenout** otevře SMS nebo odešle e-mail podle uloženého způsobu kontaktu.
+- Po změně produktu či skladu otevřete zákaznickou stránku: měla by načíst aktuální data během běžné odpovědi serveru, bez několikahodinového čekání na starou cache.
+
+
+Poznámka k návštěvnosti:
+- QR kód vytvořte s odkazem zakončeným `?src=qr`
+- běžný odkaz může být bez parametru nebo s `?src=link`
+- zařízení, na kterém se přihlásíte do administrace, se do návštěvnosti nezapočítá

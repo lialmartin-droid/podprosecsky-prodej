@@ -1,3 +1,5 @@
+V2.3.1 – přidáno sledování návštěvnosti zákaznické stránky (QR / odkaz), bez započítání zařízení administrátora.
+
 # Podprosečské domácí produkty 2.0
 
 Samostatná testovací verze nového vzhledu. Původní veřejný repozitář není potřeba měnit.

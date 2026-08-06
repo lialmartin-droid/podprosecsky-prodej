@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#fffdf8">
   <title>Administrace – Podprosečské domácí produkty</title>
-  <link rel="stylesheet" href="../assets/style.css?v=30-20260805-inventory1">
+  <link rel="stylesheet" href="../assets/style.css?v=41-20260806-visits">
 </head>
-<body data-pdp-admin-version="16">
+<body data-pdp-admin-version="20">
 <section id="adminLogin" class="login-screen hidden">
   <div class="login-card">
     <div style="font-size:46px">🌼🐝🐔</div>
@@ -32,6 +32,7 @@
   <main class="content">
     <section class="stats-grid">
       <article><span>Nové objednávky</span><strong id="statNew">0</strong></article>
+      <article class="overdue-stat"><span>Nevyzvednuté po termínu</span><strong id="statOverdue">0</strong></article>
       <article><span>Tržba objednávek</span><strong id="statRevenue">0 Kč</strong></article>
       <article><span>Objednaná vejce</span><strong id="statEggs">0</strong></article>
       <article><span>Objednané sklenice</span><strong id="statHoney">0</strong></article>
@@ -41,6 +42,10 @@
       <article><span>Objednávky tento měsíc</span><strong id="statMonthOrders">0</strong></article>
       <article><span>Předobjednávky</span><strong id="statPreorders">0</strong></article>
       <article><span>Aktivní zákazníci</span><strong id="statCustomers">0</strong></article>
+      <article><span>Návštěvy celkem</span><strong id="statVisits">0</strong></article>
+      <article><span>Unikátní dnes</span><strong id="statUniqueToday">0</strong></article>
+      <article><span>Návštěvy z QR</span><strong id="statQrVisits">0</strong></article>
+      <article><span>Návštěvy z odkazu</span><strong id="statLinkVisits">0</strong></article>
     </section>
 
     <nav class="tabs">
@@ -89,6 +94,7 @@
         </select>
         <select id="archiveFilter">
           <option value="active">Aktivní</option>
+          <option value="overdue">Po termínu</option>
           <option value="archive">Archiv</option>
           <option value="all">Všechny</option>
         </select>
@@ -182,11 +188,15 @@
 
 
     <section id="insightsTab" class="tab-panel">
-      <div class="section-head"><div><div class="eyebrow">Souhrny</div><h2>Statistiky prodeje</h2></div></div>
+      <div class="section-head"><div><div class="eyebrow">Souhrny</div><h2>Statistiky prodeje a návštěvnosti</h2></div></div>
+      <p class="settings-note">Do návštěvnosti se nezapočítává toto zařízení přihlášené do administrace. Pro QR kód použij odkaz se značkou <strong>?src=qr</strong>, běžný odkaz může zůstat bez značky nebo s <strong>?src=link</strong>.</p>
       <div class="insights-grid">
+        <article class="card"><h3>Návštěvnost zákaznické stránky</h3><div id="visitSummary"></div></article>
+        <article class="card"><h3>Zdroje návštěv</h3><div id="visitSources"></div></article>
         <article class="card"><h3>Nejprodávanější produkty</h3><div id="topProducts"></div></article>
         <article class="card"><h3>TOP zákazníci</h3><div id="topCustomers"></div></article>
       </div>
+      <article class="card"><h3>Návštěvy za posledních 14 dní</h3><div id="visitTimeline" class="bar-list"></div></article>
       <article class="card"><h3>Měsíční tržby</h3><div id="monthlyRevenue" class="bar-list"></div></article>
     </section>
 
@@ -223,7 +233,7 @@
   <input id="adminToken" name="token" type="hidden">
   <input id="adminPayload" name="payload" type="hidden">
 </form>
-<script src="../assets/config.js?v=30-20260805-inventory1"></script>
-<script src="../assets/admin.js?v=31-20260805-revenuefix1"></script>
+<script src="../assets/config.js?v=41-20260806-visits"></script>
+<script src="../assets/admin.js?v=41-20260806-visits"></script>
 </body>
 </html>

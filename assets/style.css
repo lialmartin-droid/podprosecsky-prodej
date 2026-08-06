@@ -253,3 +253,12 @@ body{background:#f8f3e9}
 /* V2.1.6 – stav aktualizace administrace */
 .admin-refresh-state{margin:0 0 14px;padding:10px 14px;border:1px solid #e7d8a4;border-radius:12px;background:#fff8dc;color:#665620;font-weight:700;text-align:center}
 .admin-refresh-state.hidden{display:none}
+
+
+/* V23 – nevyzvednuté objednávky */
+.badge.red{background:#f9e3df;color:#9a382f}
+.overdue-card{border-color:#d98b80;background:#fff9f7;box-shadow:0 8px 24px rgba(169,69,61,.09)}
+.overdue-stat{border-color:#e2a49c!important;background:#fff7f5}
+.overdue-stat strong{color:var(--red)}
+.reminder-button{padding:12px 14px;border:0;border-radius:14px;background:#a9453d;color:#fff;font-weight:800}
+.reminder-button:disabled{opacity:.55;cursor:not-allowed}
