@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "20.1";
-console.info("Podprosečské produkty – admin.js V20.1 – nevyzvednuté objednávky, rychlé načítání a návštěvnost");
+window.PDP_ADMIN_VERSION = "20.2";
+console.info("Podprosečské produkty – admin.js V20.2 – opravené karty návštěvnosti");
 
 let products = [];
 let orders = [];
@@ -559,6 +559,13 @@ function renderStats() {
     .reduce((sum, item) => sum + Number(item.qty || 0), 0);
   $("#statEggStock").textContent = eggSettings ? eggSettings.currentStock : "—";
   $("#statEggDaily").textContent = eggSettings ? `${eggSettings.dailyProduction} / den` : "—";
+  const sourceRows = Array.isArray(visitStats?.bySource) ? visitStats.bySource : [];
+  const qrSource = sourceRows.find(item => item.source === "QR kód");
+  const linkSource = sourceRows.find(item => item.source === "Přímý odkaz");
+  if ($("#statVisits")) $("#statVisits").textContent = String(visitStats?.totalVisits ?? 0);
+  if ($("#statUniqueToday")) $("#statUniqueToday").textContent = String(visitStats?.uniqueToday ?? 0);
+  if ($("#statQrVisits")) $("#statQrVisits").textContent = String(qrSource?.total ?? 0);
+  if ($("#statLinkVisits")) $("#statLinkVisits").textContent = String(linkSource?.total ?? 0);
   const month = currentPragueMonthKey();
   const monthEntries = fulfilledRevenueEntries().filter(entry => (entry.at || "").slice(0, 7) === month);
   $("#statMonthRevenue").textContent = money(monthEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0));

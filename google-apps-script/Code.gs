@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V20.1
+ * Podprosečské domácí produkty — sdílený backend V20.2
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -257,7 +257,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '20.1',
+      version: '20.2',
       time: new Date().toISOString()
     });
   } catch (error) {
