@@ -1,1 +1,1 @@
-V2.3.4 – finální kontrola, vyloučení vlastních návštěv a vynucení nové cache
+V2.3.7 – kompletní audit a stabilizace objednávek

@@ -1,3 +1,15 @@
+V2.3.7 – kompletní audit objednávkového toku:
+- produkty a rezervace se při validaci načítají dávkově místo opakovaného čtení Google Tabulky pro každý produkt,
+- po vytvoření objednávky se veřejná cache pouze zneplatní; zákazník nečeká na druhý přepočet celé nabídky,
+- při změně objednávky se nejdřív validuje nový stav a až potom se mění fyzický sklad,
+- e-maily při stavech Připraveno/Zrušeno se odesílají mimo hlavní tabulkový zámek,
+- zachována ochrana Request ID proti duplicitní objednávce,
+- zachováno správné započítání skutečného času Vyzvednuto a tržby.
+
+V2.3.6: Potvrzení Vyzvednuto už nepřepočítává veřejnou nabídku během globálního zámku. Po zápisu se veřejná cache pouze zneplatní a zákaznická stránka si aktuální stav načte při dalším požadavku. Admin čeká na pomalejší Google odpověď až 45 s.
+
+V2.3.5: Zámek objednávky se drží jen při validaci a zápisu do tabulky. E-maily už další objednávky neblokují. Přidána idempotence Request ID proti duplicitám po opakovaném pokusu.
+
 V2.3.4 – finální kontrola. Opravena cache značka, aby se po nasazení vždy načetl nový admin.js/customer.js. Vyloučení vlastního zařízení je dvojí: lokálně v prohlížeči i na backendu podle ID návštěvníka.
 
 V2.3.2 – opraveno načítání hodnot do horních karet návštěvnosti v administraci.

@@ -30,3 +30,6 @@ Poznámka k návštěvnosti:
 - QR kód vytvořte s odkazem zakončeným `?src=qr`
 - běžný odkaz může být bez parametru nebo s `?src=link`
 - zařízení, na kterém se přihlásíte do administrace, se do návštěvnosti nezapočítá
+
+
+V2.3.7: po nahrání souborů nahraďte také google-apps-script/Code.gs a aktualizujte stávající implementaci Apps Scriptu.

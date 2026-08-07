@@ -1,5 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "18.3";
-console.info("Podprosečské produkty – customer.js V18.3 – rychlé načítání a sledování návštěvnosti");
+window.PDP_CUSTOMER_VERSION = "18.4";
+console.info("Podprosečské produkty – customer.js V18.4 – rychlé načítání a sledování návštěvnosti");
 
 // Produkty se nikdy nevykreslují z ukázkových hodnot.
 // Stránka čeká na aktuální data z Google Tabulky, aby zákazník neviděl starou cenu.
@@ -26,6 +26,7 @@ const submitButton = document.getElementById("submitOrder");
 
 let submissionPending = false;
 let submissionFinished = false;
+let currentOrderRequestId = "";
 let submitTimeout = null;
 let watchPending = null;
 
@@ -850,6 +851,7 @@ function finish(success, message) {
   feedbackEl.textContent = message;
 
   if (success) {
+    currentOrderRequestId = "";
     Object.keys(cart).forEach(key => delete cart[key]);
     autoPickupDate = "";
     ["customerName", "customerPhone", "customerEmail", "pickupDate", "customerNote"].forEach(id => {
@@ -892,6 +894,15 @@ window.addEventListener("message", event => {
   }
   finish(Boolean(data.ok), data.ok ? "Objednávka byla odeslána. Brzy se vám ozveme." : (data.message || "Objednávku se nepodařilo odeslat."));
 });
+
+function orderRequestId() {
+  if (currentOrderRequestId) return currentOrderRequestId;
+  currentOrderRequestId = (window.crypto && typeof window.crypto.randomUUID === "function"
+    ? window.crypto.randomUUID()
+    : `o${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`)
+    .replace(/[^a-zA-Z0-9_-]/g, "");
+  return currentOrderRequestId;
+}
 
 submitButton.addEventListener("click", () => {
   if (!productsLoaded) {
@@ -952,7 +963,8 @@ submitButton.addEventListener("click", () => {
     name, phone, email, pickup, note, source: "Web", items,
     contactMethod,
     splitOrder: splitMode === "split",
-    preorderPickup: preorderPickup
+    preorderPickup: preorderPickup,
+    requestId: orderRequestId()
   });
 
   submissionPending = true;

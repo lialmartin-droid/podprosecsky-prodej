@@ -1,4 +1,4 @@
-window.PDP_ADMIN_VERSION = "20.3";
+window.PDP_ADMIN_VERSION = "20.4";
 console.info("Podprosečské produkty – admin.js V20.3 – spolehlivé vyloučení vlastních návštěv");
 
 let products = [];
@@ -358,14 +358,14 @@ function processPostQueue() {
     activePost = null;
     job.callback({
       ok: false,
-      message: "Server nevrátil odpověď. Zkontrolujte nové nasazení Apps Scriptu a nastavení přístupu Kdokoli."
+      message: "Server odpovídá pomalu. Obnovte administraci a zkontrolujte, zda se změna už uložila. Pokud ne, zkuste akci znovu."
     });
     postCooldown = true;
     setTimeout(() => {
       postCooldown = false;
       processPostQueue();
     }, 100);
-  }, 20000);
+  }, 45000);
 
   form.submit();
 }
