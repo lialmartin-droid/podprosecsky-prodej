@@ -1,0 +1,14 @@
+HOTFIX – návštěvnost z aplikace na ploše
+
+Změněno pouze:
+- index.html: přidán odkaz Administrace přímo ze zákaznické aplikace.
+- admin/index.html: přidán odkaz Zpět na nabídku.
+
+Postup na mobilu:
+1. Otevřít zákaznickou aplikaci z ikony na ploše.
+2. Dole klepnout na Administrace.
+3. Přihlásit se do administrace.
+4. Přihlášení v tomto stejném web-app kontextu označí visitor ID jako vyloučené a odstraní jeho předchozí testovací návštěvy.
+5. Klepnout Zpět na nabídku.
+
+Google Apps Script se kvůli tomuto hotfixu NEMĚNÍ a není třeba znovu implementovat backend.
