@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#fffdf8">
   <title>Administrace – Podprosečské domácí produkty</title>
-  <link rel="stylesheet" href="../assets/style.css?v=42-20260806-visits-fix">
+  <link rel="stylesheet" href="../assets/style.css?v=44-20260807-final">
 </head>
 <body data-pdp-admin-version="20.2">
 <section id="adminLogin" class="login-screen hidden">
@@ -191,6 +191,15 @@
       <div class="section-head"><div><div class="eyebrow">Souhrny</div><h2>Statistiky prodeje a návštěvnosti</h2></div></div>
       <p class="settings-note">Do návštěvnosti se nezapočítává toto zařízení přihlášené do administrace. Pro QR kód použij odkaz se značkou <strong>?src=qr</strong>, běžný odkaz může zůstat bez značky nebo s <strong>?src=link</strong>.</p>
       <div class="insights-grid">
+
+      <article class="card visit-exclusion-card">
+        <h3>Moje zařízení</h3>
+        <label class="visit-toggle-row">
+          <input id="excludeMyVisits" type="checkbox">
+          <span><strong>Toto je moje zařízení – nepočítat návštěvy</strong><small>Platí pro tento prohlížeč. Po zapnutí se odstraní i dřívější testovací návštěvy tohoto zařízení.</small></span>
+        </label>
+        <p id="visitExclusionStatus" class="settings-note">Kontroluji nastavení zařízení…</p>
+      </article>
         <article class="card"><h3>Návštěvnost zákaznické stránky</h3><div id="visitSummary"></div></article>
         <article class="card"><h3>Zdroje návštěv</h3><div id="visitSources"></div></article>
         <article class="card"><h3>Nejprodávanější produkty</h3><div id="topProducts"></div></article>
@@ -233,7 +242,7 @@
   <input id="adminToken" name="token" type="hidden">
   <input id="adminPayload" name="payload" type="hidden">
 </form>
-<script src="../assets/config.js?v=42-20260806-visits-fix"></script>
-<script src="../assets/admin.js?v=42-20260806-visits-fix"></script>
+<script src="../assets/config.js?v=44-20260807-final"></script>
+<script src="../assets/admin.js?v=44-20260807-final"></script>
 </body>
 </html>

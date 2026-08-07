@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "20.2";
-console.info("Podprosečské produkty – admin.js V20.2 – opravené karty návštěvnosti");
+window.PDP_ADMIN_VERSION = "20.3";
+console.info("Podprosečské produkty – admin.js V20.3 – spolehlivé vyloučení vlastních návštěv");
 
 let products = [];
 let orders = [];
@@ -14,6 +14,7 @@ let postCooldown = false;
 const postQueue = [];
 const ADMIN_CACHE_KEY = "pdp-admin-data-v2";
 const ADMIN_VISIT_EXCLUDE_KEY = "pdp-admin-exclude-visits";
+const VISITOR_ID_KEY = "pdp-visitor-id-v1";
 const ADMIN_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 const $ = selector => document.querySelector(selector);
@@ -29,8 +30,54 @@ function url() {
   return window.PDP_CONFIG && String(window.PDP_CONFIG.APPS_SCRIPT_URL || "").trim();
 }
 
-function markThisDeviceAsAdminVisitor() {
+function adminVisitorId() {
+  try {
+    let value = localStorage.getItem(VISITOR_ID_KEY);
+    if (!value) {
+      value = (window.crypto && typeof window.crypto.randomUUID === "function"
+        ? window.crypto.randomUUID()
+        : `v${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`)
+        .replace(/[^a-zA-Z0-9_-]/g, "");
+      localStorage.setItem(VISITOR_ID_KEY, value);
+    }
+    return value;
+  } catch (_) {
+    return "";
+  }
+}
+
+function isThisDeviceExcluded() {
+  try { return localStorage.getItem(ADMIN_VISIT_EXCLUDE_KEY) === "1"; } catch (_) { return false; }
+}
+
+function updateVisitExclusionUi(message = "") {
+  const checkbox = $("#excludeMyVisits");
+  const status = $("#visitExclusionStatus");
+  if (checkbox) checkbox.checked = isThisDeviceExcluded();
+  if (status) {
+    status.textContent = message || (isThisDeviceExcluded()
+      ? "Toto zařízení je vyloučeno ze statistik návštěvnosti."
+      : "Toto zařízení se nyní do návštěvnosti započítává.");
+    status.classList.toggle("visit-excluded-ok", isThisDeviceExcluded());
+  }
+}
+
+function markThisDeviceAsAdminVisitor(syncBackend = false) {
   try { localStorage.setItem(ADMIN_VISIT_EXCLUDE_KEY, "1"); } catch (_) {}
+  updateVisitExclusionUi();
+  if (syncBackend && token) {
+    const visitorId = adminVisitorId();
+    if (visitorId) {
+      post("setVisitExclusion", { visitorId, excluded: true, removeExisting: true }, data => {
+        if (data && data.ok) {
+          visitStats = data.visitStats || visitStats;
+          updateVisitExclusionUi("Toto zařízení je vyloučeno. Jeho dřívější testovací návštěvy byly odstraněny.");
+          renderStats();
+          renderInsights();
+        }
+      });
+    }
+  }
 }
 
 function dataSelector(name, value) {
@@ -432,8 +479,8 @@ function login() {
     if (!data.ok) return showLogin(data.message);
 
     token = data.token;
-    markThisDeviceAsAdminVisitor();
     sessionStorage.setItem("pdp-admin-token", token);
+    markThisDeviceAsAdminVisitor(true);
     $("#adminPassword").value = "";
 
     // Přihlášení je hotové hned po ověření hesla.
@@ -1188,8 +1235,40 @@ $("#saveBusinessSettings").onclick = () => {
   });
 };
 
+
+const excludeMyVisits = $("#excludeMyVisits");
+if (excludeMyVisits) {
+  updateVisitExclusionUi();
+  excludeMyVisits.addEventListener("change", () => {
+    const excluded = excludeMyVisits.checked;
+    try {
+      if (excluded) localStorage.setItem(ADMIN_VISIT_EXCLUDE_KEY, "1");
+      else localStorage.removeItem(ADMIN_VISIT_EXCLUDE_KEY);
+    } catch (_) {}
+    updateVisitExclusionUi("Ukládám nastavení zařízení…");
+
+    const visitorId = adminVisitorId();
+    if (!visitorId) {
+      updateVisitExclusionUi("Nastavení v tomto prohlížeči nelze uložit.");
+      return;
+    }
+    post("setVisitExclusion", { visitorId, excluded, removeExisting: excluded }, data => {
+      if (!data.ok) {
+        updateVisitExclusionUi(data.message || "Nastavení se nepodařilo uložit.");
+        return;
+      }
+      visitStats = data.visitStats || visitStats;
+      updateVisitExclusionUi(excluded
+        ? "Toto zařízení je vyloučeno. Jeho dřívější návštěvy byly odstraněny."
+        : "Toto zařízení se bude znovu započítávat do návštěvnosti.");
+      renderStats();
+      renderInsights();
+    });
+  });
+}
+
 if (token) {
-  markThisDeviceAsAdminVisitor();
+  markThisDeviceAsAdminVisitor(true);
   const cacheShown = loadAdminCache();
   if (!cacheShown) {
     showApp();

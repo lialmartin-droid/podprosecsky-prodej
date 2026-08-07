@@ -293,6 +293,7 @@ function doPost(e) {
     if (action === 'saveBusinessSettings') return saveBusinessSettings_(payload);
     if (action === 'resendReadyEmail') return resendReadyEmail_(payload);
     if (action === 'sendPickupReminder') return sendPickupReminder_(payload);
+    if (action === 'setVisitExclusion') return setVisitExclusion_(payload);
 
     throw new Error('Neznámá operace.');
   } catch (error) {
@@ -329,6 +330,10 @@ function trackVisit_(payload) {
   const visitorId = String(payload && payload.visitorId || '')
     .replace(/[^a-zA-Z0-9_-]/g, '')
     .slice(0, 80) || Utilities.getUuid().replace(/-/g, '');
+  if (isVisitorExcluded_(visitorId)) {
+    return { ok: true, tracked: false, excluded: true };
+  }
+
   const source = normalizeVisitSource_(payload && payload.source || '');
   const path = cleanText_(payload && payload.path || '/', 200);
   const title = cleanText_(payload && payload.title || '', 150);
@@ -338,6 +343,63 @@ function trackVisit_(payload) {
   sheet.appendRow([new Date(), todayKey_(), safeSheetText_(visitorId), safeSheetText_(source), safeSheetText_(path), safeSheetText_(title)]);
 
   return { ok: true, tracked: true };
+}
+
+
+function excludedVisitorIds_() {
+  const raw = PropertiesService.getScriptProperties().getProperty('EXCLUDED_VISITOR_IDS') || '[]';
+  try {
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.map(String).filter(Boolean) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function isVisitorExcluded_(visitorId) {
+  return excludedVisitorIds_().indexOf(String(visitorId || '')) !== -1;
+}
+
+function removeVisitsForVisitor_(visitorId) {
+  const id = String(visitorId || '');
+  if (!id) return 0;
+  const sheet = getOrCreateSheet_(CONFIG.VISITS_SHEET);
+  formatVisitsSheet_(sheet);
+  const values = sheet.getDataRange().getValues();
+  let removed = 0;
+  for (let row = values.length; row >= 2; row--) {
+    if (String(values[row - 1][2] || '') === id) {
+      sheet.deleteRow(row);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+function setVisitExclusion_(payload) {
+  const visitorId = String(payload && payload.visitorId || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 80);
+  if (!visitorId) throw new Error('Zařízení se nepodařilo identifikovat.');
+
+  const excluded = toBool_(payload && payload.excluded);
+  const props = PropertiesService.getScriptProperties();
+  const ids = excludedVisitorIds_();
+  const set = new Set(ids);
+  if (excluded) set.add(visitorId);
+  else set.delete(visitorId);
+  props.setProperty('EXCLUDED_VISITOR_IDS', JSON.stringify(Array.from(set).slice(-100)));
+
+  let removed = 0;
+  if (excluded && toBool_(payload && payload.removeExisting)) {
+    removed = removeVisitsForVisitor_(visitorId);
+  }
+
+  return htmlResponse_(true,
+    excluded ? 'Zařízení bylo vyloučeno z návštěvnosti.' : 'Zařízení se bude znovu započítávat.',
+    '',
+    { excluded: excluded, removed: removed, visitStats: buildVisitStats_() }
+  );
 }
 
 function readVisits_() {

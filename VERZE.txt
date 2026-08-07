@@ -1,1 +1,1 @@
-V2.3.2 – Oprava zobrazení návštěvnosti v administraci
+V2.3.4 – finální kontrola, vyloučení vlastních návštěv a vynucení nové cache

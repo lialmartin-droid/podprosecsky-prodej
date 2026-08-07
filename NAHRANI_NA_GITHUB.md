@@ -1,3 +1,5 @@
+DŮLEŽITÉ V2.3.4: Nahraj celý obsah této složky do kořene repozitáře a aktualizuj také google-apps-script/Code.gs. Nové ?v=44 v HTML vynutí načtení aktuálních JS/CSS souborů.
+
 # Verze 2.3.0 – nevyzvednuté objednávky a rychlejší aktualizace
 
 ## GitHub

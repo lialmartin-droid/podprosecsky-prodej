@@ -1,3 +1,5 @@
+V2.3.4 – finální kontrola. Opravena cache značka, aby se po nasazení vždy načetl nový admin.js/customer.js. Vyloučení vlastního zařízení je dvojí: lokálně v prohlížeči i na backendu podle ID návštěvníka.
+
 V2.3.2 – opraveno načítání hodnot do horních karet návštěvnosti v administraci.
 
 V2.3.1 – přidáno sledování návštěvnosti zákaznické stránky (QR / odkaz), bez započítání zařízení administrátora.

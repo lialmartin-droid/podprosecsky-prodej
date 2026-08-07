@@ -262,3 +262,10 @@ body{background:#f8f3e9}
 .overdue-stat strong{color:var(--red)}
 .reminder-button{padding:12px 14px;border:0;border-radius:14px;background:#a9453d;color:#fff;font-weight:800}
 .reminder-button:disabled{opacity:.55;cursor:not-allowed}
+
+.visit-toggle-row{display:flex;gap:12px;align-items:flex-start;cursor:pointer}
+.visit-toggle-row input{width:22px;height:22px;margin-top:2px;flex:0 0 auto}
+.visit-toggle-row span{display:flex;flex-direction:column;gap:4px}
+.visit-toggle-row small{color:#6f6a60;line-height:1.4}
+.visit-exclusion-card .settings-note{margin:14px 0 0}
+.visit-excluded-ok{background:#e8f6e8!important;color:#245c2b!important}
