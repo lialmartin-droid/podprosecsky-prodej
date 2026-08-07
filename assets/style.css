@@ -136,8 +136,8 @@ footer{text-align:center;padding:24px;background:#f7f3ec;color:var(--muted);font
 .field-help{display:block;margin:-1px 0 10px;color:var(--muted);font-size:12px;line-height:1.45}
 .notice.notice-error{background:#f9e7e5;color:var(--red)}
 .footer-contact{margin-top:7px}
-.footer-contact a{color:var(--green);font-weight:800;text-decoration:none;overflow-wrap:anywhere}
-.footer-contact a:hover,.footer-contact a:focus{text-decoration:underline}
+.footer-contact a{color:#fff;font-weight:800;font-size:15px;line-height:1.75;text-decoration:none;overflow-wrap:anywhere}
+.footer-contact a:hover,.footer-contact a:focus{color:#fff;text-decoration:underline}
 
 
 /* V14 – žádné ukázkové ceny před načtením serverových dat */
@@ -269,3 +269,8 @@ body{background:#f8f3e9}
 .visit-toggle-row small{color:#6f6a60;line-height:1.4}
 .visit-exclusion-card .settings-note{margin:14px 0 0}
 .visit-excluded-ok{background:#e8f6e8!important;color:#245c2b!important}
+
+
+/* V2.4.1 – veřejná patička: lepší kontrast kontaktů, bez odkazu na administraci */
+footer .footer-contact a{color:#fff!important;font-weight:800;font-size:15px;opacity:1}
+@media(max-width:760px){footer .footer-contact a{font-size:16px;line-height:1.9}}

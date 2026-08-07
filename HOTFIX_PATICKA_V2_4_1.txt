@@ -1,0 +1,6 @@
+V2.4.1 – oprava veřejné patičky
+
+- odstraněn veřejný odkaz Administrace
+- e-mail a telefon mají bílou barvu a vyšší kontrast
+- na mobilu jsou kontakty mírně větší
+- backend ani Google Apps Script se nemění

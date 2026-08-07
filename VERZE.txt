@@ -1,3 +1,5 @@
+V2.4.1 – PATIČKA
+
 V2.4.0 – kompletní opravy
 
 - Cache může nabídku rychle zobrazit, ale objednávku nelze odeslat, dokud server nepotvrdí aktuální ceny a dostupnost.
