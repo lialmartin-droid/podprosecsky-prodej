@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "20.4";
-console.info("Podprosečské produkty – admin.js V20.3 – spolehlivé vyloučení vlastních návštěv");
+window.PDP_ADMIN_VERSION = "2.4.0";
+console.info("Podprosečské produkty – admin.js V2.4.0 – návštěvnost a automatické připomínky");
 
 let products = [];
 let orders = [];
@@ -14,6 +14,8 @@ let postCooldown = false;
 const postQueue = [];
 const ADMIN_CACHE_KEY = "pdp-admin-data-v2";
 const ADMIN_VISIT_EXCLUDE_KEY = "pdp-admin-exclude-visits";
+const ADMIN_VISIT_EXCLUDE_PREF_KEY = "pdp-admin-exclude-pref-v1";
+const ADMIN_VISIT_EXCLUDE_COOKIE = "pdp_admin_exclude_visits";
 const VISITOR_ID_KEY = "pdp-visitor-id-v1";
 const ADMIN_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
@@ -28,6 +30,27 @@ const esc = value => String(value ?? "")
 
 function url() {
   return window.PDP_CONFIG && String(window.PDP_CONFIG.APPS_SCRIPT_URL || "").trim();
+}
+
+function setAdminVisitExclusionCookie(excluded) {
+  try {
+    if (excluded) {
+      document.cookie = `${ADMIN_VISIT_EXCLUDE_COOKIE}=1; Max-Age=315360000; Path=/; SameSite=Lax; Secure`;
+    } else {
+      document.cookie = `${ADMIN_VISIT_EXCLUDE_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax; Secure`;
+    }
+  } catch (_) {}
+}
+
+function hasAdminVisitExclusionCookie() {
+  try {
+    return document.cookie
+      .split(";")
+      .map(value => value.trim())
+      .some(value => value === `${ADMIN_VISIT_EXCLUDE_COOKIE}=1`);
+  } catch (_) {
+    return false;
+  }
 }
 
 function adminVisitorId() {
@@ -47,7 +70,10 @@ function adminVisitorId() {
 }
 
 function isThisDeviceExcluded() {
-  try { return localStorage.getItem(ADMIN_VISIT_EXCLUDE_KEY) === "1"; } catch (_) { return false; }
+  try {
+    if (localStorage.getItem(ADMIN_VISIT_EXCLUDE_KEY) === "1") return true;
+  } catch (_) {}
+  return hasAdminVisitExclusionCookie();
 }
 
 function updateVisitExclusionUi(message = "") {
@@ -55,23 +81,40 @@ function updateVisitExclusionUi(message = "") {
   const status = $("#visitExclusionStatus");
   if (checkbox) checkbox.checked = isThisDeviceExcluded();
   if (status) {
+    const localExcluded = (() => {
+      try { return localStorage.getItem(ADMIN_VISIT_EXCLUDE_KEY) === "1"; } catch (_) { return false; }
+    })();
+    const cookieExcluded = hasAdminVisitExclusionCookie();
     status.textContent = message || (isThisDeviceExcluded()
-      ? "Toto zařízení je vyloučeno ze statistik návštěvnosti."
+      ? `Toto zařízení je vyloučeno ze statistik návštěvnosti (${localExcluded ? "úložiště" : ""}${localExcluded && cookieExcluded ? " + " : ""}${cookieExcluded ? "cookie" : ""}).`
       : "Toto zařízení se nyní do návštěvnosti započítává.");
     status.classList.toggle("visit-excluded-ok", isThisDeviceExcluded());
   }
 }
 
 function markThisDeviceAsAdminVisitor(syncBackend = false) {
-  try { localStorage.setItem(ADMIN_VISIT_EXCLUDE_KEY, "1"); } catch (_) {}
+  let excluded = true;
+  try {
+    const savedPreference = localStorage.getItem(ADMIN_VISIT_EXCLUDE_PREF_KEY);
+    if (savedPreference === "0") excluded = false;
+    else {
+      excluded = true;
+      if (savedPreference !== "1") localStorage.setItem(ADMIN_VISIT_EXCLUDE_PREF_KEY, "1");
+    }
+    if (excluded) localStorage.setItem(ADMIN_VISIT_EXCLUDE_KEY, "1");
+    else localStorage.removeItem(ADMIN_VISIT_EXCLUDE_KEY);
+  } catch (_) {}
+  setAdminVisitExclusionCookie(excluded);
   updateVisitExclusionUi();
   if (syncBackend && token) {
     const visitorId = adminVisitorId();
     if (visitorId) {
-      post("setVisitExclusion", { visitorId, excluded: true, removeExisting: true }, data => {
+      post("setVisitExclusion", { visitorId, excluded, removeExisting: excluded }, data => {
         if (data && data.ok) {
           visitStats = data.visitStats || visitStats;
-          updateVisitExclusionUi("Toto zařízení je vyloučeno. Jeho dřívější testovací návštěvy byly odstraněny.");
+          updateVisitExclusionUi(excluded
+            ? "Toto zařízení je vyloučeno. Jeho dřívější testovací návštěvy byly odstraněny."
+            : "Toto zařízení se započítává do návštěvnosti podle uloženého nastavení.");
           renderStats();
           renderInsights();
         }
@@ -1242,9 +1285,11 @@ if (excludeMyVisits) {
   excludeMyVisits.addEventListener("change", () => {
     const excluded = excludeMyVisits.checked;
     try {
+      localStorage.setItem(ADMIN_VISIT_EXCLUDE_PREF_KEY, excluded ? "1" : "0");
       if (excluded) localStorage.setItem(ADMIN_VISIT_EXCLUDE_KEY, "1");
       else localStorage.removeItem(ADMIN_VISIT_EXCLUDE_KEY);
     } catch (_) {}
+    setAdminVisitExclusionCookie(excluded);
     updateVisitExclusionUi("Ukládám nastavení zařízení…");
 
     const visitorId = adminVisitorId();

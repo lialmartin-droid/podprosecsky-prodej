@@ -1,0 +1,23 @@
+KONTROLA V2.4.0
+
+Provedeno:
+- syntaktická kontrola assets/customer.js: OK
+- syntaktická kontrola assets/admin.js: OK
+- syntaktická kontrola google-apps-script/Code.gs: OK
+- kontrola appsscript.json: OK
+- obě kopie backendu Code.gs / Code_V2_0.gs jsou shodné: OK
+- lokální odkazy v HTML vedou na existující soubory: OK
+- staré verze 18.5 / 20.5 / 20.6 / 20.7 / 23.9 / 2.3.9 odstraněny: OK
+
+Opraveno:
+1. Cache už nemůže odeslat objednávku se starou cenou; tlačítko se odemkne až po čerstvém ověření serverem.
+2. Běžné produkty jsou v zákaznickém UI omezené dostupným skladem.
+3. Vejce NEJSOU omezená dnešním skladem; maximální množství vychází z plánovacího horizontu a denní snášky a termín se dopočítá.
+4. Předobjednávky zůstávají omezené rezervační kapacitou.
+5. Denní limit počítá oba aktivní termíny rozdělené objednávky a již vyzvednutá část starý termín neblokuje.
+6. Nastavení vyloučení admin zařízení z návštěvnosti se zachová i po reloadu.
+7. Automatické připomínky den před vyzvednutím + e-mail pro prodejce.
+8. Verze sjednocena na V2.4.0 a cache-busting na v50.
+9. Odstraněny nepoužívané velké PNG/JPG duplikáty; web používá WebP.
+
+Po nahrání backendu jednou spusťte setupPickupReminderAutomation().

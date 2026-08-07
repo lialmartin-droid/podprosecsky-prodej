@@ -1,10 +1,11 @@
-window.PDP_CUSTOMER_VERSION = "18.4";
-console.info("Podprosečské produkty – customer.js V18.4 – rychlé načítání a sledování návštěvnosti");
+window.PDP_CUSTOMER_VERSION = "2.4.0";
+console.info("Podprosečské produkty – customer.js V2.4.0 – ověřená nabídka, sklad a termíny");
 
 // Produkty se nikdy nevykreslují z ukázkových hodnot.
 // Stránka čeká na aktuální data z Google Tabulky, aby zákazník neviděl starou cenu.
 let products = [];
 let productsLoaded = false;
+let productsVerified = false;
 let productsLoadFailed = false;
 let eggAvailability = null;
 let availabilityBlocked = false;
@@ -14,6 +15,7 @@ const cart = {};
 const VISITOR_ID_KEY = "pdp-visitor-id-v1";
 const VISIT_TRACKED_KEY = "pdp-visit-tracked-v1";
 const ADMIN_VISIT_EXCLUDE_KEY = "pdp-admin-exclude-visits";
+const ADMIN_VISIT_EXCLUDE_COOKIE = "pdp_admin_exclude_visits";
 
 const productsEl = document.getElementById("products");
 const summaryEl = document.getElementById("summary");
@@ -34,8 +36,22 @@ function backendUrl() {
   return window.PDP_CONFIG && String(window.PDP_CONFIG.APPS_SCRIPT_URL || "").trim();
 }
 
+function hasAdminVisitExclusionCookie() {
+  try {
+    return document.cookie
+      .split(";")
+      .map(value => value.trim())
+      .some(value => value === `${ADMIN_VISIT_EXCLUDE_COOKIE}=1`);
+  } catch (_) {
+    return false;
+  }
+}
+
 function adminExcludedFromVisitStats() {
-  try { return localStorage.getItem(ADMIN_VISIT_EXCLUDE_KEY) === "1"; } catch (_) { return false; }
+  try {
+    if (localStorage.getItem(ADMIN_VISIT_EXCLUDE_KEY) === "1") return true;
+  } catch (_) {}
+  return hasAdminVisitExclusionCookie();
 }
 
 function visitorId() {
@@ -105,6 +121,7 @@ function showProductsLoading() {
 
 function showProductsLoadError(message) {
   productsLoaded = false;
+  productsVerified = false;
   productsLoadFailed = true;
   products = [];
   eggAvailability = null;
@@ -190,14 +207,23 @@ function isHoneyProduct(product) {
 }
 
 function defaultProductImage(product) {
-  if (isEggProduct(product)) return "assets/images/products/vajicka-real.jpg";
-  if (isHoneyProduct(product)) return "assets/images/products/med-real.jpg";
-  return "assets/images/products/placeholder.jpg";
+  if (isEggProduct(product)) return "assets/images/products/vajicka-real.webp";
+  if (isHoneyProduct(product)) return "assets/images/products/med-real.webp";
+  return "assets/images/products/placeholder.webp";
 }
 
 function resolveProductImage(product) {
   const image = String(product?.image || "").trim();
-  if (!image || image === "assets/images/products/placeholder.jpg") return defaultProductImage(product);
+  const localWebp = {
+    "assets/images/products/vajicka-real.jpg": "assets/images/products/vajicka-real.webp",
+    "assets/images/products/med-real.jpg": "assets/images/products/med-real.webp",
+    "assets/images/products/placeholder.jpg": "assets/images/products/placeholder.webp",
+    "assets/images/products/vajicka-real.webp": "assets/images/products/vajicka-real.webp",
+    "assets/images/products/med-real.webp": "assets/images/products/med-real.webp",
+    "assets/images/products/placeholder.webp": "assets/images/products/placeholder.webp"
+  };
+  if (localWebp[image]) return localWebp[image];
+  if (!image || image === "assets/images/products/placeholder.jpg" || image === "assets/images/products/placeholder.webp") return defaultProductImage(product);
   return image;
 }
 
@@ -235,7 +261,7 @@ function normalizeProducts(input) {
 
 
 let productsRequestInFlight = false;
-const PRODUCTS_CACHE_KEY = "pdp-products-cache-v4-fastrefresh";
+const PRODUCTS_CACHE_KEY = "pdp-products-cache-v5-display-only";
 const PRODUCTS_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 
 function saveProductsCache(data) {
@@ -262,10 +288,12 @@ function loadProductsCache() {
     eggAvailability = cached.data.availability || null;
     businessSettings = cached.data.settings || {};
     productsLoaded = true;
+    productsVerified = false;
     productsLoadFailed = false;
     renderPublicBanner();
     renderAll();
-    countEl.title = "Zobrazená nabídka se právě ověřuje na serveru.";
+    submitButton.disabled = true;
+    countEl.title = "Zobrazená nabídka je pouze orientační. Objednávku povolíme po ověření aktuálních dat na serveru.";
     return true;
   } catch (error) {
     console.warn("Mezipaměť nabídky se nepodařilo načíst.", error);
@@ -341,12 +369,19 @@ function loadProducts(background = false) {
     saveProductsCache(data);
     renderPublicBanner();
     productsLoaded = true;
+    productsVerified = true;
     productsLoadFailed = false;
     countEl.removeAttribute("title");
 
     Object.keys(cart).forEach(id => {
       const product = products.find(item => String(item.id) === String(id));
-      if (!product || !product.visible || (product.soldOut && !product.preorder)) delete cart[id];
+      if (!product || !product.visible || (product.soldOut && !product.preorder)) {
+        delete cart[id];
+        return;
+      }
+      const limit = remainingCapacity(product);
+      if (Number(cart[id] || 0) > limit) cart[id] = limit;
+      if (!cart[id]) delete cart[id];
     });
 
     renderAll();
@@ -409,8 +444,32 @@ function displayedAvailableStock(product) {
 }
 
 function remainingCapacity(product) {
-  if (!product || !product.capacity) return 500;
-  return Math.max(0, Math.floor(product.capacity - product.reserved));
+  if (!product) return 0;
+
+  // Vejce se plánují dopředu podle aktuální zásoby + denní snášky.
+  // Zákazník proto může objednat více, než je právě fyzicky skladem.
+  if (isEggProduct(product)) {
+    const plannedMaximum = eggAvailability && Array.isArray(eggAvailability.days)
+      ? Math.max(0, ...eggAvailability.days.map(day => Math.floor(Number(day.maxAdditional || 0))))
+      : 0;
+    const technicalMaximum = product.capacity
+      ? Math.max(0, Math.floor(Number(product.capacity || 0) - Number(product.reserved || 0)))
+      : 500;
+    return Math.min(500, technicalMaximum, plannedMaximum || technicalMaximum);
+  }
+
+  // Předobjednávky se řídí rezervační kapacitou, ne dnešním fyzickým skladem.
+  if (product.preorder) {
+    return product.capacity
+      ? Math.max(0, Math.floor(Number(product.capacity || 0) - Number(product.reserved || 0)))
+      : 500;
+  }
+
+  // Běžný produkt nelze objednat nad skutečně dostupný sklad.
+  const available = Math.max(0, Math.floor(Number(product.availableStock || 0)));
+  if (!product.capacity) return Math.min(500, available);
+  const capacityLeft = Math.max(0, Math.floor(Number(product.capacity || 0) - Number(product.reserved || 0)));
+  return Math.min(available, capacityLeft);
 }
 
 function nonEggLeadMinimum() {
@@ -534,7 +593,7 @@ function updatePickupAvailability(forceNearest = false) {
       availabilityEl.classList.remove("availability-error");
     }
   }
-  submitButton.disabled = submissionPending || availabilityBlocked;
+  submitButton.disabled = submissionPending || availabilityBlocked || !productsVerified;
 }
 
 function formatRestock(value) {
@@ -658,7 +717,7 @@ function renderProducts() {
     const imageSrc = resolveProductImage(product);
     article.innerHTML = `
       <div class="product-row">
-        <div class="product-media"><img src="${esc(imageSrc)}" alt="${esc(product.name)}" loading="lazy" onerror="this.onerror=null;this.src='assets/images/products/placeholder.jpg'"></div>
+        <div class="product-media"><img src="${esc(imageSrc)}" alt="${esc(product.name)}" loading="lazy" onerror="this.onerror=null;this.src='assets/images/products/placeholder.webp'"></div>
         <div class="product-body">
           <h3>${esc(product.name)}</h3>
           <p class="lead">${esc(product.short)}</p>
@@ -859,7 +918,7 @@ function finish(success, message) {
     });
     loadProducts();
   } else {
-    submitButton.disabled = availabilityBlocked;
+    submitButton.disabled = availabilityBlocked || !productsVerified;
     loadProducts();
   }
 }
@@ -905,8 +964,8 @@ function orderRequestId() {
 }
 
 submitButton.addEventListener("click", () => {
-  if (!productsLoaded) {
-    feedbackEl.textContent = "Počkejte na načtení aktuální nabídky.";
+  if (!productsLoaded || !productsVerified) {
+    feedbackEl.textContent = "Počkejte na ověření aktuální nabídky a cen na serveru.";
     return;
   }
 
@@ -978,7 +1037,7 @@ submitButton.addEventListener("click", () => {
   submitTimeout = setTimeout(() => {
     if (submissionPending && !submissionFinished) {
       submissionPending = false;
-      submitButton.disabled = availabilityBlocked;
+      submitButton.disabled = availabilityBlocked || !productsVerified;
       submitButton.textContent = "Odeslat objednávku";
       feedbackEl.textContent = "Nepodařilo se potvrdit odeslání. Před opakováním zkontrolujte e-mail nebo tabulku.";
     }
@@ -1006,9 +1065,10 @@ pickupInput.addEventListener("change", () => {
   }
 });
 
-showProductsLoading();
+const cachedOfferShown = loadProductsCache();
+if (!cachedOfferShown) showProductsLoading();
 trackVisitOnce();
-loadProducts();
+loadProducts(Boolean(cachedOfferShown));
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) loadProducts(true);

@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V20.6
+ * Podprosečské domácí produkty — sdílený backend V2.4.0
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -42,6 +42,7 @@ function setup() {
   repairDefaultProductSettings_(products);
   seedEggSettings_(settings);
   normalizeEggStockDateSetting_(settings);
+  ensurePickupReminderTrigger_();
 
   const props = PropertiesService.getScriptProperties();
   let password = props.getProperty('ADMIN_PASSWORD');
@@ -126,7 +127,7 @@ function reservationMapFromOrders_(orders, preorderMap) {
 }
 
 function publicPayloadCacheKey_() {
-  return 'public-payload-v23';
+  return 'public-payload-v240';
 }
 
 function invalidatePublicPayloadCache_() {
@@ -257,7 +258,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '20.6',
+      version: '2.4.0',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -752,7 +753,7 @@ function saveProduct_(payload) {
 
   const becameAvailable = product.visible && !product.soldOut && (!oldProduct || !oldProduct.visible || oldProduct.soldOut);
   if (becameAvailable) notifyStockWatchers_(product);
-  refreshPublicPayloadCache_();
+  invalidatePublicPayloadCache_();
 
   return htmlResponse_(true, 'Produkt byl uložen.', String(product.id), { product: product });
 }
@@ -767,7 +768,7 @@ function deleteProduct_(payload) {
   for (let i = values.length - 1; i >= 1; i--) {
     if (String(values[i][0]) === id) sheet.deleteRow(i + 1);
   }
-  refreshPublicPayloadCache_();
+  invalidatePublicPayloadCache_();
   return htmlResponse_(true, 'Produkt byl smazán.', id, {});
 }
 
@@ -953,7 +954,7 @@ function deleteOrder_(payload) {
   for (let i = values.length - 1; i >= 1; i--) {
     if (String(values[i][0]) === id) sheet.deleteRow(i + 1);
   }
-  refreshPublicPayloadCache_();
+  invalidatePublicPayloadCache_();
   return htmlResponse_(true, 'Objednávka byla smazána.', id, {});
 }
 
@@ -972,7 +973,7 @@ function saveEggSettings_(payload) {
     planningDays: planningDays
   });
 
-  refreshPublicPayloadCache_();
+  invalidatePublicPayloadCache_();
   return htmlResponse_(true, 'Nastavení vajec bylo uloženo.', '', {
     eggSettings: readEggSettings_()
   });
@@ -1540,8 +1541,8 @@ function seedProducts_(sheet) {
   if (sheet.getLastRow() > 1) return;
   const now = new Date();
   sheet.getRange(2, 1, 2, 22).setValues([
-    ['1', '🍯', 'Květový med', 190, '950 g', 'Smíšený květový med z okolí Lukášova.', 'Včely sbírají nektar z lučního kvítí, maliní, ovocných stromů, lip a okolních lesů. Každá sklenice tak nese chuť místní krajiny.', true, false, '', 0, '', now, false, '', 0, 'VCELICKY', '', 'assets/images/products/med-real.jpg', 0, 'sklenic', 'Momentálně vyprodáno'],
-    ['2', '🥚', 'Čerstvá vejce', 7, 'kus', 'Vejce od našich slepic z domácího chovu.', 'Slepice krmíme kvalitní směsí a zeleninou. Každý den mají přístup na trávu, kde si hledají červy a další přirozenou potravu.', true, false, '', 0, '6, 10, 30', now, false, '', 0, 'SLEPICKY', '', 'assets/images/products/vajicka-real.jpg', 0, 'ks', 'Momentálně vyprodáno']
+    ['1', '🍯', 'Květový med', 190, '950 g', 'Smíšený květový med z okolí Lukášova.', 'Včely sbírají nektar z lučního kvítí, maliní, ovocných stromů, lip a okolních lesů. Každá sklenice tak nese chuť místní krajiny.', true, false, '', 0, '', now, false, '', 0, 'VCELICKY', '', 'assets/images/products/med-real.webp', 0, 'sklenic', 'Momentálně vyprodáno'],
+    ['2', '🥚', 'Čerstvá vejce', 7, 'kus', 'Vejce od našich slepic z domácího chovu.', 'Slepice krmíme kvalitní směsí a zeleninou. Každý den mají přístup na trávu, kde si hledají červy a další přirozenou potravu.', true, false, '', 0, '6, 10, 30', now, false, '', 0, 'SLEPICKY', '', 'assets/images/products/vajicka-real.webp', 0, 'ks', 'Momentálně vyprodáno']
   ]);
 }
 
@@ -1612,7 +1613,7 @@ function saveBusinessSettings_(payload) {
   setTextSetting_(sheet, 'PAUSE_TO', pauseTo, 'Blokace vyzvednutí do');
   setTextSetting_(sheet, 'PAUSE_MESSAGE', cleanText_(settings.pauseMessage, 800), 'Upozornění při blokaci vyzvednutí');
   setSetting_(sheet, 'DAILY_ORDER_LIMIT', Math.max(0, Math.floor(Number(settings.dailyOrderLimit) || 0)), 'Maximum objednávek na den');
-  refreshPublicPayloadCache_();
+  invalidatePublicPayloadCache_();
   return htmlResponse_(true, 'Nastavení webu bylo uloženo.', '', { settings: publicBusinessSettings_() });
 }
 
@@ -1691,6 +1692,151 @@ function aggregateOrderStatus_(order) {
     : String(order && order.status || 'Nová');
 }
 
+
+function pickupReminderTriggerHandler() {
+  sendAutomaticPickupReminders_();
+}
+
+function setupPickupReminderAutomation() {
+  ensurePickupReminderTrigger_();
+  return 'Automatické připomínky jsou nastavené. Kontrola proběhne každý den ráno.';
+}
+
+function ensurePickupReminderTrigger_() {
+  const handler = 'pickupReminderTriggerHandler';
+  const exists = ScriptApp.getProjectTriggers().some(trigger => trigger.getHandlerFunction() === handler);
+  if (exists) return;
+  ScriptApp.newTrigger(handler)
+    .timeBased()
+    .everyDays(1)
+    .atHour(8)
+    .inTimezone(CONFIG.TIME_ZONE)
+    .create();
+}
+
+function activePickupPartsForDate_(order, dateKey) {
+  const result = [];
+  if (!order || !dateKey) return result;
+  if (!order.splitOrder) {
+    if (reminderOpenStatus_(order.status) && order.pickup === dateKey) result.push({key:'regular', label:'objednávka', date:order.pickup});
+    return result;
+  }
+  if (reminderOpenStatus_(order.regularStatus) && order.pickup === dateKey) result.push({key:'regular', label:'první část objednávky', date:order.pickup});
+  if (reminderOpenStatus_(order.preorderStatus) && order.preorderPickup === dateKey) result.push({key:'preorder', label:'předobjednaná část objednávky', date:order.preorderPickup});
+  return result;
+}
+
+function automaticReminderAlreadySent_(order, part) {
+  const expectedType = 'pickup-reminder-auto-' + part.key;
+  return (order.communication || []).some(item => item && item.type === expectedType && String(item.date || '') === String(part.date || ''));
+}
+
+function buildTomorrowPickupText_(order, part) {
+  const greeting = firstNameVocative_(order.name);
+  const number = order.orderNumber || order.id || '';
+  return [
+    `Dobrý den${greeting ? ', ' + greeting : ''},`, '',
+    `připomínáme, že zítra ${formatCustomerPickupDate_(part.date)} máte naplánované vyzvednutí ${part.label}${number ? ' č. ' + number : ''}.`, '',
+    'Adresa vyzvednutí:', 'Pod Prosečí 102/2', 'Jablonec nad Nisou', '',
+    'Pokud se Vám termín nehodí, odpovězte na tento e-mail nebo nás kontaktujte na telefonu +420 732 687 040.', '',
+    'S přáním krásného dne', '', 'Martin Dvořák', CONFIG.BRAND_NAME
+  ].join('\n');
+}
+
+function buildSellerTomorrowAlert_(order, part, customerEmailSent, customerEmailError) {
+  const number = order.orderNumber || order.id || '';
+  const sms = `Dobrý den, připomínáme, že zítra ${formatCustomerPickupDate_(part.date)} máte naplánované vyzvednutí objednávky${number ? ' č. ' + number : ''}. Podprosečské domácí produkty`;
+  return [
+    `Zítra je naplánované vyzvednutí: ${part.label}.`,
+    `Objednávka: ${number}`,
+    `Zákazník: ${order.name}`,
+    `Telefon: ${order.phone || 'neuveden'}`,
+    `E-mail: ${order.email || 'neuveden'}`,
+    `Termín: ${formatCustomerPickupDate_(part.date)}`,
+    `Zvolený kontakt: ${order.contactMethod || 'SMS'}`,
+    '',
+    customerEmailSent
+      ? 'Zákazníkovi byl připomínkový e-mail odeslán automaticky.'
+      : (customerEmailError ? 'Automatický e-mail zákazníkovi se nepodařilo odeslat. Kontaktujte ho prosím ručně.' : 'Zákazník zvolil SMS. SMS je potřeba odeslat ručně.'),
+    ...(customerEmailSent ? [] : ['', 'Text SMS:', sms])
+  ].join('\n');
+}
+
+function sendAutomaticPickupReminders_() {
+  const tomorrow = addDaysKey_(todayKey_(), 1);
+  const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
+  formatOrdersSheet_(sheet);
+  const values = sheet.getDataRange().getValues();
+  let customerEmails = 0;
+  let sellerAlerts = 0;
+
+  for (let i = 1; i < values.length; i++) {
+    const order = orderFromSheetRow_(values[i]);
+    const parts = activePickupPartsForDate_(order, tomorrow);
+    if (!parts.length) continue;
+
+    let changed = false;
+    const communication = Array.isArray(order.communication) ? order.communication.slice() : [];
+    const timeline = Array.isArray(order.timeline) ? order.timeline.slice() : [];
+
+    parts.forEach(part => {
+      if (automaticReminderAlreadySent_(Object.assign({}, order, {communication}), part)) return;
+
+      let customerEmailSent = false;
+      let customerEmailError = '';
+      if (String(order.contactMethod || 'SMS') === 'E-mail' && isValidEmail_(order.email)) {
+        const text = buildTomorrowPickupText_(order, part);
+        try {
+          MailApp.sendEmail({
+            to: order.email,
+            subject: `Připomenutí: zítra vyzvednutí objednávky ${order.orderNumber || ''} – ${CONFIG.BRAND_NAME}`,
+            body: text,
+            htmlBody: '<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;line-height:1.6;color:#2b241f">' + text.split('\n').map(line => line ? '<p style="margin:8px 0">' + escapeHtml_(line) + '</p>' : '<br>').join('') + '</div>',
+            name: CONFIG.BRAND_NAME,
+            replyTo: CONFIG.NOTIFICATION_EMAIL
+          });
+          customerEmailSent = true;
+          customerEmails++;
+        } catch (error) {
+          customerEmailError = String(error && error.message || 'neznámá chyba');
+          console.error('Automatická připomínka zákazníkovi se nepodařila odeslat.', error);
+        }
+      }
+
+      MailApp.sendEmail({
+        to: CONFIG.NOTIFICATION_EMAIL,
+        subject: `Zítra vyzvednutí ${order.orderNumber || ''} – ${order.name}`,
+        body: buildSellerTomorrowAlert_(order, part, customerEmailSent, customerEmailError),
+        name: CONFIG.BRAND_NAME,
+        replyTo: order.email || CONFIG.NOTIFICATION_EMAIL
+      });
+      sellerAlerts++;
+
+      const now = new Date().toISOString();
+      communication.push({type:'pickup-reminder-auto-' + part.key, date:part.date, at:now, text:customerEmailSent ? 'Automatická připomínka zákazníkovi + upozornění prodejci' : 'Upozornění prodejci k ruční SMS připomínce'});
+      timeline.push({type:'reminder', at:now, text:`Připomínka den před vyzvednutím: ${part.label}`});
+      changed = true;
+    });
+
+    if (changed) {
+      sheet.getRange(i + 1, 21).setValue(JSON.stringify(communication));
+      sheet.getRange(i + 1, 23).setValue(JSON.stringify(timeline));
+    }
+  }
+  return {customerEmails: customerEmails, sellerAlerts: sellerAlerts, date: tomorrow};
+}
+
+function activePickupDates_(order) {
+  const dates = [];
+  if (!order) return dates;
+  if (!order.splitOrder) {
+    if (isReservingStatus_(order.status) && order.pickup) dates.push(order.pickup);
+  } else {
+    if (isReservingStatus_(order.regularStatus) && order.pickup) dates.push(order.pickup);
+    if (isReservingStatus_(order.preorderStatus) && order.preorderPickup) dates.push(order.preorderPickup);
+  }
+  return Array.from(new Set(dates));
+}
 
 function reminderOpenStatus_(status) {
   return !['Vyzvednuto', 'Zrušeno'].includes(String(status || 'Nová'));
@@ -1820,11 +1966,14 @@ function validateBusinessRules_(order) {
 
   const existingOrders = readOrdersForAvailability_();
 
-  if (settings.dailyOrderLimit > 0 && order.pickup) {
-    const count = existingOrders.filter(item =>
-      item.pickup === order.pickup && isReservingStatus_(item.status)
-    ).length;
-    if (count >= settings.dailyOrderLimit) throw new Error('Zvolený den je již plně obsazený. Vyberte jiný termín.');
+  if (settings.dailyOrderLimit > 0) {
+    const requestedDates = activePickupDates_(order);
+    requestedDates.forEach(date => {
+      const count = existingOrders.filter(item => activePickupDates_(item).includes(date)).length;
+      if (count >= settings.dailyOrderLimit) {
+        throw new Error(`Termín ${formatDateForMessage_(date)} je již plně obsazený. Vyberte jiný termín.`);
+      }
+    });
   }
 
   const productList = readProductsBase_();

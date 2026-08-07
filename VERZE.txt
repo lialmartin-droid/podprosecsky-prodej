@@ -1,1 +1,13 @@
-V2.3.7 – kompletní audit a stabilizace objednávek
+V2.4.0 – kompletní opravy
+
+- Cache může nabídku rychle zobrazit, ale objednávku nelze odeslat, dokud server nepotvrdí aktuální ceny a dostupnost.
+- Běžné produkty nelze objednat nad dostupný sklad.
+- Vejce zůstávají plánovaná dopředu podle aktuálního skladu + denní snášky, takže lze objednat více, než je právě skladem.
+- Předobjednávky se dál řídí rezervační kapacitou.
+- Denní limit správně počítá oba termíny rozdělené objednávky a dokončená část už původní termín neblokuje.
+- Nastavení započítávání admin zařízení do návštěvnosti se po reloadu zachová.
+- Automatická kontrola den před vyzvednutím: zákazníkovi při volbě E-mail odejde připomínka a prodejci vždy přijde upozornění na podprosecskeprodukty@gmail.com. Při volbě SMS obsahuje upozornění připravený text SMS k ručnímu odeslání.
+- Verze frontendu i backendu sjednocena na V2.4.0.
+
+DŮLEŽITÉ PO NAHRÁNÍ NOVÉHO Code.gs:
+Jednou spusťte v editoru Apps Script funkci setupPickupReminderAutomation() a potvrďte oprávnění. Tím se vytvoří denní časový spouštěč kolem 8:00 Europe/Prague.
