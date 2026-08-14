@@ -8,7 +8,7 @@ window.addEventListener("load", () => {
   if (document.querySelector('script[data-pdp-admin-enhancements]')) return;
 
   const script = document.createElement("script");
-  script.src = "../assets/admin-enhancements.js?v=250-20260813";
+  script.src = "../assets/admin-enhancements.js?v=251-20260814";
   script.dataset.pdpAdminEnhancements = "1";
   document.body.appendChild(script);
 });

@@ -1,4 +1,4 @@
-// Admin v2.5 – samostatné statistiky produktů a návštěvnosti
+// Admin v2.5.1 – samostatné statistiky produktů a návštěvnosti + oprava načtení
 (() => {
   const money2 = value => `${Math.round(Number(value || 0))} Kč`;
   const esc2 = value => String(value ?? "")
@@ -48,10 +48,29 @@
       .recent-visits{display:grid;gap:8px}.recent-visit{display:grid;grid-template-columns:1fr auto;gap:10px;padding:10px 0;border-bottom:1px solid #eee5d8}
       .recent-visit small{display:block;color:#75695d}.analytics-note{font-size:13px;color:#75695d}
       .analytics-updated{font-size:12px;color:#75695d;margin-left:auto}
+      .tabs{
+        display:flex;
+        gap:6px;
+        overflow-x:auto;
+        overflow-y:hidden;
+        -webkit-overflow-scrolling:touch;
+        scrollbar-width:none;
+        scroll-snap-type:x proximity;
+        padding-bottom:4px;
+      }
+      .tabs::-webkit-scrollbar{display:none}
+      .tabs .tab{
+        flex:0 0 auto;
+        white-space:nowrap;
+        scroll-snap-align:start;
+        min-width:max-content;
+      }
       @media(max-width:760px){
         .analytics-grid{grid-template-columns:1fr}.pie-wrap{grid-template-columns:1fr;justify-items:center}
         .chart-row{grid-template-columns:minmax(90px,130px) 1fr auto}
         .analytics-toolbar label{min-width:calc(50% - 8px);flex:1}.analytics-updated{width:100%;margin-left:0}
+        .tabs{margin-left:-4px;margin-right:-4px;padding-left:4px;padding-right:4px}
+        .tabs .tab{font-size:15px;padding-left:12px;padding-right:12px}
       }
     `;
     document.head.appendChild(style);
@@ -82,9 +101,11 @@
     );
 
     const insights = document.getElementById("insightsTab");
+    const insightsButton = document.querySelector('[data-tab="insightsTab"]');
+    if (insightsButton) insightsButton.textContent = "Zákazníci";
     if (!insights) return;
     const h2 = insights.querySelector("h2");
-    if (h2) h2.textContent = "Statistiky prodeje a zákazníků";
+    if (h2) h2.textContent = "Zákazníci a tržby";
     insights.querySelector(".settings-note")?.classList.add("hidden");
     ["visitSummary", "visitSources", "topProducts"].forEach(id =>
       document.getElementById(id)?.closest("article")?.classList.add("hidden")
@@ -389,13 +410,28 @@
     };
   }
 
-  window.addEventListener("load", () => {
+  function initAdminEnhancements() {
     if (!document.getElementById("adminApp")) return;
+    if (window.__PDP_ADMIN_ENHANCEMENTS_V251__) return;
+    window.__PDP_ADMIN_ENHANCEMENTS_V251__ = true;
+
     injectStyles();
     cleanOldStats();
     buildPanels();
     wrapRenderInsights();
     renderProductAnalytics();
     renderVisitAnalytics();
-  });
+
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        setTimeout(() => tab.scrollIntoView({behavior:"smooth", block:"nearest", inline:"center"}), 0);
+      });
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initAdminEnhancements, { once: true });
+  } else {
+    setTimeout(initAdminEnhancements, 0);
+  }
 })();
