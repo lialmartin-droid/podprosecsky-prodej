@@ -1,4 +1,4 @@
-// Admin v2.6 – návštěvy s časem + sklad obalů na vejce
+// Admin v2.6.1 – oprava vypršení přihlášení + sklad + návštěvy
 (() => {
   const money2 = value => `${Math.round(Number(value || 0))} Kč`;
   const esc2 = value => String(value ?? "")
@@ -415,13 +415,35 @@
     movements: []
   };
 
+  function isExpiredSessionV261(result) {
+    const message = String(result && result.message || "");
+    return !result?.ok && /Přihlášení vypršelo|Přihlaste se znovu/i.test(message);
+  }
+
+  function handleExpiredSessionV261(result) {
+    if (!isExpiredSessionV261(result)) return false;
+    try { sessionStorage.removeItem("pdp-admin-token"); } catch (_) {}
+    try { token = ""; } catch (_) {}
+    if (typeof showLogin === "function") {
+      showLogin("Přihlášení vypršelo. Přihlaste se znovu.");
+    }
+    return true;
+  }
+
   function postPromiseV26(action, payload = {}) {
     return new Promise(resolve => {
       if (typeof post !== "function") {
         resolve({ ok:false, message:"Administrace není připravena." });
         return;
       }
-      post(action, payload, result => resolve(result || {ok:false}));
+      post(action, payload, result => {
+        const safeResult = result || {ok:false};
+        if (handleExpiredSessionV261(safeResult)) {
+          resolve(safeResult);
+          return;
+        }
+        resolve(safeResult);
+      });
     });
   }
 
@@ -445,6 +467,7 @@
   async function loadPackagingV26() {
     const result = await postPromiseV26("getPackagingData", {});
     if (!result.ok) {
+      if (isExpiredSessionV261(result)) return;
       const host = document.getElementById("packagingStockContent");
       if (host) host.innerHTML = `<div class="empty">${esc2(result.message || "Sklad obalů se nepodařilo načíst.")}</div>`;
       return;
