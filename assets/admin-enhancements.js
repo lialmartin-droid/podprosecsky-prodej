@@ -1,4 +1,4 @@
-// Admin v2.6.1 – oprava vypršení přihlášení + sklad + návštěvy
+// Admin v2.7 – návštěvníci, ruční jména, přesné návštěvy a sklad obalů
 (() => {
   const money2 = value => `${Math.round(Number(value || 0))} Kč`;
   const esc2 = value => String(value ?? "")
@@ -46,6 +46,9 @@
       .visit-kpi{padding:13px;border-radius:14px;border:1px solid #eadfca;background:#fffdf8}
       .visit-kpi span{font-size:12px;color:#75695d;display:block}.visit-kpi strong{font-size:23px}
       .recent-visits{display:grid;gap:8px}.recent-visit{display:grid;grid-template-columns:1fr auto;gap:10px;padding:10px 0;border-bottom:1px solid #eee5d8}
+      .recent-visit-main{min-width:0}.recent-visit-actions{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+      .visitor-identity{display:block;margin-top:4px;font-weight:700;color:#4c5f52}.visitor-identity.muted{font-weight:600;color:#8a7d70}
+      .visitor-label-button{border:1px solid #d8cbb7;background:#fff;border-radius:9px;padding:5px 8px;font-size:12px;cursor:pointer}
       .recent-visit small{display:block;color:#75695d}.analytics-note{font-size:13px;color:#75695d}
       .analytics-updated{font-size:12px;color:#75695d;margin-left:auto}
       .packaging-low{border-color:#d58d79;background:#fff6f2}
@@ -97,7 +100,10 @@
     document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x.dataset.tab === panelId));
     document.querySelectorAll(".tab-panel").forEach(x => x.classList.toggle("active", x.id === panelId));
     if (panelId === "productStatsTab") renderProductAnalytics();
-    if (panelId === "visitsTab") renderVisitAnalytics();
+    if (panelId === "visitsTab") {
+      renderVisitAnalytics();
+      loadRecentVisitsV26();
+    }
   }
 
   function cleanOldStats() {
@@ -392,13 +398,63 @@
       ? sources.map(s=>`<div class="rank-row"><span>${esc2(s.source)}</span><strong>${s.total || 0} <small>${s.unique || 0} unik.</small></strong></div>`).join("")
       : '<div class="empty">Zatím bez dat.</div>';
 
-    const recent = Array.isArray(window.PDP_RECENT_VISITS_V26) ? window.PDP_RECENT_VISITS_V26 : (Array.isArray(stats.recentVisits) ? stats.recentVisits : []);
-    document.getElementById("vaRecent").innerHTML = recent.length
-      ? recent.slice(0,30).map(v=>`
-        <div class="recent-visit"><div><strong>${esc2(formatVisitTimeV26(v.at || v.day || ""))}</strong>
-        <small>${esc2(v.source || "")} · ${esc2(v.path || "/")}</small></div>
-        <code>${esc2(String(v.visitorId || "").slice(-8))}</code></div>`).join("")
-      : '<div class="analytics-note">Souhrnné statistiky jsou funkční. Přesný seznam posledních návštěv vyžaduje ještě rozšíření Apps Script backendu.</div>';
+    const recent = Array.isArray(window.PDP_RECENT_VISITS_V26)
+      ? window.PDP_RECENT_VISITS_V26
+      : (Array.isArray(stats.recentVisits) ? stats.recentVisits : []);
+
+    const recentHost = document.getElementById("vaRecent");
+    recentHost.innerHTML = recent.length
+      ? recent.slice(0,30).map(v => {
+          const displayName = String(v.displayName || "");
+          const identityText = displayName
+            ? `👤 ${displayName}${v.orderNumber ? ` · ${v.orderNumber}` : ""}`
+            : "👤 Anonymní návštěvník";
+          const identityClass = displayName ? "visitor-identity" : "visitor-identity muted";
+          const buttonText = displayName ? "Upravit jméno" : "Pojmenovat";
+          return `
+            <div class="recent-visit">
+              <div class="recent-visit-main">
+                <strong>${esc2(formatVisitTimeV26(v.at || v.day || ""))}</strong>
+                <small>${esc2(v.source || "")} · ${esc2(v.path || "/")}</small>
+                <span class="${identityClass}">${esc2(identityText)}</span>
+              </div>
+              <div class="recent-visit-actions">
+                <button class="visitor-label-button" type="button"
+                  data-visitor-label="${esc2(v.visitorId || "")}"
+                  data-current-label="${esc2(v.manualLabel || v.displayName || "")}">${buttonText}</button>
+                <code>${esc2(String(v.visitorId || "").slice(-8))}</code>
+              </div>
+            </div>`;
+        }).join("")
+      : '<div class="analytics-note">Načítám poslední návštěvy…</div>';
+
+    recentHost.querySelectorAll("[data-visitor-label]").forEach(button => {
+      button.onclick = async () => {
+        const visitorId = String(button.dataset.visitorLabel || "");
+        if (!visitorId) return;
+        const current = String(button.dataset.currentLabel || "");
+        const label = prompt(
+          "Jméno návštěvníka. Prázdné pole odstraní ruční jméno a případně se znovu použije jméno z jeho objednávky.",
+          current
+        );
+        if (label === null) return;
+
+        button.disabled = true;
+        const result = await postPromiseV26("saveVisitorLabel", {
+          visitorId,
+          label: String(label).trim()
+        });
+        button.disabled = false;
+
+        if (!result.ok) {
+          if (!isExpiredSessionV261(result)) {
+            alert(result.message || "Jméno návštěvníka se nepodařilo uložit.");
+          }
+          return;
+        }
+        await loadRecentVisitsV26();
+      };
+    });
 
     const now = new Date();
     document.getElementById("vaUpdated").textContent =
@@ -407,7 +463,7 @@
   }
 
 
-  // ---------- V2.6: přesné návštěvy + sklad obalů ----------
+  // ---------- V2.7: přesné návštěvy + sklad obalů ----------
   let packagingV26 = {
     items: [],
     orderSelections: {},
@@ -450,7 +506,11 @@
   function formatVisitTimeV26(value) {
     if (!value) return "";
     const text = String(value);
-    const d = new Date(text.length === 19 && !/[zZ]|[+-]\d\d:\d\d$/.test(text) ? text : value);
+    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/);
+    if (match) {
+      return `${Number(match[3])}. ${Number(match[2])}. ${match[1]} ${match[4]}:${match[5]}:${match[6]}`;
+    }
+    const d = new Date(value);
     if (!Number.isNaN(d.getTime())) {
       return d.toLocaleString("cs-CZ", {dateStyle:"short", timeStyle:"medium"});
     }
@@ -661,7 +721,7 @@
             </div>`).join("")}
         </div>
         ${Object.keys(consumed).length ? `<div class="meta">✅ Ze skladu již odečteno: ${esc2(JSON.stringify(consumed))}</div>` : ""}
-        <div class="meta">Výběr se ukládá automaticky. Při stavu <strong>Připraveno</strong> se obaly odečtou pouze jednou.</div>`;
+        <div class="meta">Výběr se ukládá automaticky. Při stavu <strong>Připraveno</strong> se obaly odečtou pouze jednou. Při vrácení stavu zpět se vrátí i do skladu.</div>`;
 
       const formGrid = editor.querySelector(".form-grid");
       if (formGrid) {
@@ -738,11 +798,12 @@
 
         originalSaveOrder(order);
 
-        // Post fronta zajistí, že tento požadavek jde až po uložení stavu objednávky.
-        if (orderNeedsPackagingV26(order) && ["Připraveno","Vyzvednuto"].includes(String(status || ""))) {
+        // Po každé změně stavu vajec srovnáme sklad obalů.
+        // Připraveno/Vyzvednuto = odečíst, návrat na nižší stav = vrátit.
+        if (orderNeedsPackagingV26(order)) {
           post("consumePackagingForOrder", {orderId:order.id}, result => {
             if (!result.ok) {
-              alert(result.message || "Obaly se nepodařilo odečíst ze skladu.");
+              alert(result.message || "Sklad obalů se nepodařilo srovnat s objednávkou.");
               return;
             }
             loadPackagingV26();
@@ -752,6 +813,19 @@
     }
   }
 
+
+  function wrapApplyAdminDataV270() {
+    if (typeof applyAdminData !== "function" || window.__PDP_APPLY_ADMIN_DATA_V270__) return;
+    window.__PDP_APPLY_ADMIN_DATA_V270__ = true;
+    const originalApplyAdminData = applyAdminData;
+    applyAdminData = function(data, saveCache = true) {
+      originalApplyAdminData(data, saveCache);
+      setTimeout(() => {
+        loadRecentVisitsV26();
+        loadPackagingV26();
+      }, 0);
+    };
+  }
 
   function wrapRenderInsights() {
     if (typeof renderInsights !== "function") return;
@@ -765,14 +839,15 @@
 
   function initAdminEnhancements() {
     if (!document.getElementById("adminApp")) return;
-    if (window.__PDP_ADMIN_ENHANCEMENTS_V251__) return;
-    window.__PDP_ADMIN_ENHANCEMENTS_V251__ = true;
+    if (window.__PDP_ADMIN_ENHANCEMENTS_V270__) return;
+    window.__PDP_ADMIN_ENHANCEMENTS_V270__ = true;
 
     injectStyles();
     cleanOldStats();
     buildPanels();
     addPackagingTabV26();
     wrapOrdersForPackagingV26();
+    wrapApplyAdminDataV270();
     wrapRenderInsights();
     renderProductAnalytics();
     renderVisitAnalytics();
