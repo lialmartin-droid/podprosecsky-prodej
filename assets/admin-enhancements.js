@@ -5,6 +5,8 @@
     .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   const COLORS = ["#2f7d55", "#d99a3e", "#5b7fa3", "#a66b7c", "#7c8d45", "#8b6f47", "#6d6aa8", "#b86e3c", "#4f8c8b", "#9b7b9d"];
+  let recentVisitsLoadedV26 = false;
+  let packagingLoadedV26 = false;
 
   function dateKey(value) {
     if (!value) return "";
@@ -102,8 +104,9 @@
     if (panelId === "productStatsTab") renderProductAnalytics();
     if (panelId === "visitsTab") {
       renderVisitAnalytics();
-      loadRecentVisitsV26();
+      loadRecentVisitsV26(true);
     }
+    if (panelId === "packagingTab") loadPackagingV26();
   }
 
   function cleanOldStats() {
@@ -202,9 +205,8 @@
       document.getElementById(id)?.addEventListener("change", renderVisitAnalytics)
     );
     document.getElementById("visitRefresh")?.addEventListener("click", () => {
-      if (typeof loadData === "function") loadData(true);
-      loadRecentVisitsV26();
-      setTimeout(renderVisitAnalytics, 700);
+      loadRecentVisitsV26(true);
+      setTimeout(renderVisitAnalytics, 300);
     });
 
     const toggle = document.getElementById("excludeMyVisitsV25");
@@ -452,7 +454,7 @@
           }
           return;
         }
-        await loadRecentVisitsV26();
+        await loadRecentVisitsV26(true);
       };
     });
 
@@ -517,14 +519,20 @@
     return text.replace("T", " ");
   }
 
-  async function loadRecentVisitsV26() {
+  async function loadRecentVisitsV26(force = false) {
+    if (recentVisitsLoadedV26 && !force) return;
     const result = await postPromiseV26("getRecentVisits", {limit:100});
     if (!result.ok) return;
+    recentVisitsLoadedV26 = true;
     window.PDP_RECENT_VISITS_V26 = Array.isArray(result.recentVisits) ? result.recentVisits : [];
     renderVisitAnalytics();
   }
 
-  async function loadPackagingV26() {
+  async function loadPackagingV26(force = false) {
+    if (packagingLoadedV26 && !force) {
+      injectPackagingIntoOrdersV26();
+      return;
+    }
     const result = await postPromiseV26("getPackagingData", {});
     if (!result.ok) {
       if (isExpiredSessionV261(result)) return;
@@ -532,6 +540,7 @@
       if (host) host.innerHTML = `<div class="empty">${esc2(result.message || "Sklad obalů se nepodařilo načíst.")}</div>`;
       return;
     }
+    packagingLoadedV26 = true;
     packagingV26 = {
       items: Array.isArray(result.items) ? result.items : [],
       orderSelections: result.orderSelections || {},
@@ -566,7 +575,7 @@
       </article>`;
     main.insertBefore(panel, settings);
     addTab("Sklad", "packagingTab");
-    document.getElementById("packagingRefresh")?.addEventListener("click", loadPackagingV26);
+    document.getElementById("packagingRefresh")?.addEventListener("click", () => loadPackagingV26(true));
   }
 
   function packagingCapacityTextV26(item) {
@@ -637,7 +646,7 @@
         const result = await postPromiseV26("savePackagingItem", {id, stock, minimum});
         button.disabled = false;
         if (!result.ok) return alert(result.message || "Sklad se nepodařilo uložit.");
-        await loadPackagingV26();
+        await loadPackagingV26(true);
       };
     });
 
@@ -651,7 +660,7 @@
         });
         button.disabled = false;
         if (!result.ok) return alert(result.message || "Příjem se nepodařilo uložit.");
-        await loadPackagingV26();
+        await loadPackagingV26(true);
       };
     });
   }
@@ -788,28 +797,36 @@
     if (typeof saveOrder === "function" && !window.__PDP_SAVE_ORDER_PACK_V26__) {
       window.__PDP_SAVE_ORDER_PACK_V26__ = true;
       const originalSaveOrder = saveOrder;
-      saveOrder = function(order) {
+      saveOrder = function(order, button = null) {
         const status = order?.splitOrder ? order.regularStatus : order?.status;
         if (orderNeedsPackagingV26(order) && ["Připraveno","Vyzvednuto"].includes(String(status || "")) && !packagingSelectionCompleteV26(order.id)) {
           alert("Nejdříve u objednávky vyberte obal, nebo označte „Vlastní obal zákazníka / bez obalu“.");
           renderOrders();
+          return Promise.resolve({ok:false, message:"Chybí výběr obalu."});
+        }
+        return originalSaveOrder(order, button);
+      };
+
+      window.addEventListener("pdp:order-saved", async event => {
+        const order = event.detail?.order;
+        if (!orderNeedsPackagingV26(order)) return;
+
+        // Sklad se srovná až po potvrzeném uložení objednávky.
+        const result = await postPromiseV26("consumePackagingForOrder", {orderId:order.id});
+        if (!result.ok) {
+          alert(result.message || "Objednávka byla uložena, ale sklad obalů se nepodařilo srovnat.");
           return;
         }
 
-        originalSaveOrder(order);
-
-        // Po každé změně stavu vajec srovnáme sklad obalů.
-        // Připraveno/Vyzvednuto = odečíst, návrat na nižší stav = vrátit.
-        if (orderNeedsPackagingV26(order)) {
-          post("consumePackagingForOrder", {orderId:order.id}, result => {
-            if (!result.ok) {
-              alert(result.message || "Sklad obalů se nepodařilo srovnat s objednávkou.");
-              return;
-            }
-            loadPackagingV26();
-          });
+        if (result.items) {
+          packagingV26.items = result.items;
+          packagingLoadedV26 = true;
         }
-      };
+        packagingV26.orderConsumed[String(order.id)] =
+          result.consumed && typeof result.consumed === "object" ? result.consumed : {};
+        renderPackagingStockV26();
+        injectPackagingIntoOrdersV26();
+      });
     }
   }
 
@@ -821,7 +838,6 @@
     applyAdminData = function(data, saveCache = true) {
       originalApplyAdminData(data, saveCache);
       setTimeout(() => {
-        loadRecentVisitsV26();
         loadPackagingV26();
       }, 0);
     };
@@ -851,7 +867,6 @@
     wrapRenderInsights();
     renderProductAnalytics();
     renderVisitAnalytics();
-    loadRecentVisitsV26();
     loadPackagingV26();
 
     document.querySelectorAll(".tab").forEach(tab => {
@@ -867,3 +882,4 @@
     setTimeout(initAdminEnhancements, 0);
   }
 })();
+

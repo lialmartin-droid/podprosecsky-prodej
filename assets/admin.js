@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "2.4.0";
-console.info("Podprosečské produkty – admin.js V2.4.0 – návštěvnost a automatické připomínky");
+window.PDP_ADMIN_VERSION = "2.8.0";
+console.info("Podprosečské produkty – admin.js V2.8.0 – rychlé změny objednávek");
 
 let products = [];
 let orders = [];
@@ -16,6 +16,7 @@ const ADMIN_CACHE_KEY = "pdp-admin-data-v2";
 const ADMIN_VISIT_EXCLUDE_KEY = "pdp-admin-exclude-visits";
 const ADMIN_VISIT_EXCLUDE_PREF_KEY = "pdp-admin-exclude-pref-v1";
 const ADMIN_VISIT_EXCLUDE_COOKIE = "pdp_admin_exclude_visits";
+const ADMIN_VISIT_EXCLUSION_SYNCED_KEY = "pdp-admin-exclusion-synced-v1";
 const VISITOR_ID_KEY = "pdp-visitor-id-v1";
 const ADMIN_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
@@ -107,10 +108,15 @@ function markThisDeviceAsAdminVisitor(syncBackend = false) {
   setAdminVisitExclusionCookie(excluded);
   updateVisitExclusionUi();
   if (syncBackend && token) {
+    let alreadySynced = false;
+    try { alreadySynced = localStorage.getItem(ADMIN_VISIT_EXCLUSION_SYNCED_KEY) === "1"; } catch (_) {}
+    if (alreadySynced) return;
+
     const visitorId = adminVisitorId();
     if (visitorId) {
       post("setVisitExclusion", { visitorId, excluded, removeExisting: excluded }, data => {
         if (data && data.ok) {
+          try { localStorage.setItem(ADMIN_VISIT_EXCLUSION_SYNCED_KEY, "1"); } catch (_) {}
           visitStats = data.visitStats || visitStats;
           updateVisitExclusionUi(excluded
             ? "Toto zařízení je vyloučeno. Jeho dřívější testovací návštěvy byly odstraněny."
@@ -690,6 +696,21 @@ function statusOptions(selected) {
     .join("");
 }
 
+function statusBadgeClass(status) {
+  return {
+    "Nová": "blue",
+    "Připravuji": "orange",
+    "Připraveno": "green",
+    "Vyzvednuto": "gray",
+    "Zrušeno": "red"
+  }[String(status || "Nová")] || "gray";
+}
+
+function statusBadge(status) {
+  const value = String(status || "Nová");
+  return `<span class="badge ${statusBadgeClass(value)}">${esc(value)}</span>`;
+}
+
 function emailSubjectForOrder(order) {
   const subjects = [];
   (order.items || []).forEach(item => {
@@ -723,9 +744,9 @@ function renderOrders() {
       </div>
       <div class="item-list">${itemHtml(order)}</div>
       ${order.note ? `<div class="meta">Poznámka zákazníka: ${esc(order.note)}</div>` : ""}${order.internalNote ? `<div class="meta"><strong>Interní poznámka:</strong> ${esc(order.internalNote)}</div>` : ""}
-      ${order.splitOrder ? `<div class="split-parts"><div class="split-part"><strong>1. Dostupné produkty</strong><div class="meta">${esc(localDate(order.pickup))}</div><select class="status-select" data-regular-status="${esc(order.id)}">${statusOptions(order.regularStatus || order.status)}</select></div><div class="split-part"><strong>2. Předobjednané produkty</strong><div class="meta">${esc(localDate(order.preorderPickup))}</div><select class="status-select" data-preorder-status="${esc(order.id)}">${statusOptions(order.preorderStatus || "Nová")}</select></div></div>` : ""}
+      ${order.splitOrder ? `<div class="split-parts"><div class="split-part"><strong>1. Dostupné produkty</strong><div class="meta">${esc(localDate(order.pickup))}</div>${statusBadge(order.regularStatus || order.status)}</div><div class="split-part"><strong>2. Předobjednané produkty</strong><div class="meta">${esc(localDate(order.preorderPickup))}</div>${statusBadge(order.preorderStatus || "Nová")}</div></div>` : ""}
       <div class="card-bottom">
-        ${order.splitOrder ? "" : `<select class="status-select" data-status="${esc(order.id)}">${statusOptions(order.status)}</select>`}
+        ${order.splitOrder ? "" : statusBadge(order.status)}
         <div class="actions">
           ${overdueOrderParts(order).length ? `<button class="reminder-button" data-remind-order="${esc(order.id)}">Připomenout</button>` : ""}
           <button class="secondary-button" data-edit-order="${esc(order.id)}">Upravit</button>
@@ -753,22 +774,6 @@ function renderOrders() {
         <div class="actions"><button class="primary-small" data-save-order="${esc(order.id)}">Uložit změny</button><button class="secondary-button" data-preview-ready="${esc(order.id)}">Náhled e-mailu</button><button class="secondary-button" data-resend-ready="${esc(order.id)}" data-part="regular">Odeslat znovu 1. část</button>${order.splitOrder ? `<button class="secondary-button" data-resend-ready="${esc(order.id)}" data-part="preorder">Odeslat znovu 2. část</button>` : ""}</div>
       </div>
     </article>`).join("") : '<div class="empty">Žádné objednávky.</div>';
-
-  document.querySelectorAll("[data-status]").forEach(select => {
-    select.onchange = () => {
-      const order = orders.find(item => item.id === select.dataset.status);
-      order.status = select.value;
-      saveOrder(order);
-    };
-  });
-
-  document.querySelectorAll("[data-regular-status]").forEach(select => {
-    select.onchange = () => { const order = orders.find(item => item.id === select.dataset.regularStatus); order.regularStatus = select.value; saveOrder(order); };
-  });
-  document.querySelectorAll("[data-preorder-status]").forEach(select => {
-    select.onchange = () => { const order = orders.find(item => item.id === select.dataset.preorderStatus); order.preorderStatus = select.value; saveOrder(order); };
-  });
-
 
   document.querySelectorAll("[data-remind-order]").forEach(button => {
     button.onclick = () => {
@@ -805,7 +810,9 @@ function renderOrders() {
   document.querySelectorAll("[data-save-order]").forEach(button => {
     button.onclick = () => {
       const id = button.dataset.saveOrder;
-      const order = orders.find(item => item.id === id);
+      const currentOrder = orders.find(item => item.id === id);
+      if (!currentOrder) return alert("Objednávka nebyla nalezena.");
+      const order = { ...currentOrder };
       order.name = document.querySelector(dataSelector("on", id)).value;
       order.phone = document.querySelector(dataSelector("op", id)).value;
       order.email = document.querySelector(dataSelector("oe", id)).value;
@@ -824,7 +831,7 @@ function renderOrders() {
         const quantity = Number(document.querySelector(dataSelector("oi", `${id}-${product.id}`)).value) || 0;
         return { productId: String(product.id), name: product.name, qty: quantity, price: product.price };
       }).filter(item => item.qty > 0);
-      saveOrder(order);
+      saveOrder(order, button);
     };
   });
 
@@ -851,8 +858,63 @@ function renderOrders() {
   });
 }
 
-function saveOrder(order) {
-  post("saveOrder", { order }, data => data.ok ? loadData() : alert(data.message));
+function currentAdminState() {
+  return {
+    products,
+    orders,
+    eggSettings,
+    eggAvailability,
+    businessSettings,
+    visitStats
+  };
+}
+
+function saveOrder(order, button = null) {
+  const originalText = button?.textContent || "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Ukládám…";
+  }
+
+  return new Promise(resolve => {
+    post("saveOrder", { order }, data => {
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+      if (!data.ok) {
+        alert(data.message);
+        resolve(data);
+        return;
+      }
+
+      const index = orders.findIndex(item => String(item.id) === String(order.id));
+      const savedOrder = {
+        ...(index >= 0 ? orders[index] : {}),
+        ...order,
+        ...(data.order && typeof data.order === "object" ? data.order : {}),
+        id: String(data.id || order.id),
+        orderNumber: String(data.orderNumber || order.orderNumber || order.id)
+      };
+      if (index >= 0) orders.splice(index, 1, savedOrder);
+      else orders.unshift(savedOrder);
+
+      saveAdminCache(currentAdminState());
+      renderAll();
+      setAdminRefreshState(data.message || "Objednávka byla upravena.");
+      window.setTimeout(() => {
+        const state = document.getElementById("adminRefreshState");
+        if (state && state.textContent === (data.message || "Objednávka byla upravena.")) {
+          setAdminRefreshState("");
+        }
+      }, 2500);
+
+      window.dispatchEvent(new CustomEvent("pdp:order-saved", {
+        detail: { order: savedOrder, response: data }
+      }));
+      resolve(data);
+    });
+  });
 }
 
 function renderCalendar() {
@@ -1302,6 +1364,7 @@ if (excludeMyVisits) {
         updateVisitExclusionUi(data.message || "Nastavení se nepodařilo uložit.");
         return;
       }
+      try { localStorage.setItem(ADMIN_VISIT_EXCLUSION_SYNCED_KEY, "1"); } catch (_) {}
       visitStats = data.visitStats || visitStats;
       updateVisitExclusionUi(excluded
         ? "Toto zařízení je vyloučeno. Jeho dřívější návštěvy byly odstraněny."
@@ -1323,3 +1386,4 @@ if (token) {
 } else {
   showLogin();
 }
+

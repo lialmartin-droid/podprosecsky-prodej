@@ -328,13 +328,29 @@ function consumePackagingForOrderV26_(payload) {
     return htmlResponse_(true, 'Objednávka neobsahuje vejce.', orderId, {});
   }
 
-  // Pokud uložení stavu objednávky neproběhlo, nic neodečítáme.
-  if (!orderPackagingReadyV26_(order)) {
-    return htmlResponse_(true, 'Objednávka ještě není ve stavu Připraveno.', orderId, {consumed:false});
-  }
-
   const source = readPackagingOrderRowsV26_();
   const existing = source.map[orderId];
+
+  // Při návratu objednávky z Připraveno/Vyzvednuto obaly automaticky vrátíme.
+  if (!orderPackagingReadyV26_(order)) {
+    if (!existing) {
+      return htmlResponse_(true, 'Objednávka ještě není ve stavu Připraveno.', orderId, {
+        consumed:{},
+        items:readPackagingItemsV26_()
+      });
+    }
+
+    let consumed = existing.consumed || {};
+    if (Object.keys(consumed).length) {
+      consumed = reconcilePackagingForOrderV26_(orderId, {own:true, quantities:{}}, consumed);
+      writePackagingOrderV26_(orderId, existing.selection || {}, consumed);
+    }
+    return htmlResponse_(true, 'Objednávka ještě není ve stavu Připraveno.', orderId, {
+      consumed:consumed,
+      items:readPackagingItemsV26_()
+    });
+  }
+
   if (!existing) throw new Error('Nejdříve vyberte obal u objednávky.');
 
   const selection = existing.selection || {};
@@ -399,3 +415,4 @@ function getRecentVisitsV26_(payload) {
     recentVisits:visits
   });
 }
+

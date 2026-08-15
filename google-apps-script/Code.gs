@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V2.4.0
+ * Podprosečské domácí produkty — sdílený backend V2.8.0
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -22,7 +22,8 @@ const CONFIG = Object.freeze({
   DEFAULT_EGG_PLANNING_DAYS: 60,
   MAX_IMAGE_BYTES: 1600000,
   PRODUCT_IMAGES_FOLDER: 'Podprosecske_produkty_obrazky',
-  PUBLIC_CACHE_SECONDS: 300
+  PUBLIC_CACHE_SECONDS: 300,
+  VISIT_STATS_CACHE_SECONDS: 60
 });
 
 function setup() {
@@ -132,6 +133,14 @@ function publicPayloadCacheKey_() {
 
 function invalidatePublicPayloadCache_() {
   try { CacheService.getScriptCache().remove(publicPayloadCacheKey_()); } catch (error) { console.error('Vymazání veřejné cache selhalo.', error); }
+}
+
+function visitStatsCacheKey_() {
+  return 'visit-stats-v280';
+}
+
+function invalidateVisitStatsCache_() {
+  try { CacheService.getScriptCache().remove(visitStatsCacheKey_()); } catch (error) { console.error('Vymazání cache návštěvnosti selhalo.', error); }
 }
 
 function refreshPublicPayloadCache_() {
@@ -258,7 +267,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '2.4.0',
+      version: '2.8.0',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -307,6 +316,10 @@ function doPost(e) {
     if (action === 'resendReadyEmail') return resendReadyEmail_(payload);
     if (action === 'sendPickupReminder') return sendPickupReminder_(payload);
     if (action === 'setVisitExclusion') return withMutationLock_(() => setVisitExclusion_(payload), 10000);
+
+    // Volitelné rozšíření V2.6+ (sklad obalů a přesné návštěvy).
+    const extensionResult = typeof handleV26Action_ === 'function' ? handleV26Action_(action, payload) : null;
+    if (extensionResult) return extensionResult;
 
     throw new Error('Neznámá operace.');
   } catch (error) {
@@ -362,6 +375,7 @@ function trackVisit_(payload) {
   const sheet = getOrCreateSheet_(CONFIG.VISITS_SHEET);
   formatVisitsSheet_(sheet);
   sheet.appendRow([new Date(), todayKey_(), safeSheetText_(visitorId), safeSheetText_(source), safeSheetText_(path), safeSheetText_(title)]);
+  invalidateVisitStatsCache_();
 
   return { ok: true, tracked: true };
 }
@@ -415,6 +429,7 @@ function setVisitExclusion_(payload) {
   if (excluded && toBool_(payload && payload.removeExisting)) {
     removed = removeVisitsForVisitor_(visitorId);
   }
+  invalidateVisitStatsCache_();
 
   return htmlResponse_(true,
     excluded ? 'Zařízení bylo vyloučeno z návštěvnosti.' : 'Zařízení se bude znovu započítávat.',
@@ -439,6 +454,24 @@ function readVisits_() {
 }
 
 function buildVisitStats_() {
+  const cache = CacheService.getScriptCache();
+  try {
+    const cached = cache.get(visitStatsCacheKey_());
+    if (cached) return JSON.parse(cached);
+  } catch (error) {
+    console.error('Načtení cache návštěvnosti selhalo.', error);
+  }
+
+  const result = calculateVisitStats_();
+  try {
+    cache.put(visitStatsCacheKey_(), JSON.stringify(result), CONFIG.VISIT_STATS_CACHE_SECONDS);
+  } catch (error) {
+    console.error('Uložení cache návštěvnosti selhalo.', error);
+  }
+  return result;
+}
+
+function calculateVisitStats_() {
   const visits = readVisits_();
   const today = todayKey_();
   const start30 = addDaysKey_(today, -29);
@@ -944,7 +977,13 @@ function saveOrder_(payload, skipPublicRefresh) {
     }
   }
 
-  return htmlResponse_(true, 'Objednávka byla upravena.' + (warnings.length ? ' ' + warnings.join(' ') : ''), result.id, {});
+  return htmlResponse_(true, 'Objednávka byla upravena.' + (warnings.length ? ' ' + warnings.join(' ') : ''), result.id, {
+    order: Object.assign({}, result.order, {
+      id: result.id,
+      orderNumber: result.orderNumber
+    }),
+    orderNumber: result.orderNumber
+  });
 }
 
 function deleteOrder_(payload) {
@@ -2426,3 +2465,4 @@ function escapeHtml_(value) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+

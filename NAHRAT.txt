@@ -1,0 +1,28 @@
+PODPROSEČSKÉ DOMÁCÍ PRODUKTY – V2.8.0
+
+ZMĚNĚNÉ SOUBORY NA GITHUBU
+
+Nahraďte stejnojmenné soubory ve stejných složkách:
+
+1. admin/index.html
+2. assets/admin.js
+3. assets/admin-enhancements.js
+4. assets/config.js
+5. VERZE.txt
+
+GOOGLE APPS SCRIPT
+
+6. Obsah google-apps-script/Code.gs vložte jako celý obsah hlavního souboru Code.gs.
+7. Obsah google-apps-script/Code_V2_6_ADDON.gs vložte jako celý obsah souboru s doplňkem V2.6.
+8. V Apps Scriptu vytvořte nové nasazení webové aplikace nebo novou verzi stávajícího nasazení.
+
+Co se změnilo:
+
+- V přehledu objednávek je stav pouze barevně zobrazený.
+- Stav se mění až po otevření tlačítka Upravit.
+- Uložení objednávky už znovu nestahuje celou administraci.
+- Návštěvnost se načítá až při otevření její záložky.
+- Sklad obalů se srovnává až po úspěšném uložení objednávky.
+- Při vrácení stavu se dříve odečtené obaly vrátí.
+
+Po nahrání stačí stránku znovu otevřít. Verze souborů v HTML je změněná, takže prohlížeč má načíst nové skripty.
