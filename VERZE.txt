@@ -1,3 +1,23 @@
+V2.8.3 – VÝBĚR IKONY PRODUKTU
+
+- Při vytváření i úpravě produktu je nově nabídka ikon na jedno kliknutí.
+- Nabídka obsahuje vejce, med, svíčku, bylinky, levanduli, koření, čaj a další běžné typy produktů.
+- Nadále lze ručně zadat libovolnou vlastní ikonu.
+- Vybraná ikona se automaticky používá na kartách všech objednávek, včetně starších objednávek daného produktu.
+
+V2.8.2 – VŠECHNY POLOŽKY NA KARTĚ OBJEDNÁVKY
+
+- Horní štítky objednávky už nezobrazují pouze počet vajec.
+- Každá objednaná položka má vlastní rychle rozpoznatelnou ikonu a počet.
+- Objednávka se 4 medy a 60 vejci například ukáže „🍯 4×“ a „🥚 60 ks“.
+
+V2.8.1 – OKAMŽITÉ ULOŽENÍ STAVU
+
+- Uložení změny objednávky už nečeká na odeslání zákaznického e-mailu.
+- E-maily o připravené nebo zrušené objednávce se zařadí do fronty a odešlou na pozadí obvykle do jedné minuty.
+- Neúspěšné odeslání se automaticky zopakuje až třikrát.
+- Fronta před odesláním znovu zkontroluje aktuální stav objednávky, aby neposlala zastaralou zprávu.
+
 V2.8.0 – RYCHLEJŠÍ OBJEDNÁVKY
 
 - Přehled objednávek už stav nemění; zobrazuje pouze barevný stavový štítek.
@@ -23,4 +43,3 @@ V2.4.0 – kompletní opravy
 
 DŮLEŽITÉ PO NAHRÁNÍ NOVÉHO Code.gs:
 Jednou spusťte v editoru Apps Script funkci setupPickupReminderAutomation() a potvrďte oprávnění. Tím se vytvoří denní časový spouštěč kolem 8:00 Europe/Prague.
-

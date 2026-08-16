@@ -1,28 +1,20 @@
-PODPROSEČSKÉ DOMÁCÍ PRODUKTY – V2.8.0
+PODPROSEČSKÉ DOMÁCÍ PRODUKTY – V2.8.3
 
-ZMĚNĚNÉ SOUBORY NA GITHUBU
+IKONY PRODUKTŮ V OBJEDNÁVKÁCH A JEJICH VÝBĚR
 
-Nahraďte stejnojmenné soubory ve stejných složkách:
+Na GitHub nahraďte tyto tři soubory:
 
 1. admin/index.html
 2. assets/admin.js
-3. assets/admin-enhancements.js
-4. assets/config.js
-5. VERZE.txt
+3. assets/style.css
 
-GOOGLE APPS SCRIPT
+Google Apps Script kvůli této úpravě neměňte.
 
-6. Obsah google-apps-script/Code.gs vložte jako celý obsah hlavního souboru Code.gs.
-7. Obsah google-apps-script/Code_V2_6_ADDON.gs vložte jako celý obsah souboru s doplňkem V2.6.
-8. V Apps Scriptu vytvořte nové nasazení webové aplikace nebo novou verzi stávajícího nasazení.
+Po nahrání znovu otevřete administraci. Nové číslo souboru obejde starou cache prohlížeče.
 
-Co se změnilo:
+Co se změní:
 
-- V přehledu objednávek je stav pouze barevně zobrazený.
-- Stav se mění až po otevření tlačítka Upravit.
-- Uložení objednávky už znovu nestahuje celou administraci.
-- Návštěvnost se načítá až při otevření její záložky.
-- Sklad obalů se srovnává až po úspěšném uložení objednávky.
-- Při vrácení stavu se dříve odečtené obaly vrátí.
-
-Po nahrání stačí stránku znovu otevřít. Verze souborů v HTML je změněná, takže prohlížeč má načíst nové skripty.
+- Na kartě objednávky budou nahoře vidět všechny produkty, například 🍯 4× a 🥚 60 ks.
+- Při vytváření i úpravě produktu lze ikonu vybrat kliknutím.
+- U svíček vyberte 🕯️ a u budoucích produktů příslušnou ikonu.
+- Vlastní ikonu lze stále ručně napsat do políčka.
