@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "2.8.0";
-console.info("Podprosečské produkty – admin.js V2.8.0 – rychlé změny objednávek");
+window.PDP_ADMIN_VERSION = "2.8.3";
+console.info("Podprosečské produkty – admin.js V2.8.3 – výběr ikon produktů");
 
 let products = [];
 let orders = [];
@@ -599,6 +599,84 @@ function productById(id) {
   return products.find(product => String(product.id) === String(id));
 }
 
+const PRODUCT_EMOJI_CHOICES = [
+  { emoji: "📦", label: "Obecný produkt" },
+  { emoji: "🥚", label: "Vejce" },
+  { emoji: "🍯", label: "Med" },
+  { emoji: "🕯️", label: "Svíčka" },
+  { emoji: "🌿", label: "Bylinky" },
+  { emoji: "🪻", label: "Levandule" },
+  { emoji: "🌶️", label: "Koření" },
+  { emoji: "🧂", label: "Dochucovadlo" },
+  { emoji: "🍵", label: "Čaj" },
+  { emoji: "🫙", label: "Sklenice" },
+  { emoji: "🐝", label: "Včelí produkt" },
+  { emoji: "🐔", label: "Slepičí produkt" },
+  { emoji: "🌻", label: "Květiny" },
+  { emoji: "🍎", label: "Ovoce" },
+  { emoji: "🥕", label: "Zelenina" },
+  { emoji: "🎄", label: "Vánoční produkt" },
+  { emoji: "🎁", label: "Dárek" }
+];
+
+function enhanceProductEmojiInput(input) {
+  if (!input || input.dataset.emojiPickerReady === "1") return;
+  input.dataset.emojiPickerReady = "1";
+  input.maxLength = 10;
+  input.autocomplete = "off";
+
+  const picker = document.createElement("div");
+  picker.className = "product-emoji-picker";
+  picker.setAttribute("role", "group");
+  picker.setAttribute("aria-label", "Výběr ikony produktu");
+  picker.innerHTML = PRODUCT_EMOJI_CHOICES.map(choice => `
+    <button class="product-emoji-option" type="button" data-product-emoji="${esc(choice.emoji)}" title="${esc(choice.label)}" aria-label="${esc(choice.label)}">${esc(choice.emoji)}</button>
+  `).join("");
+
+  const hint = document.createElement("small");
+  hint.className = "product-emoji-hint";
+  hint.textContent = "Klikněte na ikonu, nebo do políčka napište libovolnou vlastní.";
+  input.insertAdjacentElement("afterend", picker);
+  picker.insertAdjacentElement("afterend", hint);
+
+  const syncSelectedEmoji = () => {
+    const selected = String(input.value || "").trim();
+    picker.querySelectorAll("[data-product-emoji]").forEach(button => {
+      const active = button.dataset.productEmoji === selected;
+      button.classList.toggle("selected", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  };
+
+  picker.querySelectorAll("[data-product-emoji]").forEach(button => {
+    button.onclick = () => {
+      input.value = button.dataset.productEmoji || "📦";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      syncSelectedEmoji();
+    };
+  });
+  input.addEventListener("input", syncSelectedEmoji);
+  syncSelectedEmoji();
+}
+
+function bindProductEmojiPickers(root = document) {
+  root.querySelectorAll("#newProductEmoji, [data-pem]").forEach(enhanceProductEmojiInput);
+}
+
+function orderItemBadges(order) {
+  return (order.items || [])
+    .filter(item => Number(item.qty || 0) > 0)
+    .map(item => {
+      const product = productById(item.productId);
+      const name = String(item.name || product?.name || "Produkt");
+      const emoji = String(product?.emoji || item.emoji || (/vejce/i.test(name) ? "🥚" : /med/i.test(name) ? "🍯" : "📦"));
+      const quantity = Number(item.qty || 0);
+      const amount = String(item.productId) === "2" ? `${quantity} ks` : `${quantity}×`;
+      return `<span class="badge green" title="${esc(name)}">${esc(emoji)} ${esc(amount)}</span>`;
+    })
+    .join("");
+}
+
 function orderRevenueEntries(order) {
   if (!order) return [];
 
@@ -735,7 +813,7 @@ function renderOrders() {
           <div class="meta">${esc(order.created)} · ${order.contactMethod === "E-mail" ? "✉️ E-mail" : "📱 SMS"} · ${esc(order.phone || "bez telefonu")}${order.email ? ` · ${esc(order.email)}` : ""}</div>
           <div class="badges">
             <span class="badge blue">${esc(localDate(order.pickup))}</span>
-            ${eggQty(order) ? `<span class="badge green">🥚 ${eggQty(order)} ks</span>` : ""}
+            ${orderItemBadges(order)}
             ${archived(order) ? '<span class="badge gray">Archiv</span>' : ""}
             ${overdueOrderParts(order).map(part => `<span class="badge red">⚠️ ${esc(overdueBadgeText(part))}</span>`).join("")}
           </div>
@@ -957,7 +1035,7 @@ function renderProducts() {
       <div id="pe${esc(product.id)}" class="editor">
         <div class="form-grid">
           <label><span>Název</span><input data-pn="${esc(product.id)}" value="${esc(product.name)}"></label>
-          <label><span>Emoji</span><input data-pem="${esc(product.id)}" value="${esc(product.emoji)}"></label>
+          <label class="full"><span>Ikona produktu</span><input data-pem="${esc(product.id)}" value="${esc(product.emoji)}" placeholder="📦"></label>
           <label><span>Cena</span><input data-pp="${esc(product.id)}" type="number" value="${product.price}"></label>
           <label><span>Jednotka</span><input data-pu="${esc(product.id)}" value="${esc(product.unit)}"></label>
           <label class="full"><span>Krátký popis</span><input data-ps="${esc(product.id)}" value="${esc(product.short)}"></label>
@@ -993,6 +1071,8 @@ function renderProducts() {
         </div>
       </div>
     </article>`).join("");
+
+  bindProductEmojiPickers($("#productsTab"));
 
   document.querySelectorAll("[data-ep]").forEach(button => {
     button.onclick = () => document.getElementById("pe" + button.dataset.ep)?.classList.toggle("open");
@@ -1386,4 +1466,3 @@ if (token) {
 } else {
   showLogin();
 }
-

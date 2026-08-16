@@ -274,3 +274,11 @@ body{background:#f8f3e9}
 /* V2.4.1 – veřejná patička: lepší kontrast kontaktů, bez odkazu na administraci */
 footer .footer-contact a{color:#fff!important;font-weight:800;font-size:15px;opacity:1}
 @media(max-width:760px){footer .footer-contact a{font-size:16px;line-height:1.9}}
+
+/* V2.8.3 – výběr ikony při vytváření a úpravě produktu */
+.product-emoji-picker{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.product-emoji-option{display:grid;place-items:center;width:44px;height:44px;padding:0;border:1px solid #d8ccb8;border-radius:12px;background:#fffdf8;font-size:24px;line-height:1;cursor:pointer;transition:transform .15s ease,border-color .15s ease,background .15s ease,box-shadow .15s ease}
+.product-emoji-option:hover{transform:translateY(-1px);border-color:#739077;box-shadow:0 5px 14px rgba(50,75,55,.12)}
+.product-emoji-option.selected{border:2px solid #356044;background:#e9f4e8;box-shadow:0 0 0 3px rgba(53,96,68,.12)}
+.product-emoji-option:focus-visible{outline:3px solid rgba(53,96,68,.28);outline-offset:2px}
+.product-emoji-hint{display:block;margin-top:8px;color:#6f6a60;line-height:1.4}
