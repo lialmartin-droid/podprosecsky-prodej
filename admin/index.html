@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#fffdf8">
   <title>Administrace – Podprosečské domácí produkty</title>
-  <link rel="stylesheet" href="../assets/style.css?v=280-20260815">
+  <link rel="stylesheet" href="../assets/style.css?v=283-20260816">
 </head>
-<body data-pdp-admin-version="2.8.0">
+<body data-pdp-admin-version="2.8.3">
 <section id="adminLogin" class="login-screen hidden">
   <div class="login-card">
     <div style="font-size:46px">🌼🐝🐔</div>
@@ -152,7 +152,7 @@
       <div id="productForm" class="admin-form hidden">
         <div class="form-grid">
           <label><span>Název</span><input id="newProductName"></label>
-          <label><span>Emoji</span><input id="newProductEmoji" placeholder="📦"></label>
+          <label class="full"><span>Ikona produktu</span><input id="newProductEmoji" value="📦" placeholder="📦"></label>
           <label><span>Cena</span><input id="newProductPrice" type="number" min="0"></label>
           <label><span>Jednotka</span><input id="newProductUnit" placeholder="kus"></label>
           <label class="full"><span>Krátký popis</span><input id="newProductShort"></label>
@@ -244,7 +244,6 @@
   <input id="adminPayload" name="payload" type="hidden">
 </form>
 <script src="../assets/config.js?v=280-20260815"></script>
-<script src="../assets/admin.js?v=280-20260815"></script>
+<script src="../assets/admin.js?v=283-20260816"></script>
 </body>
 </html>
-
