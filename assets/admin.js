@@ -1,10 +1,13 @@
-window.PDP_ADMIN_VERSION = "2.8.3";
-console.info("Podprosečské produkty – admin.js V2.8.3 – výběr ikon produktů");
+window.PDP_ADMIN_VERSION = "2.8.4";
+console.info("Podprosečské produkty – admin.js V2.8.4 – přesný přepočet vajec po změně objednávky");
 
 let products = [];
 let orders = [];
 let eggSettings = null;
 let eggAvailability = null;
+let eggPlanningRefreshPending = false;
+let eggPlanningMessage = "";
+let eggPlanningRequestId = 0;
 let businessSettings = {};
 let visitStats = null;
 let token = sessionStorage.getItem("pdp-admin-token") || "";
@@ -506,6 +509,8 @@ function applyAdminData(data, saveCache = true) {
   orders = data.orders || [];
   eggSettings = data.eggSettings || null;
   eggAvailability = data.eggAvailability || null;
+  eggPlanningRefreshPending = false;
+  eggPlanningMessage = "";
   businessSettings = data.businessSettings || {};
   visitStats = data.visitStats || null;
   showApp();
@@ -581,6 +586,100 @@ function loadData(background = false) {
   document.head.appendChild(script);
 }
 
+function loadPlanningData() {
+  if (!token) {
+    eggPlanningRefreshPending = false;
+    eggPlanningMessage = "Přihlášení vypršelo. Přihlaste se znovu.";
+    renderEggSettings();
+    return;
+  }
+  const endpoint = url();
+  if (!endpoint || !endpoint.endsWith("/exec")) {
+    eggPlanningRefreshPending = false;
+    eggPlanningMessage = "Administrace není správně propojená se serverem.";
+    renderEggSettings();
+    return;
+  }
+
+  const requestId = ++eggPlanningRequestId;
+  eggPlanningRefreshPending = true;
+  eggPlanningMessage = "";
+  renderEggSettings();
+  setAdminRefreshState("Objednávka je uložená. Přepočítávám dostupnost vajec…");
+
+  const previous = document.getElementById("admin-planning-jsonp");
+  if (previous) previous.remove();
+
+  const script = document.createElement("script");
+  script.id = "admin-planning-jsonp";
+  const callbackName = `PDP_ADMIN_PLANNING_DATA_${requestId}`;
+  let finished = false;
+  let timeoutId = 0;
+
+  const cleanup = () => {
+    clearTimeout(timeoutId);
+    script.remove();
+    try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+  };
+
+  const fail = message => {
+    if (finished) return;
+    if (requestId !== eggPlanningRequestId) {
+      finished = true;
+      cleanup();
+      return;
+    }
+    finished = true;
+    cleanup();
+    eggPlanningRefreshPending = false;
+    eggPlanningMessage = message || "Přepočet dostupnosti se nepodařil. Načítám znovu aktuální data…";
+    renderEggSettings();
+    setAdminRefreshState(eggPlanningMessage);
+    // Starý plán nesmíme zobrazit. Při chybě proto použijeme pomalejší, ale úplné načtení na pozadí.
+    loadData(true);
+  };
+
+  window[callbackName] = data => {
+    if (finished) return;
+    if (requestId !== eggPlanningRequestId) {
+      finished = true;
+      cleanup();
+      return;
+    }
+    if (!data || !data.ok || !data.eggSettings || !data.eggAvailability || !Array.isArray(data.products)) {
+      fail("Přesný přepočet se nepodařil. Načítám znovu aktuální data…");
+      return;
+    }
+
+    finished = true;
+    cleanup();
+    products = data.products;
+    eggSettings = data.eggSettings;
+    eggAvailability = data.eggAvailability;
+    eggPlanningRefreshPending = false;
+    eggPlanningMessage = "";
+
+    renderStats();
+    renderCalendar();
+    renderProducts();
+    renderManualOrderProducts();
+    renderEggSettings();
+    saveAdminCache(currentAdminState());
+
+    const doneMessage = "Objednávka je uložená a dostupnost vajec je přepočítaná.";
+    setAdminRefreshState(doneMessage);
+    window.setTimeout(() => {
+      const state = document.getElementById("adminRefreshState");
+      if (state && state.textContent === doneMessage) setAdminRefreshState("");
+    }, 2500);
+  };
+
+  timeoutId = window.setTimeout(() => fail("Přepočet trvá příliš dlouho. Načítám znovu aktuální data…"), 15000);
+  script.src = `${endpoint}?action=adminPlanningData&token=${encodeURIComponent(token)}&callback=${encodeURIComponent(callbackName)}&t=${Date.now()}`;
+  script.onerror = () => fail("Přepočet dostupnosti se nepodařilo načíst. Obnovuji aktuální data…");
+  document.head.appendChild(script);
+}
+
 function archived(order) {
   return ["Vyzvednuto", "Zrušeno"].includes(order.status);
 }
@@ -597,6 +696,63 @@ function eggQty(order) {
 
 function productById(id) {
   return products.find(product => String(product.id) === String(id));
+}
+
+function orderItemStatus(order, item) {
+  if (!order || !order.splitOrder) return String(order?.status || "Nová");
+  return productById(item?.productId)?.preorder
+    ? String(order.preorderStatus || "Nová")
+    : String(order.regularStatus || order.status || "Nová");
+}
+
+function productQtyByStatus(order, productId, statusFilter) {
+  return (order?.items || [])
+    .filter(item => String(item.productId) === String(productId))
+    .filter(item => typeof statusFilter !== "function" || statusFilter(orderItemStatus(order, item)))
+    .reduce((sum, item) => sum + Math.max(0, Number(item.qty || 0)), 0);
+}
+
+function calendarEntriesForOrder(order) {
+  if (!order) return [];
+  if (!order.splitOrder) {
+    if (String(order.status || "Nová") === "Zrušeno") return [];
+    return [{
+      order,
+      partLabel: "",
+      date: order.pickup || "without",
+      status: String(order.status || "Nová"),
+      items: order.items || [],
+      total: Number(order.total || 0)
+    }];
+  }
+
+  const regularItems = (order.items || []).filter(item => !productById(item.productId)?.preorder);
+  const preorderItems = (order.items || []).filter(item => productById(item.productId)?.preorder);
+  const entries = [];
+  const regularStatus = String(order.regularStatus || order.status || "Nová");
+  const preorderStatus = String(order.preorderStatus || "Nová");
+
+  if (regularItems.length && regularStatus !== "Zrušeno") {
+    entries.push({
+      order,
+      partLabel: "1. část",
+      date: order.pickup || "without",
+      status: regularStatus,
+      items: regularItems,
+      total: regularItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0), 0)
+    });
+  }
+  if (preorderItems.length && preorderStatus !== "Zrušeno") {
+    entries.push({
+      order,
+      partLabel: "2. část",
+      date: order.preorderPickup || order.pickup || "without",
+      status: preorderStatus,
+      items: preorderItems,
+      total: preorderItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0), 0)
+    });
+  }
+  return entries;
 }
 
 const PRODUCT_EMOJI_CHOICES = [
@@ -724,13 +880,9 @@ function renderStats() {
     fulfilledRevenueEntries().reduce((sum, entry) => sum + Number(entry.amount || 0), 0)
   );
   $("#statEggs").textContent = orders
-    .filter(order => order.status !== "Zrušeno")
-    .reduce((sum, order) => sum + eggQty(order), 0);
+    .reduce((sum, order) => sum + productQtyByStatus(order, "2", status => status !== "Zrušeno"), 0);
   $("#statHoney").textContent = orders
-    .filter(order => order.status !== "Zrušeno")
-    .flatMap(order => order.items || [])
-    .filter(item => String(item.productId) === "1")
-    .reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    .reduce((sum, order) => sum + productQtyByStatus(order, "1", status => status !== "Zrušeno"), 0);
   $("#statEggStock").textContent = eggSettings ? eggSettings.currentStock : "—";
   $("#statEggDaily").textContent = eggSettings ? `${eggSettings.dailyProduction} / den` : "—";
   const sourceRows = Array.isArray(visitStats?.bySource) ? visitStats.bySource : [];
@@ -977,7 +1129,8 @@ function saveOrder(order, button = null) {
       if (index >= 0) orders.splice(index, 1, savedOrder);
       else orders.unshift(savedOrder);
 
-      saveAdminCache(currentAdminState());
+      eggPlanningRefreshPending = true;
+      eggPlanningMessage = "";
       renderAll();
       setAdminRefreshState(data.message || "Objednávka byla upravena.");
       window.setTimeout(() => {
@@ -986,6 +1139,9 @@ function saveOrder(order, button = null) {
           setAdminRefreshState("");
         }
       }, 2500);
+
+      // Uložení objednávky zůstává rychlé. Přesný stav skladu a rezervací se načte hned poté samostatně.
+      loadPlanningData();
 
       window.dispatchEvent(new CustomEvent("pdp:order-saved", {
         detail: { order: savedOrder, response: data }
@@ -997,20 +1153,23 @@ function saveOrder(order, button = null) {
 
 function renderCalendar() {
   const groups = {};
-  orders.filter(order => order.status !== "Zrušeno").forEach(order => {
-    const key = order.pickup || "without";
-    (groups[key] ??= []).push(order);
+  orders.flatMap(calendarEntriesForOrder).forEach(entry => {
+    const key = entry.date || "without";
+    (groups[key] ??= []).push(entry);
   });
 
   const keys = Object.keys(groups).sort((a, b) => a === "without" ? 1 : b === "without" ? -1 : a.localeCompare(b));
   $("#calendarList").innerHTML = keys.map(key => {
-    const groupEggs = groups[key].reduce((sum, order) => sum + eggQty(order), 0);
+    const groupOrders = new Set(groups[key].map(entry => String(entry.order.id))).size;
+    const groupEggs = groups[key].reduce((sum, entry) => sum + (entry.items || [])
+      .filter(item => String(item.productId) === "2")
+      .reduce((itemSum, item) => itemSum + Math.max(0, Number(item.qty || 0)), 0), 0);
     return `<article class="card">
       <div class="card-head">
         <h3>${key === "without" ? "Bez termínu" : localDate(key)}</h3>
-        <div class="badges"><span class="badge blue">${groups[key].length} objednávek</span>${groupEggs ? `<span class="badge green">🥚 ${groupEggs} ks</span>` : ""}</div>
+        <div class="badges"><span class="badge blue">${groupOrders} objednávek</span>${groupEggs ? `<span class="badge green">🥚 ${groupEggs} ks</span>` : ""}</div>
       </div>
-      ${groups[key].map(order => `<div class="calendar-entry"><div><strong>${esc(order.name)}</strong><div class="meta">${itemHtml(order)}</div></div><div><strong>${money(order.total)}</strong><div class="meta">${esc(order.status)}</div></div></div>`).join("")}
+      ${groups[key].map(entry => `<div class="calendar-entry"><div><strong>${esc(entry.order.name)}${entry.partLabel ? ` · ${esc(entry.partLabel)}` : ""}</strong><div class="meta">${(entry.items || []).map(item => `${Number(item.qty || 0)}× ${esc(item.name)}`).join("<br>")}</div></div><div><strong>${money(entry.total)}</strong><div class="meta">${esc(entry.status)}</div></div></div>`).join("")}
     </article>`;
   }).join("") || '<div class="empty">Kalendář je prázdný.</div>';
 }
@@ -1163,7 +1322,9 @@ function renderManualOrderProducts() {
 
 function renderEggSettings() {
   if (!eggSettings) {
-    $("#eggForecast").innerHTML = '<div class="empty">Nastavení vajec se nepodařilo načíst.</div>';
+    $("#eggForecast").innerHTML = eggPlanningRefreshPending
+      ? '<div class="empty">Přepočítávám sklad a rezervace vajec…</div>'
+      : '<div class="empty">Nastavení vajec se nepodařilo načíst.</div>';
     return;
   }
 
@@ -1177,6 +1338,15 @@ function renderEggSettings() {
     accrual.textContent = eggSettings.elapsedDays > 0
       ? `Od posledního fyzického stavu (${localDate(eggSettings.baseDate)}) automaticky připočteno ${eggSettings.accruedEggs} vajec za ${eggSettings.elapsedDays} ${eggSettings.elapsedDays === 1 ? "den" : "dny"}.`
       : `Fyzický stav byl naposledy potvrzen dnes (${localDate(eggSettings.baseDate)}).`;
+  }
+
+  if (eggPlanningRefreshPending) {
+    $("#eggForecast").innerHTML = '<div class="empty">Přepočítávám sklad a rezervace vajec…</div>';
+    return;
+  }
+  if (eggPlanningMessage) {
+    $("#eggForecast").innerHTML = `<div class="empty">${esc(eggPlanningMessage)}</div>`;
+    return;
   }
 
   const days = eggAvailability?.days || [];

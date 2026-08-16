@@ -1,3 +1,13 @@
+V2.8.4 – OPRAVA REZERVACÍ A KALENDÁŘE VAJEC
+
+- Po uložení objednávky se na pozadí načte čerstvý stav fyzického skladu, rezervací a předpovědi vajec.
+- Starý výpočet se během přepočtu skryje, takže už nemůže falešně blokovat zítřejší termín.
+- Při chybě rychlého přepočtu administrace automaticky použije úplné načtení aktuálních dat.
+- Rozdělené objednávky se v kalendáři počítají po jednotlivých částech a zrušená vaječná část se nezobrazuje.
+- Souhrn vajec a medu respektuje stav příslušné části objednávky.
+- Új „Dostupné zákazníkům“ u vajec nově počítá i snášku do termínu budoucích rezervací a shoduje se s plánem v záložce Vejce.
+- Rychlé uložení objednávky a e-mailová fronta zůstávají zachované.
+
 V2.8.3 – VÝBĚR IKONY PRODUKTU
 
 - Při vytváření i úpravě produktu je nově nabídka ikon na jedno kliknutí.

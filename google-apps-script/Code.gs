@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V2.8.0
+ * Podprosečské domácí produkty — sdílený backend V2.8.4
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -9,6 +9,7 @@ const CONFIG = Object.freeze({
   SETTINGS_SHEET: 'Nastavení',
   WATCHLIST_SHEET: 'Hlídací pes',
   VISITS_SHEET: 'Návštěvnost',
+  NOTIFICATION_QUEUE_SHEET: 'E-mail fronta',
   BRAND_NAME: 'Podprosečské domácí produkty',
   TIME_ZONE: 'Europe/Prague',
   SESSION_SECONDS: 21600,
@@ -32,6 +33,7 @@ function setup() {
   const settings = getOrCreateSheet_(CONFIG.SETTINGS_SHEET);
   const watchlist = getOrCreateSheet_(CONFIG.WATCHLIST_SHEET);
   const visits = getOrCreateSheet_(CONFIG.VISITS_SHEET);
+  const notificationQueue = getOrCreateSheet_(CONFIG.NOTIFICATION_QUEUE_SHEET);
 
   formatOrdersSheet_(orders);
   ensureOrderNumbers_(orders);
@@ -39,11 +41,13 @@ function setup() {
   formatSettingsSheet_(settings);
   formatWatchlistSheet_(watchlist);
   formatVisitsSheet_(visits);
+  formatOrderNotificationQueueSheet_(notificationQueue);
   seedProducts_(products);
   repairDefaultProductSettings_(products);
   seedEggSettings_(settings);
   normalizeEggStockDateSetting_(settings);
   ensurePickupReminderTrigger_();
+  ensureOrderNotificationQueueTrigger_(true);
 
   const props = PropertiesService.getScriptProperties();
   let password = props.getProperty('ADMIN_PASSWORD');
@@ -196,6 +200,20 @@ function buildAdminPayload_() {
   };
 }
 
+function buildAdminPlanningPayload_() {
+  const orders = readOrdersForAvailability_();
+  const preorderMap = productPreorderMap_();
+  const reservations = reservationMapFromOrders_(orders, preorderMap);
+  const availability = buildEggAvailability_('', orders, preorderMap);
+  return {
+    ok: true,
+    products: readProductsFast_(reservations, availability),
+    eggSettings: availability.settings,
+    eggAvailability: availability,
+    generatedAt: new Date().toISOString()
+  };
+}
+
 function readProductsFast_(reservationMap, eggAvailability) {
   const sheet = getOrCreateSheet_(CONFIG.PRODUCTS_SHEET);
   formatProductsSheet_(sheet);
@@ -234,7 +252,9 @@ function readProductsFast_(reservationMap, eggAvailability) {
       soldOutText: restoreSheetText_(row[21] || 'Momentálně vyprodáno'),
       reserved: reserved,
       availableStock: id === CONFIG.EGG_PRODUCT_ID
-        ? Math.max(0, Math.floor(Number(eggAvailability && eggAvailability.settings && eggAvailability.settings.currentStock || 0) - reserved - Number(eggAvailability && eggAvailability.settings && eggAvailability.settings.safetyReserve || 0)))
+        // U vajec musí být stejná kapacita jako v plánu: budoucí rezervace kryje i snáška
+        // do jejich termínu. Prosté odečtení všech rezervací od dnešního skladu bylo zbytečně přísné.
+        ? Math.max(0, Math.floor(Number(eggToday && eggToday.maxAdditional || 0)))
         : Math.max(0, Math.floor(stock - reserved))
     };
   });
@@ -264,10 +284,15 @@ function doGet(e) {
       return jsonpResponse_(e, buildAdminPayload_());
     }
 
+    if (action === 'adminPlanningData') {
+      requireToken_(e.parameter.token || '');
+      return jsonpResponse_(e, buildAdminPlanningPayload_());
+    }
+
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '2.8.0',
+      version: '2.8.4',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -941,48 +966,36 @@ function saveOrder_(payload, skipPublicRefresh) {
   if (skipPublicRefresh) invalidatePublicPayloadCache_();
   else refreshPublicPayloadCache_();
 
-  // E-maily jsou záměrně mimo zámek tabulky. Pomalý MailApp už neblokuje další objednávku ani změnu stavu.
-  const warnings = [];
-  if (result.contactMethod === 'E-mail') {
-    if (result.regularBecameReady) {
-      try {
-        sendReadyEmail_(Object.assign({}, result.order, {orderNumber:result.orderNumber}), 'regular');
-        const at = new Date().toISOString();
-        recordOrderNotification_(result.id, 'ready-regular', at, 'E-mail o připravené objednávce');
-      } catch (error) {
-        console.error('E-mail o připravené objednávce se nepodařilo odeslat.', error);
-        warnings.push('E-mail o připravené objednávce se nepodařilo odeslat.');
-      }
-    }
-    if (result.preorderBecameReady) {
-      try {
-        sendReadyEmail_(Object.assign({}, result.order, {orderNumber:result.orderNumber}), 'preorder');
-        const at = new Date().toISOString();
-        recordOrderNotification_(result.id, 'ready-preorder', at, 'E-mail o připravené předobjednané části');
-      } catch (error) {
-        console.error('E-mail o připravené předobjednané části se nepodařilo odeslat.', error);
-        warnings.push('E-mail o připravené předobjednané části se nepodařilo odeslat.');
-      }
-    }
+  // Pomalé odeslání e-mailu proběhne až na pozadí. Administrace čeká jen na rychlé zařazení úlohy do fronty.
+  const notificationJobs = [];
+  if (result.contactMethod === 'E-mail' && result.regularBecameReady) {
+    notificationJobs.push({type:'ready-regular', part:'regular'});
   }
-
+  if (result.contactMethod === 'E-mail' && result.preorderBecameReady) {
+    notificationJobs.push({type:'ready-preorder', part:'preorder'});
+  }
   if (result.cancellationBecameFinal) {
+    notificationJobs.push({type:'cancelled', part:''});
+  }
+
+  let queuedCount = 0;
+  let queueWarning = '';
+  if (notificationJobs.length) {
     try {
-      sendCancellationEmail_(Object.assign({}, result.order, {orderNumber:result.orderNumber}));
-      const at = new Date().toISOString();
-      recordOrderNotification_(result.id, 'cancelled', at, 'E-mail o zrušení objednávky');
+      queuedCount = enqueueOrderNotifications_(result.id, notificationJobs);
     } catch (error) {
-      console.error('E-mail o zrušení objednávky se nepodařilo odeslat.', error);
-      warnings.push('E-mail o zrušení objednávky se nepodařilo odeslat.');
+      console.error('E-mail se nepodařilo zařadit do fronty.', error);
+      queueWarning = ' E-mail se nepodařilo zařadit k odeslání.';
     }
   }
 
-  return htmlResponse_(true, 'Objednávka byla upravena.' + (warnings.length ? ' ' + warnings.join(' ') : ''), result.id, {
+  return htmlResponse_(true, 'Objednávka byla upravena.' + (queuedCount ? ' E-mail se odešle na pozadí.' : '') + queueWarning, result.id, {
     order: Object.assign({}, result.order, {
       id: result.id,
       orderNumber: result.orderNumber
     }),
-    orderNumber: result.orderNumber
+    orderNumber: result.orderNumber,
+    notificationsQueued: queuedCount
   });
 }
 
@@ -1731,6 +1744,163 @@ function aggregateOrderStatus_(order) {
     : String(order && order.status || 'Nová');
 }
 
+function formatOrderNotificationQueueSheet_(sheet) {
+  const headers = ['ID fronty', 'Vytvořeno', 'Typ', 'Objednávka ID', 'Část', 'Stav', 'Pokusy', 'Chyba', 'Aktualizováno'];
+  if (sheet.getLastRow() > 0) return;
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+  sheet.setFrozenRows(1);
+}
+
+function setupFastOrderNotifications() {
+  const sheet = getOrCreateSheet_(CONFIG.NOTIFICATION_QUEUE_SHEET);
+  formatOrderNotificationQueueSheet_(sheet);
+  ensureOrderNotificationQueueTrigger_(true);
+  return 'Hotovo. Změny objednávek se ukládají hned a e-maily se odesílají na pozadí přibližně do jedné minuty.';
+}
+
+function orderNotificationQueueTriggerHandler() {
+  processOrderNotificationQueue_();
+}
+
+function ensureOrderNotificationQueueTrigger_(forceCheck) {
+  const properties = PropertiesService.getScriptProperties();
+  const propertyKey = 'ORDER_NOTIFICATION_QUEUE_TRIGGER_READY';
+  if (!forceCheck && properties.getProperty(propertyKey) === '1') return;
+
+  const handler = 'orderNotificationQueueTriggerHandler';
+  const exists = ScriptApp.getProjectTriggers().some(trigger => trigger.getHandlerFunction() === handler);
+  if (!exists) ScriptApp.newTrigger(handler).timeBased().everyMinutes(1).create();
+  properties.setProperty(propertyKey, '1');
+}
+
+function enqueueOrderNotifications_(orderId, jobs) {
+  const validJobs = (jobs || []).filter(job => job && job.type);
+  if (!validJobs.length) return 0;
+
+  const count = withMutationLock_(() => {
+    const sheet = getOrCreateSheet_(CONFIG.NOTIFICATION_QUEUE_SHEET);
+    formatOrderNotificationQueueSheet_(sheet);
+    const now = new Date();
+    const rows = validJobs.map(job => [
+      Utilities.getUuid(), now, String(job.type), String(orderId), String(job.part || ''), 'Čeká', 0, '', now
+    ]);
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
+    return rows.length;
+  }, 10000);
+
+  // Po prvním ručním nastavení je to pouze rychlá kontrola jedné vlastnosti skriptu.
+  ensureOrderNotificationQueueTrigger_(false);
+  return count;
+}
+
+function claimNextOrderNotificationJob_() {
+  return withMutationLock_(() => {
+    const sheet = getOrCreateSheet_(CONFIG.NOTIFICATION_QUEUE_SHEET);
+    formatOrderNotificationQueueSheet_(sheet);
+    if (sheet.getLastRow() < 2) return null;
+
+    const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues();
+    const now = new Date();
+    for (let i = 0; i < values.length; i++) {
+      const state = String(values[i][5] || '');
+      const attempts = Math.max(0, Math.floor(Number(values[i][6] || 0)));
+      const updatedAt = values[i][8] instanceof Date ? values[i][8].getTime() : new Date(values[i][8] || 0).getTime();
+      const staleSending = state === 'Odesílám' && (!updatedAt || now.getTime() - updatedAt > 10 * 60 * 1000);
+      if ((state !== 'Čeká' && !staleSending) || attempts >= 3) continue;
+
+      const nextAttempts = attempts + 1;
+      sheet.getRange(i + 2, 6, 1, 4).setValues([['Odesílám', nextAttempts, '', now]]);
+      return {
+        queueId: String(values[i][0] || ''),
+        row: i + 2,
+        type: String(values[i][2] || ''),
+        orderId: String(values[i][3] || ''),
+        part: String(values[i][4] || ''),
+        attempts: nextAttempts
+      };
+    }
+    return null;
+  }, 10000);
+}
+
+function finishOrderNotificationJob_(job, state, errorText) {
+  return withMutationLock_(() => {
+    const sheet = getOrCreateSheet_(CONFIG.NOTIFICATION_QUEUE_SHEET);
+    if (sheet.getLastRow() < 2) return;
+    const ids = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues();
+    for (let i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) !== String(job.queueId)) continue;
+      sheet.getRange(i + 2, 6, 1, 4).setValues([[
+        state, Number(job.attempts || 0), cleanText_(errorText || '', 500), new Date()
+      ]]);
+      return;
+    }
+  }, 10000);
+}
+
+function findOrderForNotification_(id) {
+  const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
+  formatOrdersSheet_(sheet);
+  const values = sheet.getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]) === String(id)) return orderFromSheetRow_(values[i]);
+  }
+  return null;
+}
+
+function processOrderNotificationJob_(job) {
+  const order = findOrderForNotification_(job.orderId);
+  if (!order) return 'Přeskočeno';
+
+  if (job.type === 'ready-regular' || job.type === 'ready-preorder') {
+    const part = job.type === 'ready-preorder' ? 'preorder' : 'regular';
+    const alreadySent = part === 'preorder' ? order.readyEmailPreorderAt : order.readyEmailRegularAt;
+    const currentStatus = part === 'preorder'
+      ? order.preorderStatus
+      : (order.splitOrder ? order.regularStatus : order.status);
+    if (alreadySent || currentStatus !== 'Připraveno' || !isValidEmail_(order.email)) return 'Přeskočeno';
+
+    sendReadyEmail_(order, part);
+    const at = new Date().toISOString();
+    const text = part === 'preorder'
+      ? 'E-mail o připravené předobjednané části'
+      : 'E-mail o připravené objednávce';
+    if (!recordOrderNotification_(order.id, job.type, at, text)) throw new Error('Objednávku po odeslání e-mailu nelze zapsat.');
+    return 'Hotovo';
+  }
+
+  if (job.type === 'cancelled') {
+    const alreadySent = (order.communication || []).some(item => item && item.type === 'cancelled');
+    if (alreadySent || aggregateOrderStatus_(order) !== 'Zrušeno' || !isValidEmail_(order.email)) return 'Přeskočeno';
+
+    sendCancellationEmail_(order);
+    const at = new Date().toISOString();
+    if (!recordOrderNotification_(order.id, 'cancelled', at, 'E-mail o zrušení objednávky')) {
+      throw new Error('Objednávku po odeslání e-mailu nelze zapsat.');
+    }
+    return 'Hotovo';
+  }
+
+  return 'Přeskočeno';
+}
+
+function processOrderNotificationQueue_() {
+  for (let processed = 0; processed < 5; processed++) {
+    const job = claimNextOrderNotificationJob_();
+    if (!job) return;
+
+    try {
+      const state = processOrderNotificationJob_(job);
+      finishOrderNotificationJob_(job, state, '');
+    } catch (error) {
+      console.error('Odeslání e-mailu z fronty selhalo.', error);
+      const retryState = job.attempts < 3 ? 'Čeká' : 'Chyba';
+      finishOrderNotificationJob_(job, retryState, error && error.message || 'Neznámá chyba');
+      return;
+    }
+  }
+}
+
 
 function pickupReminderTriggerHandler() {
   sendAutomaticPickupReminders_();
@@ -2465,4 +2635,3 @@ function escapeHtml_(value) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-
