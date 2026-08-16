@@ -1,5 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "2.4.0";
-console.info("Podprosečské produkty – customer.js V2.4.0 – ověřená nabídka, sklad a termíny");
+window.PDP_CUSTOMER_VERSION = "2.8.5";
+console.info("Podprosečské produkty – customer.js V2.8.5 – propojení návštěvy s objednávkou");
 
 // Produkty se nikdy nevykreslují z ukázkových hodnot.
 // Stránka čeká na aktuální data z Google Tabulky, aby zákazník neviděl starou cenu.
@@ -1023,7 +1023,9 @@ submitButton.addEventListener("click", () => {
     contactMethod,
     splitOrder: splitMode === "split",
     preorderPickup: preorderPickup,
-    requestId: orderRequestId()
+    requestId: orderRequestId(),
+    visitorId: visitorId(),
+    visitSource: detectVisitSource()
   });
 
   submissionPending = true;
