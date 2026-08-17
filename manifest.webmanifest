@@ -1,0 +1,32 @@
+{
+  "id": "./",
+  "name": "Podprosečské domácí produkty",
+  "short_name": "Podprosečské",
+  "description": "Nabídka domácích vajec, medu a dalších Podprosečských produktů.",
+  "lang": "cs-CZ",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fffdf8",
+  "theme_color": "#fffdf8",
+  "icons": [
+    {
+      "src": "assets/icons/customer-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/customer-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icons/customer-icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
