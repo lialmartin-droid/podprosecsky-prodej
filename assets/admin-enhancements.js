@@ -1,4 +1,4 @@
-// Admin v2.7 – návštěvníci, ruční jména, přesné návštěvy a sklad obalů
+// Admin v2.9 – návštěvníci, přesné návštěvy a rychlé společné uložení objednávky + obalů
 (() => {
   const money2 = value => `${Math.round(Number(value || 0))} Kč`;
   const esc2 = value => String(value ?? "")
@@ -673,11 +673,45 @@
     };
   }
 
-  function packagingSelectionCompleteV26(orderId) {
-    const source = packagingV26.orderSelections?.[String(orderId)];
-    if (!source) return false;
-    if (source.own) return true;
-    return Object.values(source.quantities || {}).some(value => Number(value || 0) > 0);
+  function packagingSelectionCompleteValueV290(selection) {
+    if (!selection) return false;
+    if (selection.own) return true;
+    return Object.values(selection.quantities || {}).some(value => Number(value || 0) > 0);
+  }
+
+  function readPackagingSelectionFromEditorV290(orderId, box = null) {
+    const editorBox = box || document.querySelector(
+      `[data-packaging-order-box="${CSS.escape(String(orderId))}"]`
+    );
+    if (!editorBox) return selectionForOrderV26(orderId);
+
+    const own = Boolean(editorBox.querySelector(`[data-pack-own="${CSS.escape(String(orderId))}"]`)?.checked);
+    const quantities = {};
+    packagingV26.items.forEach(item => {
+      const input = editorBox.querySelector(
+        `[data-pack-order="${CSS.escape(String(orderId) + "-" + String(item.id))}"]`
+      );
+      quantities[item.id] = own ? 0 : Math.max(0, Math.floor(Number(input?.value || 0)));
+    });
+    return {own, quantities};
+  }
+
+  function syncPackagingDraftV290(orderId, box = null) {
+    const editorBox = box || document.querySelector(
+      `[data-packaging-order-box="${CSS.escape(String(orderId))}"]`
+    );
+    const selection = readPackagingSelectionFromEditorV290(orderId, editorBox);
+    packagingV26.orderSelections[String(orderId)] = selection;
+
+    if (editorBox) {
+      editorBox.querySelectorAll(`[data-pack-order^="${CSS.escape(String(orderId))}-"]`).forEach(input => {
+        if (selection.own) input.value = "0";
+        input.disabled = selection.own;
+      });
+      const summary = editorBox.querySelector(".packaging-summary-v26");
+      if (summary) summary.textContent = packagingSummaryV26(orderId);
+    }
+    return selection;
   }
 
   function packagingSummaryV26(orderId) {
@@ -712,7 +746,7 @@
       box.className = "packaging-order-box";
       box.dataset.packagingOrderBox = order.id;
       box.innerHTML = `
-        <div class="field-label">📦 Obal na vejce</div>
+        <div class="field-label">📦 Obaly na vejce pro tuto objednávku</div>
         <div class="meta packaging-summary-v26">${esc2(packagingSummaryV26(order.id))}</div>
         <label class="packaging-own-row">
           <input type="checkbox" data-pack-own="${esc2(order.id)}" ${selection.own ? "checked" : ""}>
@@ -730,7 +764,7 @@
             </div>`).join("")}
         </div>
         ${Object.keys(consumed).length ? `<div class="meta">✅ Ze skladu již odečteno: ${esc2(JSON.stringify(consumed))}</div>` : ""}
-        <div class="meta">Výběr se ukládá automaticky. Při stavu <strong>Připraveno</strong> se obaly odečtou pouze jednou. Při vrácení stavu zpět se vrátí i do skladu.</div>`;
+        <div class="meta">Výběr obalů i změna objednávky se uloží společně tlačítkem <strong>Uložit změny</strong>. Při stavu <strong>Připraveno</strong> se obaly odečtou pouze jednou. Při vrácení stavu zpět se vrátí i do skladu.</div>`;
 
       const formGrid = editor.querySelector(".form-grid");
       if (formGrid) {
@@ -743,43 +777,9 @@
       const own = box.querySelector(`[data-pack-own="${CSS.escape(order.id)}"]`);
       const inputs = box.querySelectorAll(`[data-pack-order^="${CSS.escape(order.id)}-"]`);
 
-      async function saveSelection() {
-        const ownValue = Boolean(own?.checked);
-        const quantities = {};
-        packagingV26.items.forEach(item => {
-          const input = box.querySelector(`[data-pack-order="${CSS.escape(order.id + "-" + item.id)}"]`);
-          quantities[item.id] = Math.max(0, Math.floor(Number(input?.value || 0)));
-        });
-        if (ownValue) {
-          inputs.forEach(input => {
-            input.value = "0";
-            input.disabled = true;
-          });
-          Object.keys(quantities).forEach(key => quantities[key] = 0);
-        } else {
-          inputs.forEach(input => input.disabled = false);
-        }
-
-        const result = await postPromiseV26("savePackagingSelection", {
-          orderId: order.id,
-          selection: {own:ownValue, quantities}
-        });
-        if (!result.ok) {
-          alert(result.message || "Výběr obalu se nepodařilo uložit.");
-          return;
-        }
-        packagingV26.orderSelections[String(order.id)] = {own:ownValue, quantities};
-        if (result.consumed) packagingV26.orderConsumed[String(order.id)] = result.consumed;
-        const summary = box.querySelector(".packaging-summary-v26");
-        if (summary) summary.textContent = packagingSummaryV26(order.id);
-        if (result.items) {
-          packagingV26.items = result.items;
-          renderPackagingStockV26();
-        }
-      }
-
-      own?.addEventListener("change", saveSelection);
-      inputs.forEach(input => input.addEventListener("change", saveSelection));
+      const updateDraft = () => syncPackagingDraftV290(order.id, box);
+      own?.addEventListener("change", updateDraft);
+      inputs.forEach(input => input.addEventListener("input", updateDraft));
       if (selection.own) inputs.forEach(input => input.disabled = true);
     });
   }
@@ -799,19 +799,56 @@
       const originalSaveOrder = saveOrder;
       saveOrder = function(order, button = null) {
         const status = order?.splitOrder ? order.regularStatus : order?.status;
-        if (orderNeedsPackagingV26(order) && ["Připraveno","Vyzvednuto"].includes(String(status || "")) && !packagingSelectionCompleteV26(order.id)) {
+        const orderId = String(order?.id || "");
+        const hasPackagingEditor = Boolean(document.querySelector(
+          `[data-packaging-order-box="${CSS.escape(orderId)}"]`
+        ));
+        const hasPackagingRecord = Boolean(
+          packagingV26.orderSelections?.[orderId] || packagingV26.orderConsumed?.[orderId]
+        );
+        const shouldHandlePackaging = orderNeedsPackagingV26(order) || hasPackagingEditor || hasPackagingRecord;
+        const packagingSelection = shouldHandlePackaging
+          ? syncPackagingDraftV290(order.id)
+          : null;
+        if (orderNeedsPackagingV26(order) && ["Připraveno","Vyzvednuto"].includes(String(status || "")) && !packagingSelectionCompleteValueV290(packagingSelection)) {
           alert("Nejdříve u objednávky vyberte obal, nebo označte „Vlastní obal zákazníka / bez obalu“.");
-          renderOrders();
           return Promise.resolve({ok:false, message:"Chybí výběr obalu."});
         }
-        return originalSaveOrder(order, button);
+        return shouldHandlePackaging
+          ? originalSaveOrder(order, button, {packagingSelection})
+          : originalSaveOrder(order, button);
       };
 
       window.addEventListener("pdp:order-saved", async event => {
         const order = event.detail?.order;
-        if (!orderNeedsPackagingV26(order)) return;
+        const combined = event.detail?.response?.packaging;
+        if (combined?.handled) {
+          packagingV26.orderSelections[String(order.id)] = combined.selection || event.detail?.packagingSelection || {};
+          packagingV26.orderConsumed[String(order.id)] = combined.consumed || {};
+          if (Array.isArray(combined.items)) {
+            packagingV26.items = combined.items;
+            packagingLoadedV26 = true;
+          }
+          renderPackagingStockV26();
+          injectPackagingIntoOrdersV26();
+          return;
+        }
+        if (!orderNeedsPackagingV26(order) && !event.detail?.packagingSelection) return;
 
-        // Sklad se srovná až po potvrzeném uložení objednávky.
+        // Kompatibilita při krátkém přechodu, kdy už je nový frontend, ale ještě starý backend.
+        const selection = event.detail?.packagingSelection;
+        if (selection) {
+          const saved = await postPromiseV26("savePackagingSelection", {
+            orderId:order.id,
+            selection
+          });
+          if (!saved.ok) {
+            alert(saved.message || "Objednávka byla uložena, ale výběr obalů se nepodařilo uložit.");
+            return;
+          }
+        }
+
+        // Starší backend srovná sklad druhým požadavkem; V2.9 už vše řeší v jednom.
         const result = await postPromiseV26("consumePackagingForOrder", {orderId:order.id});
         if (!result.ok) {
           alert(result.message || "Objednávka byla uložena, ale sklad obalů se nepodařilo srovnat.");
@@ -882,4 +919,3 @@
     setTimeout(initAdminEnhancements, 0);
   }
 })();
-

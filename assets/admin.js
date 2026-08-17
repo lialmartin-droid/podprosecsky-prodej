@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "2.8.4";
-console.info("Podprosečské produkty – admin.js V2.8.4 – přesný přepočet vajec po změně objednávky");
+window.PDP_ADMIN_VERSION = "2.9.0";
+console.info("Podprosečské produkty – admin.js V2.9.0 – rychlé společné uložení objednávky a obalů");
 
 let products = [];
 let orders = [];
@@ -1099,15 +1099,51 @@ function currentAdminState() {
   };
 }
 
-function saveOrder(order, button = null) {
+function planningStatusGroup(order, part = "regular") {
+  const status = order?.splitOrder
+    ? (part === "preorder" ? order.preorderStatus : order.regularStatus)
+    : order?.status;
+  if (String(status || "") === "Vyzvednuto") return "picked-up";
+  if (String(status || "") === "Zrušeno") return "cancelled";
+  return "active";
+}
+
+function orderPlanningSignature(order) {
+  const items = (order?.items || [])
+    .map(item => ({
+      productId: String(item.productId || ""),
+      qty: Math.max(0, Number(item.qty || 0))
+    }))
+    .filter(item => item.productId && item.qty > 0)
+    .sort((a, b) => a.productId.localeCompare(b.productId, "cs"));
+
+  return JSON.stringify({
+    splitOrder: Boolean(order?.splitOrder),
+    pickup: String(order?.pickup || ""),
+    preorderPickup: order?.splitOrder ? String(order?.preorderPickup || "") : "",
+    regularState: planningStatusGroup(order, "regular"),
+    preorderState: order?.splitOrder ? planningStatusGroup(order, "preorder") : "",
+    items
+  });
+}
+
+function saveOrder(order, button = null, options = {}) {
   const originalText = button?.textContent || "";
   if (button) {
     button.disabled = true;
     button.textContent = "Ukládám…";
   }
 
+  const currentIndex = orders.findIndex(item => String(item.id) === String(order.id));
+  const previousOrder = currentIndex >= 0 ? orders[currentIndex] : null;
+  const planningChanged = !previousOrder || orderPlanningSignature(previousOrder) !== orderPlanningSignature(order);
+  const requestPayload = { order };
+  if (Object.prototype.hasOwnProperty.call(options || {}, "packagingSelection")) {
+    requestPayload.packagingSelection = options.packagingSelection;
+  }
+
   return new Promise(resolve => {
-    post("saveOrder", { order }, data => {
+    post("saveOrder", requestPayload, data => {
       if (button) {
         button.disabled = false;
         button.textContent = originalText;
@@ -1129,7 +1165,7 @@ function saveOrder(order, button = null) {
       if (index >= 0) orders.splice(index, 1, savedOrder);
       else orders.unshift(savedOrder);
 
-      eggPlanningRefreshPending = true;
+      eggPlanningRefreshPending = planningChanged;
       eggPlanningMessage = "";
       renderAll();
       setAdminRefreshState(data.message || "Objednávka byla upravena.");
@@ -1140,11 +1176,16 @@ function saveOrder(order, button = null) {
         }
       }, 2500);
 
-      // Uložení objednávky zůstává rychlé. Přesný stav skladu a rezervací se načte hned poté samostatně.
-      loadPlanningData();
+      // Stav Nová/Připravuji/Připraveno používá stejnou rezervaci. Přepočet proto
+      // spouštíme jen po změně termínu, položek nebo přechodu do/z Vyzvednuto či Zrušeno.
+      if (planningChanged) loadPlanningData();
 
       window.dispatchEvent(new CustomEvent("pdp:order-saved", {
-        detail: { order: savedOrder, response: data }
+        detail: {
+          order: savedOrder,
+          response: data,
+          packagingSelection: requestPayload.packagingSelection
+        }
       }));
       resolve(data);
     });
