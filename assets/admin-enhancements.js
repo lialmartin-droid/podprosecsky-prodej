@@ -57,6 +57,7 @@
       .packaging-order-box{margin-top:12px;padding:14px;border:1px solid #eadfca;border-radius:14px;background:#fffdf8}
       .packaging-order-box .quantity-row small{display:block;color:#75695d;font-size:11px}
       .packaging-own-row{display:flex;align-items:center;gap:8px;margin:10px 0;font-weight:700}
+      .packaging-own-row input[type="checkbox"]{width:22px;height:22px;min-height:0;padding:0;margin:0;flex:0 0 22px}
       .packaging-summary-v26{margin:4px 0 8px;font-weight:700}
       .tabs{
         display:flex;
@@ -733,6 +734,9 @@
   }
 
   function injectPackagingIntoOrdersV26() {
+    // Obalový formulář vytvoříme až po načtení skladu. Jinak by vznikl
+    // prázdný box, který se po dokončení požadavku už znovu nenaplnil.
+    if (!packagingLoadedV26) return;
     if (!Array.isArray(window.orders || (typeof orders !== "undefined" ? orders : null))) return;
     const sourceOrders = typeof orders !== "undefined" ? orders : [];
     sourceOrders.forEach(order => {
