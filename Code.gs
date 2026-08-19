@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V2.8.5
+ * Podprosečské domácí produkty — sdílený backend V3.1.1
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -23,7 +23,8 @@ const CONFIG = Object.freeze({
   DEFAULT_EGG_PLANNING_DAYS: 60,
   MAX_IMAGE_BYTES: 1600000,
   PRODUCT_IMAGES_FOLDER: 'Podprosecske_produkty_obrazky',
-  PUBLIC_CACHE_SECONDS: 300,
+  PUBLIC_CACHE_SECONDS: 60,
+  PUBLIC_CATALOG_CACHE_SECONDS: 21600,
   VISIT_STATS_CACHE_SECONDS: 60
 });
 
@@ -132,11 +133,30 @@ function reservationMapFromOrders_(orders, preorderMap) {
 }
 
 function publicPayloadCacheKey_() {
-  return 'public-payload-v240';
+  return 'public-payload-v311';
+}
+
+function publicCatalogCacheKey_() {
+  return 'public-catalog-v310';
+}
+
+function publicReservationIndexPropertyKey_() {
+  return 'PUBLIC_RESERVATION_INDEX_V310';
 }
 
 function invalidatePublicPayloadCache_() {
   try { CacheService.getScriptCache().remove(publicPayloadCacheKey_()); } catch (error) { console.error('Vymazání veřejné cache selhalo.', error); }
+}
+
+function invalidatePublicCatalogCache_() {
+  try { CacheService.getScriptCache().remove(publicCatalogCacheKey_()); } catch (error) { console.error('Vymazání cache katalogu selhalo.', error); }
+  invalidatePublicPayloadCache_();
+}
+
+function invalidatePublicReservationIndex_() {
+  try { PropertiesService.getScriptProperties().deleteProperty(publicReservationIndexPropertyKey_()); }
+  catch (error) { console.error('Vymazání rychlého indexu rezervací selhalo.', error); }
+  invalidatePublicPayloadCache_();
 }
 
 function visitStatsCacheKey_() {
@@ -152,27 +172,332 @@ function refreshPublicPayloadCache_() {
   try { buildPublicPayload_(); } catch (error) { console.error('Předehřátí veřejné nabídky selhalo.', error); }
 }
 
+function publicSheetRowsFast_(sheetName) {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = spreadsheet && spreadsheet.getSheetByName(sheetName);
+  if (!sheet) throw new Error(`Chybí list ${sheetName}. Spusťte jednou funkci setup().`);
+  const values = sheet.getDataRange().getValues();
+  return values.length > 1 ? values.slice(1) : [];
+}
+
+function settingsMapFromRowsFast_(rows) {
+  const map = {};
+  (rows || []).forEach(row => {
+    if (row[0] !== '') map[String(row[0])] = row[1];
+  });
+  return map;
+}
+
+function eggSettingsFromMapFast_(values) {
+  const today = todayKey_();
+  const dailyProduction = safeInteger_(values.EGG_DAILY_PRODUCTION, CONFIG.DEFAULT_EGG_DAILY_PRODUCTION);
+  const storedStock = safeInteger_(values.EGG_STOCK, CONFIG.DEFAULT_EGG_STOCK);
+  const storedDate = normalizeDateKey_(values.EGG_STOCK_DATE, today);
+  const elapsedDays = Math.max(0, daysBetweenKeys_(storedDate, today));
+  const accruedEggs = elapsedDays * Math.max(0, dailyProduction);
+
+  return {
+    baseStock: Math.max(0, storedStock),
+    baseDate: storedDate,
+    elapsedDays: elapsedDays,
+    accruedEggs: accruedEggs,
+    currentStock: Math.max(0, storedStock + accruedEggs),
+    stockDate: today,
+    dailyProduction: Math.max(0, dailyProduction),
+    safetyReserve: Math.max(0, safeInteger_(values.EGG_SAFETY_RESERVE, CONFIG.DEFAULT_EGG_SAFETY_RESERVE)),
+    planningDays: Math.min(365, Math.max(7, safeInteger_(values.EGG_PLANNING_DAYS, CONFIG.DEFAULT_EGG_PLANNING_DAYS)))
+  };
+}
+
+function publicBusinessSettingsFromMapFast_(map) {
+  return {
+    bannerEnabled: toBool_(map.BANNER_ENABLED),
+    bannerStyle: cleanText_(map.BANNER_STYLE || 'yellow', 20),
+    bannerTitle: restoreSheetText_(map.BANNER_TITLE || ''),
+    bannerText: restoreSheetText_(map.BANNER_TEXT || ''),
+    bannerFrom: normalizeDateKey_(map.BANNER_FROM, ''),
+    bannerTo: normalizeDateKey_(map.BANNER_TO, ''),
+    ordersPaused: toBool_(map.ORDERS_PAUSED),
+    pauseFrom: normalizeDateKey_(map.PAUSE_FROM, ''),
+    pauseTo: normalizeDateKey_(map.PAUSE_TO, ''),
+    pauseMessage: restoreSheetText_(map.PAUSE_MESSAGE || ''),
+    dailyOrderLimit: Math.max(0, safeInteger_(map.DAILY_ORDER_LIMIT, 0))
+  };
+}
+
+function publicProductsFromRowsFast_(rows) {
+  return (rows || []).filter(row => row[0] !== '').map(row => ({
+    id: String(row[0]),
+    emoji: restoreSheetText_(row[1] || '📦'),
+    name: restoreSheetText_(row[2] || ''),
+    price: Number(row[3] || 0),
+    unit: restoreSheetText_(row[4] || 'kus'),
+    short: restoreSheetText_(row[5] || ''),
+    detail: restoreSheetText_(row[6] || ''),
+    visible: toBool_(row[7]),
+    soldOut: toBool_(row[8]),
+    restock: formatSheetDate_(row[9]),
+    leadDays: String(row[0]) === CONFIG.EGG_PRODUCT_ID ? 0 : Number(row[10] || 0),
+    quick: quickButtonsForProduct_(row[0], row[1], row[2], row[11]),
+    preorder: toBool_(row[13]),
+    preorderDate: formatSheetDate_(row[14]) || formatSheetDate_(row[9]),
+    capacity: Number(row[15] || 0),
+    emailGroup: normalizeEmailGroup_(row[16], row[2]),
+    emailText: restoreSheetText_(row[17] || ''),
+    image: restoreSheetText_(row[18] || ''),
+    stock: Math.max(0, Number(row[19] || 0)),
+    stockUnit: restoreSheetText_(row[20] || 'ks'),
+    soldOutText: restoreSheetText_(row[21] || 'Momentálně vyprodáno')
+  }));
+}
+
+function readPublicCatalogFast_() {
+  const cache = CacheService.getScriptCache();
+  try {
+    const cached = cache.get(publicCatalogCacheKey_());
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && parsed.version === 'v310' && Array.isArray(parsed.products) && parsed.settingsMap) return parsed;
+    }
+  } catch (error) {
+    console.error('Načtení rychlé cache katalogu selhalo.', error);
+  }
+
+  // Veřejné čtení nic neopravuje ani neformátuje. Každý list se načte právě jednou.
+  const productRows = publicSheetRowsFast_(CONFIG.PRODUCTS_SHEET);
+  const settingsRows = publicSheetRowsFast_(CONFIG.SETTINGS_SHEET);
+  const products = publicProductsFromRowsFast_(productRows);
+  const settingsMap = settingsMapFromRowsFast_(settingsRows);
+  const preorderMap = {};
+  products.forEach(product => { preorderMap[String(product.id)] = Boolean(product.preorder); });
+
+  const catalog = {
+    version: 'v310',
+    products: products,
+    settingsMap: settingsMap,
+    preorderMap: preorderMap
+  };
+  try {
+    cache.put(publicCatalogCacheKey_(), JSON.stringify(catalog), CONFIG.PUBLIC_CATALOG_CACHE_SECONDS);
+  } catch (error) {
+    console.error('Uložení rychlé cache katalogu selhalo.', error);
+  }
+  return catalog;
+}
+
+function availabilityOrderFromSheetRowFast_(row) {
+  let items = [];
+  try { items = JSON.parse(String(row[10] || '[]')); } catch (_) {}
+  const status = String(row[2] || 'Nová');
+  const splitOrder = toBool_(row[13]);
+  return {
+    id: String(row[0] || ''),
+    status: status,
+    pickup: formatSheetDate_(row[5]),
+    items: Array.isArray(items) ? items : [],
+    splitOrder: splitOrder,
+    preorderPickup: formatSheetDate_(row[14]),
+    regularStatus: String(row[15] || status || 'Nová'),
+    preorderStatus: String(row[16] || 'Nová')
+  };
+}
+
+function reservationContributionFast_(order, preorderMap) {
+  const contribution = { totals: {}, eggsByDate: {} };
+  (order && order.items || []).forEach(item => {
+    const id = String(item.productId || '');
+    const qty = Math.max(0, Math.floor(Number(item.qty) || 0));
+    if (!id || !qty || !isReservingStatus_(itemPartStatus_(order, id, preorderMap))) return;
+
+    contribution.totals[id] = (contribution.totals[id] || 0) + qty;
+    if (id === CONFIG.EGG_PRODUCT_ID) {
+      const pickup = itemPickupDate_(order, id, preorderMap) || todayKey_();
+      contribution.eggsByDate[pickup] = (contribution.eggsByDate[pickup] || 0) + qty;
+    }
+  });
+  return contribution;
+}
+
+function applyCountMapDeltaFast_(target, delta, multiplier) {
+  Object.keys(delta || {}).forEach(key => {
+    const next = Math.max(0, Math.floor(Number(target[key] || 0) + multiplier * Number(delta[key] || 0)));
+    if (next > 0) target[key] = next;
+    else delete target[key];
+  });
+}
+
+function normalizeCountMapFast_(source) {
+  const result = {};
+  Object.keys(source || {}).forEach(key => {
+    const value = Math.max(0, Math.floor(Number(source[key]) || 0));
+    if (value > 0) result[String(key)] = value;
+  });
+  return result;
+}
+
+function normalizeReservationIndexFast_(value) {
+  if (!value || value.version !== 'v310') return null;
+  return {
+    version: 'v310',
+    totals: normalizeCountMapFast_(value.totals),
+    eggsByDate: normalizeCountMapFast_(value.eggsByDate),
+    updatedAt: String(value.updatedAt || '')
+  };
+}
+
+function buildReservationIndexFast_(orders, preorderMap) {
+  const index = { version: 'v310', totals: {}, eggsByDate: {}, updatedAt: new Date().toISOString() };
+  (orders || []).forEach(order => {
+    const contribution = reservationContributionFast_(order, preorderMap);
+    applyCountMapDeltaFast_(index.totals, contribution.totals, 1);
+    applyCountMapDeltaFast_(index.eggsByDate, contribution.eggsByDate, 1);
+  });
+  return index;
+}
+
+function writePublicReservationIndexFast_(index) {
+  const normalized = normalizeReservationIndexFast_(index);
+  if (!normalized) throw new Error('Neplatný rychlý index rezervací.');
+  normalized.updatedAt = new Date().toISOString();
+  PropertiesService.getScriptProperties().setProperty(publicReservationIndexPropertyKey_(), JSON.stringify(normalized));
+  return normalized;
+}
+
+function readPublicReservationIndexFast_(preorderMap) {
+  const properties = PropertiesService.getScriptProperties();
+  try {
+    const raw = properties.getProperty(publicReservationIndexPropertyKey_());
+    if (raw) {
+      const parsed = normalizeReservationIndexFast_(JSON.parse(raw));
+      if (parsed) return parsed;
+    }
+  } catch (error) {
+    console.error('Načtení rychlého indexu rezervací selhalo.', error);
+  }
+
+  // Jednorázová migrace po nasazení. Další veřejná načtení už list Objednávky vůbec nečtou.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const secondRaw = properties.getProperty(publicReservationIndexPropertyKey_());
+    if (secondRaw) {
+      try {
+        const secondParsed = normalizeReservationIndexFast_(JSON.parse(secondRaw));
+        if (secondParsed) return secondParsed;
+      } catch (parseError) {
+        console.error('Rychlý index rezervací je poškozený a vytvoří se znovu.', parseError);
+      }
+    }
+    const orders = publicSheetRowsFast_(CONFIG.ORDERS_SHEET)
+      .filter(row => row[0] !== '')
+      .map(availabilityOrderFromSheetRowFast_);
+    return writePublicReservationIndexFast_(buildReservationIndexFast_(orders, preorderMap || {}));
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+}
+
+function updatePublicReservationIndexFast_(oldOrder, newOrder, preorderMap) {
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const raw = properties.getProperty(publicReservationIndexPropertyKey_());
+    if (!raw) return false;
+    const index = normalizeReservationIndexFast_(JSON.parse(raw));
+    if (!index) throw new Error('Index má starou verzi.');
+    const parts = preorderMap || readPublicCatalogFast_().preorderMap || {};
+    const before = reservationContributionFast_(oldOrder, parts);
+    const after = reservationContributionFast_(newOrder, parts);
+    applyCountMapDeltaFast_(index.totals, before.totals, -1);
+    applyCountMapDeltaFast_(index.eggsByDate, before.eggsByDate, -1);
+    applyCountMapDeltaFast_(index.totals, after.totals, 1);
+    applyCountMapDeltaFast_(index.eggsByDate, after.eggsByDate, 1);
+    writePublicReservationIndexFast_(index);
+    invalidatePublicPayloadCache_();
+    return true;
+  } catch (error) {
+    console.error('Aktualizace rychlého indexu rezervací selhala.', error);
+    invalidatePublicReservationIndex_();
+    return false;
+  }
+}
+
+function buildEggAvailabilityFromIndexFast_(settings, index) {
+  const today = todayKey_();
+  const horizonEnd = addDaysKey_(today, settings.planningDays);
+  const reservations = {};
+  let calculationEnd = horizonEnd;
+
+  Object.keys(index && index.eggsByDate || {}).forEach(sourceDate => {
+    const qty = Math.max(0, Math.floor(Number(index.eggsByDate[sourceDate]) || 0));
+    if (!qty) return;
+    const pickup = sourceDate < today ? today : sourceDate;
+    reservations[pickup] = (reservations[pickup] || 0) + qty;
+    if (pickup > calculationEnd) calculationEnd = pickup;
+  });
+
+  const totalDays = Math.max(0, daysBetweenKeys_(today, calculationEnd));
+  const rows = [];
+  let projectedStock = settings.currentStock;
+  for (let indexDay = 0; indexDay <= totalDays; indexDay++) {
+    const date = addDaysKey_(today, indexDay);
+    if (indexDay > 0) projectedStock += settings.dailyProduction;
+    const reserved = reservations[date] || 0;
+    projectedStock -= reserved;
+    rows.push({ date: date, reserved: reserved, projectedStock: projectedStock, maxAdditional: 0 });
+  }
+
+  let suffixMinimum = Infinity;
+  for (let indexDay = rows.length - 1; indexDay >= 0; indexDay--) {
+    suffixMinimum = Math.min(suffixMinimum, rows[indexDay].projectedStock);
+    rows[indexDay].maxAdditional = Math.max(0, Math.floor(suffixMinimum - settings.safetyReserve));
+  }
+
+  return {
+    settings: settings,
+    horizonStart: today,
+    horizonEnd: horizonEnd,
+    days: rows.filter(row => row.date <= horizonEnd)
+  };
+}
+
+function publicProductsWithAvailabilityFast_(baseProducts, reservationIndex, eggAvailability) {
+  const eggToday = eggAvailability && eggAvailability.days && eggAvailability.days.length
+    ? eggAvailability.days[0]
+    : null;
+  return (baseProducts || []).map(product => {
+    const id = String(product.id || '');
+    const reserved = Math.max(0, Number(reservationIndex && reservationIndex.totals && reservationIndex.totals[id] || 0));
+    return Object.assign({}, product, {
+      reserved: reserved,
+      availableStock: id === CONFIG.EGG_PRODUCT_ID
+        ? Math.max(0, Math.floor(Number(eggToday && eggToday.maxAdditional || 0)))
+        : Math.max(0, Math.floor(Number(product.stock || 0) - reserved))
+    });
+  });
+}
+
 function buildPublicPayload_() {
   const cache = CacheService.getScriptCache();
   try {
     const cached = cache.get(publicPayloadCacheKey_());
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (parsed && parsed.ok && Array.isArray(parsed.products)) return parsed;
+      if (parsed && parsed.ok && parsed.version === '3.1.1' && Array.isArray(parsed.products)) return parsed;
     }
   } catch (error) {
     console.error('Načtení veřejné cache selhalo.', error);
   }
 
-  const orders = readOrdersForAvailability_();
-  const preorderMap = productPreorderMap_();
-  const reservations = reservationMapFromOrders_(orders, preorderMap);
-  const availability = buildEggAvailability_('', orders, preorderMap);
+  const catalog = readPublicCatalogFast_();
+  const reservationIndex = readPublicReservationIndexFast_(catalog.preorderMap);
+  const eggSettings = eggSettingsFromMapFast_(catalog.settingsMap);
+  const availability = buildEggAvailabilityFromIndexFast_(eggSettings, reservationIndex);
   const payload = {
     ok: true,
-    products: readProductsFast_(reservations, availability),
+    version: '3.1.1',
+    products: publicProductsWithAvailabilityFast_(catalog.products, reservationIndex, availability),
     availability: availability,
-    settings: publicBusinessSettings_(),
+    settings: publicBusinessSettingsFromMapFast_(catalog.settingsMap),
     generatedAt: new Date().toISOString()
   };
 
@@ -182,6 +507,23 @@ function buildPublicPayload_() {
     console.error('Uložení veřejné cache selhalo.', error);
   }
   return payload;
+}
+
+/** Spusťte jednou po nasazení V3.1.1, aby byl rychlý index připravený ještě před první návštěvou. */
+function setupFastPublicOfferV311() {
+  return withMutationLock_(() => {
+    invalidatePublicCatalogCache_();
+    invalidatePublicReservationIndex_();
+    const catalog = readPublicCatalogFast_();
+    const orders = publicSheetRowsFast_(CONFIG.ORDERS_SHEET)
+      .filter(row => row[0] !== '')
+      .map(availabilityOrderFromSheetRowFast_);
+    writePublicReservationIndexFast_(buildReservationIndexFast_(orders, catalog.preorderMap));
+    invalidatePublicPayloadCache_();
+    const payload = buildPublicPayload_();
+    const egg = (payload.products || []).find(product => String(product.id) === CONFIG.EGG_PRODUCT_ID);
+    return `Rychlá nabídka je připravená. Aktuálně dostupné množství vajec: ${Math.max(0, Number(egg && egg.availableStock || 0))} ks.`;
+  }, 20000);
 }
 
 function buildAdminPayload_() {
@@ -292,7 +634,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '2.8.5',
+      version: '3.1.1',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -382,7 +724,6 @@ function normalizeVisitSource_(value) {
 function formatVisitsSheet_(sheet) {
   const headers = ['Čas', 'Den', 'Návštěvník ID', 'Zdroj', 'Cesta', 'Titulek'];
   ensureHeaders_(sheet, headers);
-  sheet.setFrozenRows(1);
 }
 
 function trackVisit_(payload) {
@@ -757,6 +1098,13 @@ function createOrder_(payload, manual) {
           console.error('Propojení návštěvníka s objednávkou selhalo.', visitorError);
         }
       }
+
+      // Pokud už rychlý index existuje, přidáme rezervaci bez dalšího čtení tabulky.
+      try { updatePublicReservationIndexFast_(null, order); }
+      catch (indexError) {
+        console.error('Rychlý index po vytvoření objednávky nebyl aktualizován.', indexError);
+        invalidatePublicReservationIndex_();
+      }
     } catch (error) {
       if (stockAdjusted) {
         try { reverseProductStockDeltas_(stockDeltas); } catch (rollbackError) { console.error('Vrácení skladu selhalo.', rollbackError); }
@@ -834,7 +1182,9 @@ function saveProduct_(payload) {
 
   const becameAvailable = product.visible && !product.soldOut && (!oldProduct || !oldProduct.visible || oldProduct.soldOut);
   if (becameAvailable) notifyStockWatchers_(product);
-  invalidatePublicPayloadCache_();
+  invalidatePublicCatalogCache_();
+  // Změna příznaku předobjednávky může přesunout položku mezi částmi objednávky.
+  invalidatePublicReservationIndex_();
 
   return htmlResponse_(true, 'Produkt byl uložen.', String(product.id), { product: product });
 }
@@ -849,7 +1199,8 @@ function deleteProduct_(payload) {
   for (let i = values.length - 1; i >= 1; i--) {
     if (String(values[i][0]) === id) sheet.deleteRow(i + 1);
   }
-  invalidatePublicPayloadCache_();
+  invalidatePublicCatalogCache_();
+  invalidatePublicReservationIndex_();
   return htmlResponse_(true, 'Produkt byl smazán.', id, {});
 }
 
@@ -905,6 +1256,7 @@ function saveOrder_(payload, skipPublicRefresh) {
     if (!row) throw new Error('Objednávka nebyla nalezena.');
 
     const oldOrder = orderFromSheetRow_(values[row - 1]);
+    const oldOrderRow = values[row - 1].slice(0, 27);
     const created = values[row - 1][1] || new Date();
     const source = values[row - 1][9] || 'Administrace';
     const itemsText = order.items.map(i => `${i.qty}× ${i.name} (${i.qty * i.price} Kč)`).join(', ');
@@ -948,14 +1300,26 @@ function saveOrder_(payload, skipPublicRefresh) {
     const cancellationAlreadySent = communication.some(item => item && item.type === 'cancelled');
     const cancellationBecameFinal = newAggregateStatus === 'Zrušeno' && oldAggregateStatus !== 'Zrušeno' && !cancellationAlreadySent;
 
-    // Nejdřív validujeme celý nový stav. Fyzický sklad se mění až po úspěšné validaci.
-    validatePickupRules_(order, id);
+    // Pouhá změna Nová/Připravuji/Připraveno nemění rezervaci ani termín.
+    // Drahý přepočet dostupnosti proto spouštíme jen tehdy, když se plán opravdu změnil.
+    const planningChanged = orderPlanningSignatureV290_(oldOrder) !== orderPlanningSignatureV290_(order);
+    if (planningChanged) validatePickupRules_(order, id);
+    const packagingPlan = Object.prototype.hasOwnProperty.call(payload || {}, 'packagingSelection')
+      ? (typeof preparePackagingOrderUpdateV290_ === 'function'
+        ? preparePackagingOrderUpdateV290_(id, Object.assign({}, order, {id:id, orderNumber:orderNumber}), payload.packagingSelection)
+        : (() => { throw new Error('Doplněk skladu obalů je zastaralý. Nahrajte také nový Code_V2_6_ADDON.gs.'); })())
+      : null;
     const stockDeltas = fulfilledStockDeltas_(oldOrder, order);
+    const hasStockDeltas = Object.keys(stockDeltas).some(key => Number(stockDeltas[key] || 0) !== 0);
     let stockChangesApplied = false;
+    let orderChangesApplied = false;
+    let packagingResult = null;
 
     try {
-      applyProductStockDeltas_(stockDeltas);
-      stockChangesApplied = true;
+      if (hasStockDeltas) {
+        applyProductStockDeltas_(stockDeltas);
+        stockChangesApplied = true;
+      }
 
       sheet.getRange(row, 1, 1, 27).setValues([[
         id, created, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
@@ -965,11 +1329,28 @@ function saveOrder_(payload, skipPublicRefresh) {
         JSON.stringify(communication), safeSheetText_(submitted.internalNote || oldOrder.internalNote || ''), JSON.stringify(timeline),
         fulfilledAt, regularFulfilledAt, preorderFulfilledAt, oldOrder.requestId || ''
       ]]);
+      orderChangesApplied = true;
+
+      if (packagingPlan) {
+        packagingResult = commitPackagingOrderUpdateV290_(packagingPlan, orderNumber);
+      }
     } catch (error) {
+      if (orderChangesApplied) {
+        try { sheet.getRange(row, 1, 1, 27).setValues([oldOrderRow]); }
+        catch (rollbackError) { console.error('Vrácení objednávky po chybě obalů selhalo.', rollbackError); }
+      }
       if (stockChangesApplied) {
         try { reverseProductStockDeltas_(stockDeltas); } catch (rollbackError) { console.error('Vrácení skladu po chybě selhalo.', rollbackError); }
       }
       throw error;
+    }
+
+    if (planningChanged) {
+      try { updatePublicReservationIndexFast_(oldOrder, order); }
+      catch (indexError) {
+        console.error('Rychlý index po úpravě objednávky nebyl aktualizován.', indexError);
+        invalidatePublicReservationIndex_();
+      }
     }
 
     result = {
@@ -979,7 +1360,8 @@ function saveOrder_(payload, skipPublicRefresh) {
       contactMethod:String(order.contactMethod || oldOrder.contactMethod || 'SMS'),
       regularBecameReady:regularBecameReady,
       preorderBecameReady:preorderBecameReady,
-      cancellationBecameFinal:cancellationBecameFinal
+      cancellationBecameFinal:cancellationBecameFinal,
+      packaging:packagingResult
     };
   } finally {
     try { lock.releaseLock(); } catch (_) {}
@@ -1018,7 +1400,8 @@ function saveOrder_(payload, skipPublicRefresh) {
       orderNumber: result.orderNumber
     }),
     orderNumber: result.orderNumber,
-    notificationsQueued: queuedCount
+    notificationsQueued: queuedCount,
+    packaging: result.packaging
   });
 }
 
@@ -1026,9 +1409,23 @@ function deleteOrder_(payload) {
   const id = cleanIdentifier_(payload.id, 'ID objednávky');
   const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
   const values = sheet.getDataRange().getValues();
+  const affectedYears = {};
+  const deletedOrders = [];
   for (let i = values.length - 1; i >= 1; i--) {
-    if (String(values[i][0]) === id) sheet.deleteRow(i + 1);
+    if (String(values[i][0]) !== id) continue;
+    deletedOrders.push(orderFromSheetRow_(values[i]));
+    const year = orderNumberYear_(values[i][17], values[i][1]);
+    if (year) affectedYears[year] = true;
+    sheet.deleteRow(i + 1);
   }
+  Object.keys(affectedYears).forEach(year => syncOrderCounterForYear_(sheet, year));
+  deletedOrders.forEach(order => {
+    try { updatePublicReservationIndexFast_(order, null); }
+    catch (indexError) {
+      console.error('Rychlý index po smazání objednávky nebyl aktualizován.', indexError);
+      invalidatePublicReservationIndex_();
+    }
+  });
   invalidatePublicPayloadCache_();
   return htmlResponse_(true, 'Objednávka byla smazána.', id, {});
 }
@@ -1048,7 +1445,7 @@ function saveEggSettings_(payload) {
     planningDays: planningDays
   });
 
-  invalidatePublicPayloadCache_();
+  invalidatePublicCatalogCache_();
   return htmlResponse_(true, 'Nastavení vajec bylo uloženo.', '', {
     eggSettings: readEggSettings_()
   });
@@ -1224,6 +1621,7 @@ function writeEggSettings_(settings) {
   setSetting_(sheet, 'EGG_DAILY_PRODUCTION', settings.dailyProduction, 'Předpokládaný počet nových vajec za den');
   setSetting_(sheet, 'EGG_SAFETY_RESERVE', settings.safetyReserve, 'Počet vajec, který se zákazníkům nenabízí');
   setSetting_(sheet, 'EGG_PLANNING_DAYS', settings.planningDays, 'Kolik dní dopředu lze plánovat');
+  invalidatePublicCatalogCache_();
 }
 
 function adjustEggStock_(delta) {
@@ -1530,9 +1928,7 @@ function getOrCreateSheet_(name) {
 
 function formatWatchlistSheet_(sheet) {
   const headers = ['Produkt ID', 'Produkt', 'E-mail', 'Vytvořeno', 'Upozorněno'];
-  if (sheet.getLastRow() === 0) sheet.appendRow(headers);
-  else sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  sheet.setFrozenRows(1);
+  ensureHeaders_(sheet, headers);
 }
 
 function subscribeStock_(payload) {
@@ -1578,7 +1974,6 @@ function productFromSheetRow_(row) {
 function formatOrdersSheet_(sheet) {
   const headers = ['Interní ID', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON', 'E-mail', 'Kontakt před vyzvednutím', 'Rozdělená objednávka', 'Termín předobjednávky', 'Stav dostupné části', 'Stav předobjednávky', 'Číslo objednávky', 'E-mail připraveno 1', 'E-mail připraveno 2', 'Komunikace JSON', 'Interní poznámka', 'Časová osa JSON', 'Skutečně vyzvednuto', 'Vyzvednuta dostupná část', 'Vyzvednuta předobjednaná část', 'Request ID'];
   ensureHeaders_(sheet, headers);
-  sheet.setFrozenRows(1);
 }
 
 
@@ -1598,18 +1993,28 @@ function ensureOrderNumbers_(sheet) {
 function formatProductsSheet_(sheet) {
   const headers = ['ID', 'Emoji', 'Název', 'Cena', 'Jednotka', 'Krátký popis', 'Podrobnosti', 'Viditelný', 'Vyprodáno', 'Doplnění', 'Předstih dní', 'Rychlá tlačítka', 'Aktualizováno', 'Předobjednávka', 'Datum předobjednávky', 'Plánované množství', 'Text e-mailu', 'Vlastní označení', 'Fotografie produktu', 'Sklad', 'Jednotka skladu', 'Text při vyprodání'];
   ensureHeaders_(sheet, headers);
-  sheet.setFrozenRows(1);
 }
 
 function formatSettingsSheet_(sheet) {
   const headers = ['Klíč', 'Hodnota', 'Popis'];
   ensureHeaders_(sheet, headers);
-  sheet.setFrozenRows(1);
 }
 
+const PDP_HEADER_CACHE_V290_ = {};
+
 function ensureHeaders_(sheet, headers) {
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+  const sheetKey = `${sheet.getSheetId()}:${headers.join('|')}`;
+  if (PDP_HEADER_CACHE_V290_[sheetKey]) return;
+
+  const range = sheet.getRange(1, 1, 1, headers.length);
+  const current = range.getValues()[0];
+  const differs = headers.some((header, index) => String(current[index] || '') !== String(header));
+  if (differs) {
+    range.setValues([headers]);
+    range.setFontWeight('bold');
+  }
+  if (sheet.getFrozenRows() !== 1) sheet.setFrozenRows(1);
+  PDP_HEADER_CACHE_V290_[sheetKey] = true;
 }
 
 function seedProducts_(sheet) {
@@ -1688,7 +2093,7 @@ function saveBusinessSettings_(payload) {
   setTextSetting_(sheet, 'PAUSE_TO', pauseTo, 'Blokace vyzvednutí do');
   setTextSetting_(sheet, 'PAUSE_MESSAGE', cleanText_(settings.pauseMessage, 800), 'Upozornění při blokaci vyzvednutí');
   setSetting_(sheet, 'DAILY_ORDER_LIMIT', Math.max(0, Math.floor(Number(settings.dailyOrderLimit) || 0)), 'Maximum objednávek na den');
-  invalidatePublicPayloadCache_();
+  invalidatePublicCatalogCache_();
   return htmlResponse_(true, 'Nastavení webu bylo uloženo.', '', { settings: publicBusinessSettings_() });
 }
 
@@ -1706,20 +2111,54 @@ function availableProductStock_(productId, physicalStock) {
   return Math.max(0, Math.floor(Number(physicalStock || 0) - reserved));
 }
 
-function fulfilledProductQuantities_(order) {
+function fulfilledProductQuantities_(order, preorderMap) {
   const result = {};
-  const preorderMap = productPreorderMap_();
+  const productParts = preorderMap || productPreorderMap_();
   (order && order.items || []).forEach(item => {
     const id = String(item.productId || '');
-    if (!id || !isFulfilledStatus_(itemPartStatus_(order, id, preorderMap))) return;
+    if (!id || !isFulfilledStatus_(itemPartStatus_(order, id, productParts))) return;
     result[id] = (result[id] || 0) + Math.max(0, Math.floor(Number(item.qty) || 0));
   });
   return result;
 }
 
+function orderHasFulfilledPart_(order) {
+  if (!order) return false;
+  if (!order.splitOrder) return isFulfilledStatus_(order.status);
+  return isFulfilledStatus_(order.regularStatus) || isFulfilledStatus_(order.preorderStatus);
+}
+
+function orderPlanningSignatureV290_(order) {
+  const statusGroup = status => {
+    if (String(status || '') === 'Vyzvednuto') return 'picked-up';
+    if (String(status || '') === 'Zrušeno') return 'cancelled';
+    return 'active';
+  };
+  const items = (order && order.items || [])
+    .map(item => ({
+      productId:String(item.productId || ''),
+      qty:Math.max(0, Math.floor(Number(item.qty || 0)))
+    }))
+    .filter(item => item.productId && item.qty > 0)
+    .sort((a, b) => a.productId.localeCompare(b.productId));
+  const split = Boolean(order && order.splitOrder);
+  return JSON.stringify({
+    splitOrder:split,
+    pickup:String(order && order.pickup || ''),
+    preorderPickup:split ? String(order && order.preorderPickup || '') : '',
+    regularState:statusGroup(split ? order.regularStatus : order && order.status),
+    preorderState:split ? statusGroup(order.preorderStatus) : '',
+    items:items
+  });
+}
+
 function fulfilledStockDeltas_(oldOrder, newOrder) {
-  const before = fulfilledProductQuantities_(oldOrder);
-  const after = fulfilledProductQuantities_(newOrder);
+  // Nejčastější změna Nová/Připravuji/Připraveno vůbec nehýbe fyzickým skladem.
+  // V tom případě nemusíme znovu číst produkty ani mapu předobjednávek.
+  if (!orderHasFulfilledPart_(oldOrder) && !orderHasFulfilledPart_(newOrder)) return {};
+  const preorderMap = productPreorderMap_();
+  const before = fulfilledProductQuantities_(oldOrder, preorderMap);
+  const after = fulfilledProductQuantities_(newOrder, preorderMap);
   const ids = {};
   Object.keys(before).forEach(id => ids[id] = true);
   Object.keys(after).forEach(id => ids[id] = true);
@@ -1732,6 +2171,7 @@ function applyProductStockDeltas_(deltas) {
   const sheet = getOrCreateSheet_(CONFIG.PRODUCTS_SHEET);
   formatProductsSheet_(sheet);
   const values = sheet.getDataRange().getValues();
+  let productCatalogChanged = false;
 
   Object.keys(deltas || {}).forEach(id => {
     const delta = Number(deltas[id] || 0);
@@ -1750,9 +2190,12 @@ function applyProductStockDeltas_(deltas) {
       if (next < 0) throw new Error(`U produktu ${restoreSheetText_(values[row][2] || 'Produkt')} není dostatek fyzických kusů skladem.`);
       sheet.getRange(row + 1, 20).setValue(next);
       values[row][19] = next;
+      productCatalogChanged = true;
       break;
     }
   });
+
+  if (productCatalogChanged) invalidatePublicCatalogCache_();
 }
 
 function reverseProductStockDeltas_(deltas) {
@@ -2467,10 +2910,50 @@ function parseJsonArray_(value) {
   try { const x = JSON.parse(String(value || '[]')); return Array.isArray(x) ? x : []; } catch (_) { return []; }
 }
 
+const ORDER_COUNTER_SYNC_VERSION_ = 'v291-20260817';
+
+function orderNumberYear_(orderNumber, createdAt) {
+  const match = String(orderNumber || '').match(/^PP-(\d{4})-\d+$/);
+  if (match) return match[1];
+
+  const date = createdAt instanceof Date ? createdAt : new Date(createdAt);
+  if (isNaN(date.getTime())) return '';
+  return Utilities.formatDate(date, CONFIG.TIME_ZONE, 'yyyy');
+}
+
+function orderCounterSyncKey_(year) {
+  return `ORDER_COUNTER_SYNC_${ORDER_COUNTER_SYNC_VERSION_}_${year}`;
+}
+
+function syncOrderCounterForYear_(sheet, year, properties) {
+  const normalizedYear = String(year || '');
+  if (!/^\d{4}$/.test(normalizedYear)) return 0;
+
+  let highest = 0;
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= 2) {
+    const numbers = sheet.getRange(2, 18, lastRow - 1, 1).getDisplayValues();
+    const pattern = new RegExp(`^PP-${normalizedYear}-(\\d+)$`);
+    numbers.forEach(row => {
+      const match = String(row[0] || '').match(pattern);
+      if (match) highest = Math.max(highest, Number(match[1]) || 0);
+    });
+  }
+
+  const props = properties || PropertiesService.getScriptProperties();
+  props.setProperty('ORDER_COUNTER_' + normalizedYear, String(highest));
+  props.setProperty(orderCounterSyncKey_(normalizedYear), '1');
+  return highest;
+}
+
 function nextOrderNumber_(date) {
   const year = Utilities.formatDate(date || new Date(), CONFIG.TIME_ZONE, 'yyyy');
   const props = PropertiesService.getScriptProperties();
   const key = 'ORDER_COUNTER_' + year;
+  if (props.getProperty(orderCounterSyncKey_(year)) !== '1') {
+    const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
+    syncOrderCounterForYear_(sheet, year, props);
+  }
   const next = Number(props.getProperty(key) || 0) + 1;
   props.setProperty(key, String(next));
   return 'PP-' + year + '-' + String(next).padStart(4, '0');

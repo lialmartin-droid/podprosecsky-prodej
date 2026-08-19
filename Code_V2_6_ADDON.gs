@@ -1,9 +1,10 @@
 /**
- * Podprosečské domácí produkty – doplněk V2.8.5
+ * Podprosečské domácí produkty – doplněk V3.1.1
  * Sklad obalů + přesné návštěvy + propojení návštěvníků s objednávkami.
  *
- * Tento soubor přidejte do stejného Apps Script projektu jako Code_V2_0.gs.
- * Potom v doPost(e) v Code_V2_0.gs přidejte JEDEN řádek:
+ * Tento soubor přidejte do stejného Apps Script projektu jako Code.gs.
+ * Hlavní Code.gs V3.1 už napojení doplňku obsahuje.
+ * U staršího Code.gs bylo nutné do doPost(e) přidat řádek:
  *
  * const v26 = handleV26Action_(action, payload); if (v26) return v26;
  *
@@ -39,7 +40,7 @@ function setupV26() {
   formatPackagingOrdersV26_(orders);
   formatVisitorsV27_(visitors);
   seedPackagingV26_(items);
-  return 'V2.8.5 je připravena – sklad obalů i evidence návštěvníků byly založeny.';
+  return 'V3.1.1 je připravena – sklad obalů i evidence návštěvníků byly založeny.';
 }
 
 function normalizeVisitorIdV27_(value) {
@@ -383,6 +384,179 @@ function writePackagingOrderV26_(orderId, selection, consumed) {
   ]];
   if (existing) source.sheet.getRange(existing.row, 1, 1, 4).setValues(record);
   else source.sheet.getRange(source.sheet.getLastRow() + 1, 1, 1, 4).setValues(record);
+}
+
+/**
+ * V3.1: připraví změnu obalů bez jediného zápisu. Hlavní Code.gs tak může
+ * nejdřív ověřit objednávku, vejce i obaly a teprve potom vše potvrdit společně.
+ */
+function preparePackagingOrderUpdateV290_(orderId, order, rawSelection) {
+  const normalizedOrderId = cleanText_(orderId, 100);
+  if (!normalizedOrderId) throw new Error('Chybí objednávka.');
+
+  const itemSheet = getOrCreateSheet_(PDP_V26_PACKAGING_SHEET);
+  formatPackagingV26_(itemSheet);
+  seedPackagingV26_(itemSheet);
+  const itemValues = itemSheet.getDataRange().getValues();
+  const itemMap = {};
+  for (let row = 1; row < itemValues.length; row++) {
+    const id = String(itemValues[row][0] || '');
+    if (!id) continue;
+    itemMap[id] = {
+      id:id,
+      name:restoreSheetText_(itemValues[row][1] || ''),
+      stock:Math.max(0, Math.floor(Number(itemValues[row][2] || 0))),
+      piecesPerPack:Math.max(1, Math.floor(Number(itemValues[row][4] || 1))),
+      row:row + 1
+    };
+  }
+
+  const sourceSelection = rawSelection && typeof rawSelection === 'object' ? rawSelection : {};
+  const selection = {own:toBool_(sourceSelection.own), quantities:{}};
+  Object.keys(sourceSelection.quantities || {}).forEach(id => {
+    if (!itemMap[id]) return;
+    const quantity = Math.max(0, Math.min(100, Math.floor(Number(sourceSelection.quantities[id]) || 0)));
+    selection.quantities[id] = selection.own ? 0 : quantity;
+  });
+
+  const orderRows = readPackagingOrderRowsV26_();
+  const existing = orderRows.map[normalizedOrderId] || null;
+  const oldSelection = existing ? existing.selection || {} : {};
+  const oldConsumed = existing ? existing.consumed || {} : {};
+  const containsEggs = eggQtyFromItems_(order && order.items || []) > 0;
+  const shouldConsume = containsEggs && orderPackagingReadyV26_(order);
+  const hasSelectedPack = Object.values(selection.quantities).some(value => Number(value || 0) > 0);
+
+  if (shouldConsume && !selection.own && !hasSelectedPack) {
+    throw new Error('Nejdříve vyberte obal, nebo označte vlastní/bez obalu.');
+  }
+
+  const desired = {};
+  if (shouldConsume && !selection.own) {
+    Object.keys(selection.quantities).forEach(id => {
+      const packs = Math.max(0, Math.floor(Number(selection.quantities[id]) || 0));
+      if (packs > 0) desired[id] = packs * itemMap[id].piecesPerPack;
+    });
+  }
+
+  const ids = {};
+  Object.keys(oldConsumed).forEach(id => { ids[id] = true; });
+  Object.keys(desired).forEach(id => { ids[id] = true; });
+  const changes = [];
+
+  Object.keys(ids).forEach(id => {
+    const item = itemMap[id];
+    if (!item) throw new Error('Vybraný obal už ve skladu neexistuje.');
+    const consumptionChange = Number(desired[id] || 0) - Number(oldConsumed[id] || 0);
+    if (!consumptionChange) return;
+    const after = item.stock - consumptionChange;
+    if (after < 0) {
+      throw new Error(`Nedostatek obalů „${item.name}“. Skladem ${item.stock} ks, potřeba ještě ${consumptionChange} ks.`);
+    }
+    changes.push({
+      id:id,
+      name:item.name,
+      row:item.row,
+      before:item.stock,
+      after:after,
+      stockDelta:after - item.stock,
+      reason:consumptionChange > 0 ? 'Výdej k připravené objednávce' : 'Vrácení po změně obalu'
+    });
+  });
+
+  return {
+    handled:true,
+    orderId:normalizedOrderId,
+    selection:selection,
+    consumed:desired,
+    oldSelection:oldSelection,
+    oldConsumed:oldConsumed,
+    orderRow:existing ? existing.row : 0,
+    changes:changes
+  };
+}
+
+/** Potvrdí předem ověřený plán a při technické chybě vrátí sklad obalů zpět. */
+function commitPackagingOrderUpdateV290_(plan, orderNumber) {
+  if (!plan || !plan.handled) return null;
+
+  const itemSheet = getOrCreateSheet_(PDP_V26_PACKAGING_SHEET);
+  const orderSheet = getOrCreateSheet_(PDP_V26_PACKAGING_ORDERS_SHEET);
+  const applied = [];
+  let orderRow = Number(plan.orderRow || 0);
+  let createdOrderRow = false;
+
+  try {
+    (plan.changes || []).forEach(change => {
+      itemSheet.getRange(change.row, 3).setValue(change.after);
+      itemSheet.getRange(change.row, 6).setValue(new Date());
+      applied.push(change);
+    });
+
+    const record = [[
+      safeSheetText_(plan.orderId),
+      JSON.stringify(plan.selection || {}),
+      JSON.stringify(plan.consumed || {}),
+      new Date()
+    ]];
+    if (orderRow) orderSheet.getRange(orderRow, 1, 1, 4).setValues(record);
+    else {
+      orderRow = orderSheet.getLastRow() + 1;
+      orderSheet.getRange(orderRow, 1, 1, 4).setValues(record);
+      createdOrderRow = true;
+    }
+
+    if ((plan.changes || []).length) {
+      const movesSheet = getOrCreateSheet_(PDP_V26_PACKAGING_MOVES_SHEET);
+      formatPackagingMovesV26_(movesSheet);
+      const moveRows = plan.changes.map(change => [
+        new Date(),
+        safeSheetText_(change.id),
+        safeSheetText_(change.name),
+        Number(change.stockDelta || 0),
+        Number(change.before || 0),
+        Number(change.after || 0),
+        safeSheetText_(change.reason || ''),
+        safeSheetText_(orderNumber || '')
+      ]);
+      movesSheet.getRange(movesSheet.getLastRow() + 1, 1, moveRows.length, 8).setValues(moveRows);
+    }
+  } catch (error) {
+    applied.forEach(change => {
+      try {
+        itemSheet.getRange(change.row, 3).setValue(change.before);
+        itemSheet.getRange(change.row, 6).setValue(new Date());
+      } catch (rollbackError) {
+        console.error('Vrácení skladu obalů selhalo.', rollbackError);
+      }
+    });
+
+    try {
+      if (createdOrderRow && orderRow) orderSheet.deleteRow(orderRow);
+      else if (orderRow) {
+        orderSheet.getRange(orderRow, 1, 1, 4).setValues([[
+          safeSheetText_(plan.orderId),
+          JSON.stringify(plan.oldSelection || {}),
+          JSON.stringify(plan.oldConsumed || {}),
+          new Date()
+        ]]);
+      }
+    } catch (rollbackError) {
+      console.error('Vrácení záznamu obalu objednávky selhalo.', rollbackError);
+    }
+    throw error;
+  }
+
+  let currentItems = [];
+  try { currentItems = readPackagingItemsV26_(); }
+  catch (readError) { console.error('Aktuální stav obalů se po uložení nepodařilo načíst.', readError); }
+
+  return {
+    handled:true,
+    selection:plan.selection || {},
+    consumed:plan.consumed || {},
+    items:currentItems
+  };
 }
 
 function reconcilePackagingForOrderV26_(orderId, selection, oldConsumed) {
