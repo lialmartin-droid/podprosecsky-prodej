@@ -34,10 +34,22 @@ window.PDP_CONFIG = {
     );
   } catch (_) {}
 
-  if (!document.querySelector('script[data-pdp-visit-tracker]')) {
+  const loadVisitTracker = () => {
+    if (document.querySelector('script[data-pdp-visit-tracker]')) return;
     const tracker = document.createElement("script");
     tracker.src = "assets/visit-tracker.js?v=270-20260814";
     tracker.dataset.pdpVisitTracker = "1";
     document.body.appendChild(tracker);
+  };
+
+  // Nejdřív ověříme produkty a hlavně vejce. Návštěvnost nesmí při prvním
+  // otevření soutěžit o stejný Apps Script server. Pokud server produktů
+  // neodpoví, tracker se kvůli zachování statistik spustí nejpozději za 6 s.
+  if (window.PDP_PRODUCTS_VERIFIED) {
+    loadVisitTracker();
+  } else {
+    window.addEventListener("pdp-products-verified", loadVisitTracker, { once: true });
+    setTimeout(loadVisitTracker, 6000);
   }
 })();
+

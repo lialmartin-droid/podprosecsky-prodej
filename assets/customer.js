@@ -1,8 +1,9 @@
-window.PDP_CUSTOMER_VERSION = "2.8.5";
-console.info("Podprosečské produkty – customer.js V2.8.5 – propojení návštěvy s objednávkou");
+window.PDP_CUSTOMER_VERSION = "3.1.1";
+window.PDP_PRODUCTS_VERIFIED = false;
+console.info("Podprosečské produkty – customer.js V3.1.1 – okamžitý náhled a ověřená dostupnost");
 
-// Produkty se nikdy nevykreslují z ukázkových hodnot.
-// Stránka čeká na aktuální data z Google Tabulky, aby zákazník neviděl starou cenu.
+// Karty produktů se při první návštěvě vykreslí okamžitě z bezpečného náhledu.
+// Sklad a objednávání se odemknou až po potvrzení živých dat z Google Tabulky.
 let products = [];
 let productsLoaded = false;
 let productsVerified = false;
@@ -259,9 +260,86 @@ function normalizeProducts(input) {
   }));
 }
 
+// Bezpečný první náhled současné veřejné nabídky. Díky němu zákazník uvidí
+// produkty a jejich fotografie okamžitě i při úplně první návštěvě. Sklad,
+// kapacity a objednávací tlačítka zůstávají zamčené, dokud server nepotvrdí
+// živá data. Po odpovědi serveru se celý náhled beze zbytku nahradí.
+const FIRST_PAINT_PRODUCTS = [
+  {
+    id: "2",
+    emoji: "🥚",
+    name: "Čerstvá vejce",
+    price: 7,
+    unit: "kus",
+    short: "Vejce od našich slepic z domácího chovu.",
+    detail: "Slepice krmíme kvalitní směsí a zeleninou. Každý den mají přístup na trávu, kde si hledají červy a další přirozenou potravu.",
+    visible: true,
+    soldOut: false,
+    restock: "",
+    leadDays: 0,
+    quick: [6, 10, 30],
+    preorder: false,
+    preorderDate: "",
+    capacity: 0,
+    reserved: 0,
+    image: "assets/images/products/vajicka-real.webp",
+    stock: 0,
+    availableStock: 0,
+    stockUnit: "ks",
+    soldOutText: "Momentálně vyprodáno"
+  },
+  {
+    id: "1785876289415",
+    emoji: "🕯️",
+    name: "Vánoční čajové svíčky",
+    price: 40,
+    unit: "Ks",
+    short: "Vneste do svého domova kouzlo Vánoc s ručně vyráběnou čajovou svíčkou ve tvaru vánočního stromečku. Je vyrobena z čistého vosku od našich včel a zalita do elegantního skleněného kalíšku, který podtrhuje její jedinečný vzhled a lze jej po vypálení znovu využít.",
+    detail: "🐝 Vyrobeno z vosku od našich včel. 🎄 Originální motiv vánočního stromečku. 🕯️ Ručně odléváno v malých sériích. 🫙 Elegantní skleněný kalíšek místo běžného hliníkového obalu. ♻️ Skleničku lze po vypálení snadno vyčistit a znovu využít. 🇨🇿 Vyrobeno s láskou v Pod Prosečí.",
+    visible: true,
+    soldOut: false,
+    restock: "2026-10-31",
+    leadDays: 0,
+    quick: [],
+    preorder: true,
+    preorderDate: "2026-10-31",
+    capacity: 10,
+    reserved: 0,
+    image: "https://lh3.googleusercontent.com/d/1uCrHS_advc10e9NnX_zQmZSlxAcqtiWf=w1600",
+    stock: 0,
+    availableStock: 0,
+    stockUnit: "ks",
+    soldOutText: "Momentálně vyprodáno"
+  },
+  {
+    id: "1785950150037",
+    emoji: "🕯️",
+    name: "Vysoká svíčka",
+    price: 65,
+    unit: "kus",
+    short: "Elegantní svíčka vyrobená z vosku. Každý kus je ručně odléván v malých sériích s důrazem na kvalitu a poctivé zpracování. Díky přirozené medové vůni včelího vosku vytvoří ve Vašem domově příjemnou a hřejivou atmosféru.",
+    detail: "🐝 Vyrobeno z vosku od našich včel. 🕯️ Ručně odléváno v malých sériích. 🍯 Přirozená jemná vůně včelího vosku. 🌿 Bez přidaných barviv a parfemací. Vyrobeno s láskou v Pod Prosečí.",
+    visible: true,
+    soldOut: false,
+    restock: "2026-10-31",
+    leadDays: 0,
+    quick: [2, 4],
+    preorder: true,
+    preorderDate: "2026-10-31",
+    capacity: 12,
+    reserved: 0,
+    image: "https://lh3.googleusercontent.com/d/1ZBTrpHzvpdikGD4ELUTkzUJLCQwtwbPu=w1600",
+    stock: 0,
+    availableStock: 0,
+    stockUnit: "ks",
+    soldOutText: "Momentálně vyprodáno"
+  }
+];
+
 
 let productsRequestInFlight = false;
-const PRODUCTS_CACHE_KEY = "pdp-products-cache-v5-display-only";
+let productsRequestCounter = 0;
+const PRODUCTS_CACHE_KEY = "pdp-products-cache-v8-first-paint";
 const PRODUCTS_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 
 function saveProductsCache(data) {
@@ -285,7 +363,9 @@ function loadProductsCache() {
     if (Date.now() - Number(cached.savedAt || 0) > PRODUCTS_CACHE_MAX_AGE) return false;
 
     products = normalizeProducts(cached.data.products);
-    eggAvailability = cached.data.availability || null;
+    // Z uložené nabídky použijeme vzhled a popisy, nikdy ale starý počet vajec
+    // ani starý plán termínů. Ty musí vždy potvrdit živý server.
+    eggAvailability = null;
     businessSettings = cached.data.settings || {};
     productsLoaded = true;
     productsVerified = false;
@@ -299,6 +379,19 @@ function loadProductsCache() {
     console.warn("Mezipaměť nabídky se nepodařilo načíst.", error);
     return false;
   }
+}
+
+function loadFirstPaintOffer() {
+  products = normalizeProducts(FIRST_PAINT_PRODUCTS);
+  eggAvailability = null;
+  businessSettings = {};
+  productsLoaded = true;
+  productsVerified = false;
+  productsLoadFailed = false;
+  renderAll();
+  submitButton.disabled = true;
+  countEl.title = "Nabídka je zobrazená okamžitě. Aktuální sklad a možnost objednání právě ověřujeme na serveru.";
+  return true;
 }
 
 function appendJsonp(url, callbackName, onError) {
@@ -336,42 +429,68 @@ function loadProducts(background = false) {
   }
 
   productsRequestInFlight = true;
+  const requestNumber = ++productsRequestCounter;
+  const callbackName = `PDP_PRODUCTS_CALLBACK_${requestNumber}_${Date.now()}`;
   let finished = false;
-  const timeout = setTimeout(() => {
+  let slowMessage = "";
+
+  const cleanup = () => {
+    clearTimeout(slowTimeout);
+    clearTimeout(hardTimeout);
+    document.getElementById(`jsonp-${callbackName}`)?.remove();
+    try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+  };
+
+  const fail = message => {
     if (finished) return;
     finished = true;
     productsRequestInFlight = false;
+    cleanup();
+
     if (hadCurrentProducts) {
-      feedbackEl.textContent = "Aktuální nabídku se nepodařilo obnovit. Zobrazená data zůstala beze změny.";
-    } else if (!useProductsCacheFallback("Server odpovídá pomalu. Dočasně zobrazujeme poslední uloženou nabídku.")) {
-      showProductsLoadError("Načtení aktuální nabídky trvá příliš dlouho. Zkuste to znovu.");
+      feedbackEl.textContent = productsVerified
+        ? "Aktuální nabídku se nepodařilo obnovit. Zkuste to znovu za chvíli."
+        : "Server nyní neodpověděl. Starý počet vajec proto nezobrazujeme jako aktuální.";
+    } else if (!useProductsCacheFallback("Server nyní neodpověděl. Starý počet vajec nezobrazujeme jako aktuální.")) {
+      showProductsLoadError(message || "Aktuální nabídku se nepodařilo načíst. Zkuste to znovu.");
     }
-  }, 10000);
+  };
 
-  window.PDP_PRODUCTS_CALLBACK = data => {
+  // Po šesti sekundách pouze zobrazíme informaci. Odpověď nezahodíme — stará
+  // verze ji po 10 s ignorovala a v telefonu tak mohlo zůstat chybných 54 ks.
+  const slowTimeout = setTimeout(() => {
     if (finished) return;
-    finished = true;
-    productsRequestInFlight = false;
-    clearTimeout(timeout);
+    slowMessage = hadCurrentProducts
+      ? "Ověřuji aktuální počet vajec na serveru…"
+      : "Server odpovídá pomaleji, stále ověřuji aktuální nabídku…";
+    feedbackEl.textContent = slowMessage;
+  }, 6000);
 
+  const hardTimeout = setTimeout(() => {
+    fail("Načtení aktuální nabídky trvá příliš dlouho. Zkuste to znovu.");
+  }, 30000);
+
+  window[callbackName] = data => {
+    if (finished) return;
     if (!data || !data.ok || !Array.isArray(data.products)) {
-      if (hadCurrentProducts) {
-        feedbackEl.textContent = "Aktuální nabídku se nepodařilo obnovit. Zobrazená data zůstala beze změny.";
-      } else if (!useProductsCacheFallback("Zobrazuji poslední uloženou nabídku.")) {
-        showProductsLoadError("Server nevrátil aktuální nabídku. Zkuste načtení zopakovat.");
-      }
+      fail("Server nevrátil aktuální nabídku. Zkuste načtení zopakovat.");
       return;
     }
+
+    finished = true;
+    productsRequestInFlight = false;
+    cleanup();
+    if (slowMessage && feedbackEl.textContent === slowMessage) feedbackEl.textContent = "";
 
     products = normalizeProducts(data.products);
     eggAvailability = data.availability || null;
     businessSettings = data.settings || {};
     saveProductsCache(data);
-    renderPublicBanner();
     productsLoaded = true;
     productsVerified = true;
     productsLoadFailed = false;
     countEl.removeAttribute("title");
+    renderPublicBanner();
 
     Object.keys(cart).forEach(id => {
       const product = products.find(item => String(item.id) === String(id));
@@ -385,22 +504,14 @@ function loadProducts(background = false) {
     });
 
     renderAll();
+    window.PDP_PRODUCTS_VERIFIED = true;
+    try { window.dispatchEvent(new Event("pdp-products-verified")); } catch (_) {}
   };
 
   appendJsonp(
-    `${url}?action=products&callback=PDP_PRODUCTS_CALLBACK&t=${Date.now()}`,
-    "PDP_PRODUCTS_CALLBACK",
-    () => {
-      if (finished) return;
-      finished = true;
-      productsRequestInFlight = false;
-      clearTimeout(timeout);
-      if (hadCurrentProducts) {
-        feedbackEl.textContent = "Aktuální nabídku se nepodařilo obnovit. Zobrazená data zůstala beze změny.";
-      } else if (!useProductsCacheFallback("Zobrazuji poslední uloženou nabídku.")) {
-        showProductsLoadError("Aktuální nabídku se nepodařilo načíst. Zkontrolujte připojení a zkuste to znovu.");
-      }
-    }
+    `${url}?action=products&callback=${encodeURIComponent(callbackName)}&t=${Date.now()}`,
+    callbackName,
+    () => fail("Aktuální nabídku se nepodařilo načíst. Zkontrolujte připojení a zkuste to znovu.")
   );
 }
 
@@ -435,6 +546,10 @@ function vacationNoticeText() {
 function displayedAvailableStock(product) {
   if (!product) return 0;
 
+  // Náhled ani místní cache se nesmí tvářit jako živý sklad. Do potvrzení
+  // serverem proto u všech produktů zobrazíme pouze stav ověřování.
+  if (!productsVerified) return null;
+
   if (isEggProduct(product) && eggAvailability && Array.isArray(eggAvailability.days)) {
     const today = eggAvailability.days.find(day => day.date === todayKey()) || eggAvailability.days[0];
     if (today) return Math.max(0, Math.floor(Number(today.maxAdditional || 0)));
@@ -445,6 +560,9 @@ function displayedAvailableStock(product) {
 
 function remainingCapacity(product) {
   if (!product) return 0;
+
+  // Z neověřeného prvního náhledu ani cache nelze nic vložit do košíku.
+  if (!productsVerified) return 0;
 
   // Vejce se plánují dopředu podle aktuální zásoby + denní snášky.
   // Zákazník proto může objednat více, než je právě fyzicky skladem.
@@ -715,6 +833,10 @@ function renderProducts() {
     article.className = "product";
     article.dataset.productId = String(product.id);
     const imageSrc = resolveProductImage(product);
+    const displayedStock = displayedAvailableStock(product);
+    const stockHtml = displayedStock === null
+      ? `<span class="stock-checking" role="status">${isEggProduct(product) ? "Ověřuji aktuální počet vajec…" : "Ověřuji aktuální dostupnost…"}</span>`
+      : `<strong>${displayedStock} ${esc(product.stockUnit || "ks")}</strong>`;
     article.innerHTML = `
       <div class="product-row">
         <div class="product-media"><img src="${esc(imageSrc)}" alt="${esc(product.name)}" loading="lazy" onerror="this.onerror=null;this.src='assets/images/products/placeholder.webp'"></div>
@@ -723,10 +845,10 @@ function renderProducts() {
           <p class="lead">${esc(product.short)}</p>
           <div class="story">${esc(product.detail)}</div>
           <div class="price">${money(product.price)} <small>/ ${esc(product.unit)}</small></div>
-          <div class="stock-line">📦 Skladem: <strong>${displayedAvailableStock(product)} ${esc(product.stockUnit || "ks")}</strong></div>
+          <div class="stock-line">📦 Skladem: ${stockHtml}</div>
           ${isEggProduct(product) ? `<div class="notice egg-info">Každý den přibývají čerstvá vejce od našich slepiček. Pokud dnes není požadované množství skladem, systém Vám automaticky nabídne nejbližší možný termín vyzvednutí.</div><div class="notice" data-egg-pickup-notice>Po zvolení počtu vajec se zobrazí nejbližší možný termín vyzvednutí.</div>` : ""}
           ${!isEggProduct(product) && product.leadDays ? `<div class="notice">Tento produkt je potřeba objednat minimálně ${Math.max(0, Math.floor(Number(product.leadDays) || 0))} dní předem.</div>` : ""}
-          ${product.preorder ? `<div class="notice"><strong>Předobjednávka.</strong> Předpokládané naskladnění: ${product.restock ? esc(formatRestock(nextPickupDateOutsideBlock(product.restock))) : "termín bude upřesněn"}.${product.capacity ? ` K rezervaci zbývá <strong>${Math.max(0, product.capacity - product.reserved)} z ${product.capacity} ${esc(product.unit)}</strong>.` : ""}</div>` : ((product.soldOut || (!isEggProduct(product) && product.availableStock <= 0)) ? `<div class="notice"><strong>${esc(product.soldOutText || "Momentálně vyprodáno")}</strong>${product.restock ? `. Předpokládané doplnění: ${esc(formatRestock(product.restock))}.` : "."}</div><div class="stock-watch"><strong>Hlídací pes</strong><p class="field-help">Pošleme vám jednorázový e-mail, až bude produkt znovu skladem.</p><div class="watch-row"><input type="email" data-watch-email placeholder="vas@email.cz"><button type="button" data-watch-button>Hlídat naskladnění</button></div><div class="field-help" data-watch-feedback></div></div>` : "")}
+          ${productsVerified && product.preorder ? `<div class="notice"><strong>Předobjednávka.</strong> Předpokládané naskladnění: ${product.restock ? esc(formatRestock(nextPickupDateOutsideBlock(product.restock))) : "termín bude upřesněn"}.${product.capacity ? ` K rezervaci zbývá <strong>${Math.max(0, product.capacity - product.reserved)} z ${product.capacity} ${esc(product.unit)}</strong>.` : ""}</div>` : (productsVerified && (product.soldOut || (!isEggProduct(product) && product.availableStock <= 0)) ? `<div class="notice"><strong>${esc(product.soldOutText || "Momentálně vyprodáno")}</strong>${product.restock ? `. Předpokládané doplnění: ${esc(formatRestock(product.restock))}.` : "."}</div><div class="stock-watch"><strong>Hlídací pes</strong><p class="field-help">Pošleme vám jednorázový e-mail, až bude produkt znovu skladem.</p><div class="watch-row"><input type="email" data-watch-email placeholder="vas@email.cz"><button type="button" data-watch-button>Hlídat naskladnění</button></div><div class="field-help" data-watch-feedback></div></div>` : "")}
           <div class="product-controls"></div>
         </div>
       </div>`;
@@ -738,6 +860,15 @@ function renderProducts() {
       watchButton.addEventListener("click", () => subscribeStockWatch(product, article));
     }
     const controls = article.querySelector(".product-controls");
+    if (!productsVerified) {
+      const waiting = document.createElement("div");
+      waiting.className = "notice";
+      waiting.textContent = isEggProduct(product)
+        ? "Počet vajec právě ověřujeme. Výběr se zpřístupní hned po načtení aktuálního stavu."
+        : "Aktuální dostupnost právě ověřujeme. Výběr se zpřístupní hned po načtení.";
+      controls.appendChild(waiting);
+      return;
+    }
     if ((product.soldOut || (!isEggProduct(product) && product.availableStock <= 0)) && !product.preorder) return;
 
     const quickAmounts = quickButtonsForProduct(product);
@@ -851,7 +982,9 @@ function renderSummary(forceNearestPickup = false) {
 
   const entries = Object.entries(cart);
   const count = entries.reduce((sum, [, quantity]) => sum + quantity, 0);
-  countEl.textContent = `${count} ${count === 1 ? "položka" : count > 1 && count < 5 ? "položky" : "položek"}`;
+  countEl.textContent = productsVerified
+    ? `${count} ${count === 1 ? "položka" : count > 1 && count < 5 ? "položky" : "položek"}`
+    : "Aktualizuji…";
 
   if (!entries.length) {
     summaryEl.className = "muted";
@@ -1068,9 +1201,17 @@ pickupInput.addEventListener("change", () => {
 });
 
 const cachedOfferShown = loadProductsCache();
-if (!cachedOfferShown) showProductsLoading();
-trackVisitOnce();
-loadProducts(Boolean(cachedOfferShown));
+const firstOfferShown = cachedOfferShown || loadFirstPaintOffer();
+if (!firstOfferShown) showProductsLoading();
+loadProducts(Boolean(firstOfferShown));
+
+// Nabídka a hlavně vejce mají přednost před zápisem návštěvnosti. Tracker
+// spustíme až ve volné chvíli, aby při prvním otevření nesoutěžil se skladem.
+if (typeof window.requestIdleCallback === "function") {
+  window.requestIdleCallback(trackVisitOnce, { timeout: 1500 });
+} else {
+  setTimeout(trackVisitOnce, 500);
+}
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) loadProducts(true);
