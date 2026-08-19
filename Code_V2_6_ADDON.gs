@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty – doplněk V3.1.1
+ * Podprosečské domácí produkty – doplněk V3.2.0
  * Sklad obalů + přesné návštěvy + propojení návštěvníků s objednávkami.
  *
  * Tento soubor přidejte do stejného Apps Script projektu jako Code.gs.
@@ -40,7 +40,7 @@ function setupV26() {
   formatPackagingOrdersV26_(orders);
   formatVisitorsV27_(visitors);
   seedPackagingV26_(items);
-  return 'V3.1.1 je připravena – sklad obalů i evidence návštěvníků byly založeny.';
+  return 'V3.2.0 je připravena – sklad obalů i evidence návštěvníků byly založeny.';
 }
 
 function normalizeVisitorIdV27_(value) {
@@ -682,7 +682,10 @@ function consumePackagingForOrderV26_(payload) {
 function readPackagingMovesV26_() {
   const sheet = getOrCreateSheet_(PDP_V26_PACKAGING_MOVES_SHEET);
   formatPackagingMovesV26_(sheet);
-  return sheet.getDataRange().getValues().slice(1)
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const count = Math.min(100, lastRow - 1);
+  return sheet.getRange(lastRow - count + 1, 1, count, 8).getValues()
     .filter(row => row[0] !== '')
     .map(row => ({
       at:formatFulfilledTimestamp_(row[0]),
@@ -694,8 +697,7 @@ function readPackagingMovesV26_() {
       reason:restoreSheetText_(row[6] || ''),
       orderNumber:restoreSheetText_(row[7] || '')
     }))
-    .reverse()
-    .slice(0,100);
+    .reverse();
 }
 
 function getPackagingDataV26_() {
@@ -718,7 +720,8 @@ function getPackagingDataV26_() {
 function getRecentVisitsV26_(payload) {
   const limit = Math.max(1, Math.min(200, Math.floor(Number(payload && payload.limit || 100))));
   const profiles = readVisitorProfilesV27_();
-  const visits = readVisits_()
+  const allVisits = readVisits_();
+  const visits = allVisits
     .slice()
     .reverse()
     .slice(0, limit)
@@ -737,6 +740,9 @@ function getRecentVisitsV26_(payload) {
     });
 
   return htmlResponse_(true, '', '', {
-    recentVisits:visits
+    recentVisits:visits,
+    visitStats:typeof calculateVisitStatsFromVisits_ === 'function'
+      ? calculateVisitStatsFromVisits_(allVisits)
+      : buildVisitStats_()
   });
 }

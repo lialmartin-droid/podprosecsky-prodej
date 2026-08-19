@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V3.1.1
+ * Podprosečské domácí produkty — sdílený backend V3.2.0
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -527,78 +527,71 @@ function setupFastPublicOfferV311() {
 }
 
 function buildAdminPayload_() {
-  const orders = readOrders_();
-  const preorderMap = productPreorderMap_();
+  // Admin při otevření čte list Objednávky jen jednou. Produkty a nastavení
+  // sdílí s rychlou veřejnou cache, která se po každé změně automaticky zneplatní.
+  const catalog = readPublicCatalogFast_();
+  const orders = readOrdersAdminFast_();
+  const preorderMap = catalog.preorderMap || {};
   const reservations = reservationMapFromOrders_(orders, preorderMap);
-  const availability = buildEggAvailability_('', orders, preorderMap);
+  const eggSettings = eggSettingsFromMapFast_(catalog.settingsMap || {});
+  const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    products: readProductsFast_(reservations, availability),
+    version: '3.2.0',
+    products: readProductsFast_(reservations, availability, catalog.products),
     orders: orders,
     eggSettings: availability.settings,
     eggAvailability: availability,
-    businessSettings: publicBusinessSettings_(),
-    visitStats: buildVisitStats_()
+    businessSettings: publicBusinessSettingsFromMapFast_(catalog.settingsMap || {}),
+    generatedAt: new Date().toISOString()
   };
 }
 
 function buildAdminPlanningPayload_() {
-  const orders = readOrdersForAvailability_();
-  const preorderMap = productPreorderMap_();
+  const catalog = readPublicCatalogFast_();
+  const orders = readOrdersAdminFast_();
+  const preorderMap = catalog.preorderMap || {};
   const reservations = reservationMapFromOrders_(orders, preorderMap);
-  const availability = buildEggAvailability_('', orders, preorderMap);
+  const eggSettings = eggSettingsFromMapFast_(catalog.settingsMap || {});
+  const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    products: readProductsFast_(reservations, availability),
+    version: '3.2.0',
+    products: readProductsFast_(reservations, availability, catalog.products),
     eggSettings: availability.settings,
     eggAvailability: availability,
     generatedAt: new Date().toISOString()
   };
 }
 
-function readProductsFast_(reservationMap, eggAvailability) {
-  const sheet = getOrCreateSheet_(CONFIG.PRODUCTS_SHEET);
-  formatProductsSheet_(sheet);
-  seedProducts_(sheet);
-  repairDefaultProductSettings_(sheet);
-  const rows = sheet.getDataRange().getValues().slice(1);
+function readOrdersAdminFast_() {
+  return publicSheetRowsFast_(CONFIG.ORDERS_SHEET)
+    .filter(row => row[0] !== '')
+    .map(orderFromSheetRow_)
+    .reverse();
+}
+
+function readProductsFast_(reservationMap, eggAvailability, suppliedProducts) {
+  const products = Array.isArray(suppliedProducts)
+    ? suppliedProducts
+    : readPublicCatalogFast_().products;
   const eggToday = eggAvailability && eggAvailability.days && eggAvailability.days.length
     ? eggAvailability.days[0]
     : null;
 
-  return rows.filter(row => row[0] !== '').map(row => {
-    const id = String(row[0]);
+  return products.map(source => {
+    const product = Object.assign({}, source || {});
+    const id = String(product.id || '');
     const reserved = Math.max(0, Number((reservationMap || {})[id] || 0));
-    const stock = Math.max(0, Number(row[19] || 0));
-    return {
-      id: id,
-      emoji: restoreSheetText_(row[1] || '📦'),
-      name: restoreSheetText_(row[2] || ''),
-      price: Number(row[3] || 0),
-      unit: restoreSheetText_(row[4] || 'kus'),
-      short: restoreSheetText_(row[5] || ''),
-      detail: restoreSheetText_(row[6] || ''),
-      visible: toBool_(row[7]),
-      soldOut: toBool_(row[8]),
-      restock: formatSheetDate_(row[9]),
-      leadDays: id === CONFIG.EGG_PRODUCT_ID ? 0 : Number(row[10] || 0),
-      quick: quickButtonsForProduct_(row[0], row[1], row[2], row[11]),
-      preorder: toBool_(row[13]),
-      preorderDate: formatSheetDate_(row[14]) || formatSheetDate_(row[9]),
-      capacity: Number(row[15] || 0),
-      emailGroup: normalizeEmailGroup_(row[16], row[2]),
-      emailText: restoreSheetText_(row[17] || ''),
-      image: restoreSheetText_(row[18] || ''),
-      stock: stock,
-      stockUnit: restoreSheetText_(row[20] || 'ks'),
-      soldOutText: restoreSheetText_(row[21] || 'Momentálně vyprodáno'),
+    const stock = Math.max(0, Number(product.stock || 0));
+    return Object.assign(product, {
       reserved: reserved,
       availableStock: id === CONFIG.EGG_PRODUCT_ID
         // U vajec musí být stejná kapacita jako v plánu: budoucí rezervace kryje i snáška
         // do jejich termínu. Prosté odečtení všech rezervací od dnešního skladu bylo zbytečně přísné.
         ? Math.max(0, Math.floor(Number(eggToday && eggToday.maxAdditional || 0)))
         : Math.max(0, Math.floor(stock - reserved))
-    };
+    });
   });
 }
 
@@ -634,7 +627,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '3.1.1',
+      version: '3.2.0',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -838,7 +831,11 @@ function buildVisitStats_() {
 }
 
 function calculateVisitStats_() {
-  const visits = readVisits_();
+  return calculateVisitStatsFromVisits_(readVisits_());
+}
+
+function calculateVisitStatsFromVisits_(suppliedVisits) {
+  const visits = Array.isArray(suppliedVisits) ? suppliedVisits : [];
   const today = todayKey_();
   const start30 = addDaysKey_(today, -29);
   const start14 = addDaysKey_(today, -13);
@@ -990,7 +987,18 @@ function login_(payload) {
   const token = Utilities.getUuid().replace(/-/g, '');
   const sessionVersion = getSessionVersion_();
   CacheService.getScriptCache().put('session:' + token, sessionVersion, CONFIG.SESSION_SECONDS);
-  return htmlResponse_(true, 'Přihlášení bylo úspěšné.', '', { token: token });
+  let adminData = null;
+  try {
+    // Přihlášení i první aktuální data vracíme jedním požadavkem.
+    adminData = buildAdminPayload_();
+  } catch (error) {
+    // Platné přihlášení nesmí selhat jen proto, že byla tabulka na okamžik pomalá.
+    console.error('První administrativní data se nepodařilo připojit k přihlášení.', error);
+  }
+  return htmlResponse_(true, 'Přihlášení bylo úspěšné.', '', {
+    token:token,
+    adminData:adminData
+  });
 }
 
 function requireToken_(token) {
@@ -1031,6 +1039,7 @@ function createOrder_(payload, manual) {
   let createdAt;
   let orderNumber;
   let sheet;
+  let savedOrder;
 
   try {
     // Zámek chrání pouze validaci dostupnosti + zápis. E-maily se posílají až po jeho uvolnění.
@@ -1051,6 +1060,7 @@ function createOrder_(payload, manual) {
         }
         return htmlResponse_(true, 'Objednávka už byla přijata. Nevytváříme ji podruhé.', existing.id, {
           orderNumber: existing.orderNumber,
+          order: manual ? existing : undefined,
           duplicatePrevented: true
         });
       }
@@ -1075,13 +1085,15 @@ function createOrder_(payload, manual) {
       applyProductStockDeltas_(stockDeltas);
       stockAdjusted = true;
 
-      sheet.appendRow([
+      const orderRow = [
         id, createdAt, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
         safeSheetText_(itemsText), order.total, safeSheetText_(order.note), manual ? 'Administrace' : 'Web', JSON.stringify(order.items), safeSheetText_(order.email),
         safeSheetText_(order.contactMethod), order.splitOrder, order.preorderPickup, order.regularStatus, order.preorderStatus,
         orderNumber, '', '', JSON.stringify([]), '', JSON.stringify([{type:'created', at:createdAt.toISOString(), text:'Objednávka vytvořena'}]),
         fulfilledAt, regularFulfilledAt, preorderFulfilledAt, requestId
-      ]);
+      ];
+      sheet.appendRow(orderRow);
+      savedOrder = orderFromSheetRow_(orderRow);
 
       // Visitor ID posílá zákaznická stránka. Uložíme ho mimo list Objednávky,
       // takže kvůli propojení návštěvnosti neměníme stabilní strukturu objednávek.
@@ -1150,7 +1162,10 @@ function createOrder_(payload, manual) {
     }
   }
 
-  return htmlResponse_(true, (manual ? 'Objednávka byla uložena.' : 'Objednávka byla přijata.') + emailWarning, id, { orderNumber: orderNumber });
+  return htmlResponse_(true, (manual ? 'Objednávka byla uložena.' : 'Objednávka byla přijata.') + emailWarning, id, {
+    orderNumber:orderNumber,
+    order:manual ? savedOrder : undefined
+  });
 }
 
 function saveProduct_(payload) {
@@ -1437,17 +1452,21 @@ function saveEggSettings_(payload) {
   const safetyReserve = clampInteger_(source.safetyReserve, 0, 100000, 'Bezpečnostní rezerva');
   const planningDays = clampInteger_(source.planningDays, 7, 365, 'Délka plánování');
 
-  writeEggSettings_({
+  const saved = {
+    baseStock:currentStock,
+    baseDate:todayKey_(),
+    elapsedDays:0,
+    accruedEggs:0,
     currentStock: currentStock,
     stockDate: todayKey_(),
     dailyProduction: dailyProduction,
     safetyReserve: safetyReserve,
     planningDays: planningDays
-  });
+  };
+  writeEggSettings_(saved);
 
-  invalidatePublicCatalogCache_();
   return htmlResponse_(true, 'Nastavení vajec bylo uloženo.', '', {
-    eggSettings: readEggSettings_()
+    eggSettings:saved
   });
 }
 
@@ -1533,8 +1552,8 @@ function publicEggAvailability_() {
   };
 }
 
-function buildEggAvailability_(excludeOrderId, suppliedOrders, suppliedPreorderMap) {
-  const settings = readEggSettings_();
+function buildEggAvailability_(excludeOrderId, suppliedOrders, suppliedPreorderMap, suppliedSettings) {
+  const settings = suppliedSettings || readEggSettings_();
   const today = todayKey_();
   const horizonEnd = addDaysKey_(today, settings.planningDays);
   const reservations = {};
@@ -1616,11 +1635,13 @@ function readEggSettings_() {
 function writeEggSettings_(settings) {
   const sheet = getOrCreateSheet_(CONFIG.SETTINGS_SHEET);
   formatSettingsSheet_(sheet);
-  setSetting_(sheet, 'EGG_STOCK', settings.currentStock, 'Aktuální fyzický počet vajec skladem');
-  setTextSetting_(sheet, 'EGG_STOCK_DATE', settings.stockDate, 'Datum, ke kterému platí aktuální sklad');
-  setSetting_(sheet, 'EGG_DAILY_PRODUCTION', settings.dailyProduction, 'Předpokládaný počet nových vajec za den');
-  setSetting_(sheet, 'EGG_SAFETY_RESERVE', settings.safetyReserve, 'Počet vajec, který se zákazníkům nenabízí');
-  setSetting_(sheet, 'EGG_PLANNING_DAYS', settings.planningDays, 'Kolik dní dopředu lze plánovat');
+  setSettingsBatch_(sheet, [
+    {key:'EGG_STOCK', value:settings.currentStock, description:'Aktuální fyzický počet vajec skladem'},
+    {key:'EGG_STOCK_DATE', value:settings.stockDate, description:'Datum, ke kterému platí aktuální sklad', text:true},
+    {key:'EGG_DAILY_PRODUCTION', value:settings.dailyProduction, description:'Předpokládaný počet nových vajec za den'},
+    {key:'EGG_SAFETY_RESERVE', value:settings.safetyReserve, description:'Počet vajec, který se zákazníkům nenabízí'},
+    {key:'EGG_PLANNING_DAYS', value:settings.planningDays, description:'Kolik dní dopředu lze plánovat'}
+  ]);
   invalidatePublicCatalogCache_();
 }
 
@@ -2082,19 +2103,35 @@ function saveBusinessSettings_(payload) {
   if (toBool_(settings.ordersPaused) && (!pauseFrom || !pauseTo)) throw new Error('Vyplňte začátek i konec blokace vyzvednutí.');
   if (pauseFrom && pauseTo && pauseFrom > pauseTo) throw new Error('Konec blokace nesmí být před jejím začátkem.');
   const sheet = getOrCreateSheet_(CONFIG.SETTINGS_SHEET);
-  setSetting_(sheet, 'BANNER_ENABLED', toBool_(settings.bannerEnabled), 'Zobrazit informační banner');
-  setTextSetting_(sheet, 'BANNER_STYLE', cleanText_(settings.bannerStyle || 'yellow', 20), 'Barva banneru');
-  setTextSetting_(sheet, 'BANNER_TITLE', cleanText_(settings.bannerTitle, 150), 'Nadpis banneru');
-  setTextSetting_(sheet, 'BANNER_TEXT', cleanText_(settings.bannerText, 800), 'Text banneru');
-  setTextSetting_(sheet, 'BANNER_FROM', normalizeDateKey_(settings.bannerFrom, ''), 'Banner zobrazit od');
-  setTextSetting_(sheet, 'BANNER_TO', normalizeDateKey_(settings.bannerTo, ''), 'Banner zobrazit do');
-  setSetting_(sheet, 'ORDERS_PAUSED', toBool_(settings.ordersPaused), 'Zablokovat vyzvednutí v období');
-  setTextSetting_(sheet, 'PAUSE_FROM', pauseFrom, 'Blokace vyzvednutí od');
-  setTextSetting_(sheet, 'PAUSE_TO', pauseTo, 'Blokace vyzvednutí do');
-  setTextSetting_(sheet, 'PAUSE_MESSAGE', cleanText_(settings.pauseMessage, 800), 'Upozornění při blokaci vyzvednutí');
-  setSetting_(sheet, 'DAILY_ORDER_LIMIT', Math.max(0, Math.floor(Number(settings.dailyOrderLimit) || 0)), 'Maximum objednávek na den');
+  formatSettingsSheet_(sheet);
+  const saved = {
+    bannerEnabled:toBool_(settings.bannerEnabled),
+    bannerStyle:cleanText_(settings.bannerStyle || 'yellow', 20),
+    bannerTitle:cleanText_(settings.bannerTitle, 150),
+    bannerText:cleanText_(settings.bannerText, 800),
+    bannerFrom:normalizeDateKey_(settings.bannerFrom, ''),
+    bannerTo:normalizeDateKey_(settings.bannerTo, ''),
+    ordersPaused:toBool_(settings.ordersPaused),
+    pauseFrom:pauseFrom,
+    pauseTo:pauseTo,
+    pauseMessage:cleanText_(settings.pauseMessage, 800),
+    dailyOrderLimit:Math.max(0, Math.floor(Number(settings.dailyOrderLimit) || 0))
+  };
+  setSettingsBatch_(sheet, [
+    {key:'BANNER_ENABLED', value:saved.bannerEnabled, description:'Zobrazit informační banner'},
+    {key:'BANNER_STYLE', value:saved.bannerStyle, description:'Barva banneru', text:true},
+    {key:'BANNER_TITLE', value:saved.bannerTitle, description:'Nadpis banneru', text:true},
+    {key:'BANNER_TEXT', value:saved.bannerText, description:'Text banneru', text:true},
+    {key:'BANNER_FROM', value:saved.bannerFrom, description:'Banner zobrazit od', text:true},
+    {key:'BANNER_TO', value:saved.bannerTo, description:'Banner zobrazit do', text:true},
+    {key:'ORDERS_PAUSED', value:saved.ordersPaused, description:'Zablokovat vyzvednutí v období'},
+    {key:'PAUSE_FROM', value:saved.pauseFrom, description:'Blokace vyzvednutí od', text:true},
+    {key:'PAUSE_TO', value:saved.pauseTo, description:'Blokace vyzvednutí do', text:true},
+    {key:'PAUSE_MESSAGE', value:saved.pauseMessage, description:'Upozornění při blokaci vyzvednutí', text:true},
+    {key:'DAILY_ORDER_LIMIT', value:saved.dailyOrderLimit, description:'Maximum objednávek na den'}
+  ]);
   invalidatePublicCatalogCache_();
-  return htmlResponse_(true, 'Nastavení webu bylo uloženo.', '', { settings: publicBusinessSettings_() });
+  return htmlResponse_(true, 'Nastavení webu bylo uloženo.', '', { settings:saved });
 }
 
 
@@ -2588,7 +2625,9 @@ function sendPickupReminder_(payload) {
     timeline.push({type:'email', at:now, text:'Zákazníkovi odesláno připomenutí vyzvednutí'});
     sheet.getRange(i + 1, 21).setValue(JSON.stringify(communication));
     sheet.getRange(i + 1, 23).setValue(JSON.stringify(timeline));
-    return htmlResponse_(true, 'Připomínka byla odeslána e-mailem.', id, {});
+    order.communication = communication;
+    order.timeline = timeline;
+    return htmlResponse_(true, 'Připomínka byla odeslána e-mailem.', id, {order:order});
   }
   throw new Error('Objednávka nebyla nalezena.');
 }
@@ -2693,6 +2732,42 @@ function readSettingsMap_(sheet) {
     if (row[0] !== '') map[String(row[0])] = row[1];
   });
   return map;
+}
+
+/** Uloží více nastavení jedním čtením a jedním dávkovým zápisem. */
+function setSettingsBatch_(sheet, entries) {
+  const source = Array.isArray(entries) ? entries.filter(item => item && item.key) : [];
+  if (!source.length) return;
+
+  const lastRow = sheet.getLastRow();
+  const existingRange = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, 3) : null;
+  const rows = existingRange ? existingRange.getValues() : [];
+  const formats = existingRange ? existingRange.getNumberFormats() : [];
+  const rowByKey = {};
+  rows.forEach((row, index) => {
+    if (row[0] !== '') rowByKey[String(row[0])] = index;
+  });
+
+  source.forEach(item => {
+    const key = String(item.key);
+    let index = Object.prototype.hasOwnProperty.call(rowByKey, key) ? rowByKey[key] : -1;
+    if (index < 0) {
+      index = rows.length;
+      rowByKey[key] = index;
+      rows.push([key, '', '']);
+      formats.push(['General', 'General', 'General']);
+    }
+    rows[index][0] = key;
+    rows[index][1] = item.text ? String(item.value == null ? '' : item.value) : item.value;
+    rows[index][2] = String(item.description || '');
+    if (item.text) formats[index][1] = '@';
+  });
+
+  const target = sheet.getRange(2, 1, rows.length, 3);
+  // Textový formát musí být nastavený před hodnotami, jinak by Sheets mohl
+  // řetězec 2026-08-19 převést na datum a později změnit jeho význam.
+  target.setNumberFormats(formats);
+  target.setValues(rows);
 }
 
 function setSettingIfMissing_(sheet, key, value, description) {
@@ -3016,7 +3091,8 @@ function resendReadyEmail_(payload) {
     sendReadyEmail_(order, part);
     const comm=order.communication || []; comm.push({type:'ready-'+part+'-resend',at:new Date().toISOString(),text:'E-mail o připravené objednávce odeslán znovu'});
     sheet.getRange(i+1,21).setValue(JSON.stringify(comm));
-    return htmlResponse_(true,'E-mail byl odeslán znovu.',id,{});
+    order.communication = comm;
+    return htmlResponse_(true,'E-mail byl odeslán znovu.',id,{order:order});
   }
   throw new Error('Objednávka nebyla nalezena.');
 }
