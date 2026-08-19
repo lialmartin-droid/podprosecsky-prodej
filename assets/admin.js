@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "2.9.0";
-console.info("Podprosečské produkty – admin.js V2.9.0 – rychlé společné uložení objednávky a obalů");
+window.PDP_ADMIN_VERSION = "3.2.0";
+console.info("Podprosečské produkty – admin.js V3.2.0 – rychlé a postupné načítání administrace");
 
 let products = [];
 let orders = [];
@@ -15,6 +15,9 @@ let requestTimer = null;
 let activePost = null;
 let postCooldown = false;
 const postQueue = [];
+let adminDataRequestId = 0;
+let adminOrderRenderLimit = 30;
+const renderedAdminTabs = new Set();
 const ADMIN_CACHE_KEY = "pdp-admin-data-v2";
 const ADMIN_VISIT_EXCLUDE_KEY = "pdp-admin-exclude-visits";
 const ADMIN_VISIT_EXCLUDE_PREF_KEY = "pdp-admin-exclude-pref-v1";
@@ -125,7 +128,10 @@ function markThisDeviceAsAdminVisitor(syncBackend = false) {
             ? "Toto zařízení je vyloučeno. Jeho dřívější testovací návštěvy byly odstraněny."
             : "Toto zařízení se započítává do návštěvnosti podle uloženého nastavení.");
           renderStats();
-          renderInsights();
+          markAdminTabsDirty("insightsTab");
+          if (activeAdminTabId() === "insightsTab") renderAdminTab("insightsTab", true);
+          saveAdminCache(currentAdminState());
+          window.dispatchEvent(new CustomEvent("pdp:visit-stats-updated"));
         }
       });
     }
@@ -505,17 +511,20 @@ function setAdminRefreshState(text = "") {
 }
 
 function applyAdminData(data, saveCache = true) {
-  products = data.products || [];
-  orders = data.orders || [];
-  eggSettings = data.eggSettings || null;
-  eggAvailability = data.eggAvailability || null;
+  const has = key => Object.prototype.hasOwnProperty.call(data || {}, key);
+  if (has("products")) products = Array.isArray(data.products) ? data.products : [];
+  if (has("orders")) orders = Array.isArray(data.orders) ? data.orders : [];
+  if (has("eggSettings")) eggSettings = data.eggSettings || null;
+  if (has("eggAvailability")) eggAvailability = data.eggAvailability || null;
   eggPlanningRefreshPending = false;
   eggPlanningMessage = "";
-  businessSettings = data.businessSettings || {};
-  visitStats = data.visitStats || null;
+  if (has("businessSettings")) businessSettings = data.businessSettings || {};
+  // Návštěvnost se od V3.2 načítá až po otevření její záložky.
+  // Při aktualizaci hlavních dat proto zachováme případný již načtený souhrn.
+  if (has("visitStats")) visitStats = data.visitStats || null;
   showApp();
   renderAll();
-  if (saveCache) saveAdminCache(data);
+  if (saveCache) saveAdminCache(currentAdminState());
 }
 
 function login() {
@@ -537,8 +546,14 @@ function login() {
     markThisDeviceAsAdminVisitor(true);
     $("#adminPassword").value = "";
 
-    // Přihlášení je hotové hned po ověření hesla.
-    // Poslední data zobrazíme okamžitě a aktuální načteme na pozadí.
+    // V3.2 vrací přihlášení i první aktuální data jedním požadavkem.
+    if (data.adminData && data.adminData.ok) {
+      applyAdminData(data.adminData);
+      setAdminRefreshState("");
+      return;
+    }
+
+    // Záložní postup pro krátký přechod, kdy ještě běží starší backend.
     const cacheShown = loadAdminCache();
     if (!cacheShown) {
       showApp();
@@ -555,15 +570,45 @@ function loadData(background = false) {
     return showLogin("Administrace není správně propojená s Apps Scriptem.");
   }
 
+  const requestId = ++adminDataRequestId;
   const previous = document.getElementById("admin-data-jsonp");
-  if (previous) previous.remove();
+  if (previous) {
+    const oldCallback = previous.dataset.callback;
+    previous.remove();
+    if (oldCallback) {
+      try { delete window[oldCallback]; } catch (_) { window[oldCallback] = undefined; }
+    }
+  }
   if (!background) setAdminRefreshState("Načítám aktuální data…");
 
   const script = document.createElement("script");
   script.id = "admin-data-jsonp";
+  const callbackName = `PDP_ADMIN_DATA_${requestId}`;
+  script.dataset.callback = callbackName;
+  let finished = false;
+  let timeoutId = 0;
 
-  window.PDP_ADMIN_DATA = data => {
+  const cleanup = () => {
+    clearTimeout(timeoutId);
     script.remove();
+    try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+  };
+
+  const fail = message => {
+    if (finished || requestId !== adminDataRequestId) return;
+    finished = true;
+    cleanup();
+    if (products.length || orders.length) {
+      setAdminRefreshState(message || "Aktuální data se nepodařilo načíst. Zobrazuji poslední uložený stav.");
+    } else {
+      showLogin(message || "Nepodařilo se načíst administraci.");
+    }
+  };
+
+  window[callbackName] = data => {
+    if (finished || requestId !== adminDataRequestId) return;
+    finished = true;
+    cleanup();
     if (!data || !data.ok) {
       sessionStorage.removeItem("pdp-admin-token");
       token = "";
@@ -574,15 +619,9 @@ function loadData(background = false) {
     setAdminRefreshState("");
   };
 
-  script.src = `${endpoint}?action=adminData&token=${encodeURIComponent(token)}&callback=PDP_ADMIN_DATA&t=${Date.now()}`;
-  script.onerror = () => {
-    script.remove();
-    if (products.length || orders.length) {
-      setAdminRefreshState("Aktuální data se nepodařilo načíst. Zobrazuji poslední uložený stav.");
-    } else {
-      showLogin("Nepodařilo se načíst administraci.");
-    }
-  };
+  timeoutId = window.setTimeout(() => fail("Server odpovídá pomalu. Zobrazuji poslední uložený stav."), 25000);
+  script.src = `${endpoint}?action=adminData&token=${encodeURIComponent(token)}&callback=${encodeURIComponent(callbackName)}&t=${Date.now()}`;
+  script.onerror = () => fail("Aktuální data se nepodařilo načíst. Zobrazuji poslední uložený stav.");
   document.head.appendChild(script);
 }
 
@@ -590,22 +629,25 @@ function loadPlanningData() {
   if (!token) {
     eggPlanningRefreshPending = false;
     eggPlanningMessage = "Přihlášení vypršelo. Přihlaste se znovu.";
-    renderEggSettings();
+    markAdminTabsDirty("eggsTab");
+    if (activeAdminTabId() === "eggsTab") renderAdminTab("eggsTab", true);
     return;
   }
   const endpoint = url();
   if (!endpoint || !endpoint.endsWith("/exec")) {
     eggPlanningRefreshPending = false;
     eggPlanningMessage = "Administrace není správně propojená se serverem.";
-    renderEggSettings();
+    markAdminTabsDirty("eggsTab");
+    if (activeAdminTabId() === "eggsTab") renderAdminTab("eggsTab", true);
     return;
   }
 
   const requestId = ++eggPlanningRequestId;
   eggPlanningRefreshPending = true;
   eggPlanningMessage = "";
-  renderEggSettings();
-  setAdminRefreshState("Objednávka je uložená. Přepočítávám dostupnost vajec…");
+  markAdminTabsDirty("eggsTab");
+  if (activeAdminTabId() === "eggsTab") renderAdminTab("eggsTab", true);
+  setAdminRefreshState("Aktualizuji dostupnost vajec…");
 
   const previous = document.getElementById("admin-planning-jsonp");
   if (previous) previous.remove();
@@ -633,7 +675,8 @@ function loadPlanningData() {
     cleanup();
     eggPlanningRefreshPending = false;
     eggPlanningMessage = message || "Přepočet dostupnosti se nepodařil. Načítám znovu aktuální data…";
-    renderEggSettings();
+    markAdminTabsDirty("eggsTab");
+    if (activeAdminTabId() === "eggsTab") renderAdminTab("eggsTab", true);
     setAdminRefreshState(eggPlanningMessage);
     // Starý plán nesmíme zobrazit. Při chybě proto použijeme pomalejší, ale úplné načtení na pozadí.
     loadData(true);
@@ -659,14 +702,12 @@ function loadPlanningData() {
     eggPlanningRefreshPending = false;
     eggPlanningMessage = "";
 
+    markAdminTabsDirty("ordersTab", "calendarTab", "eggsTab", "productsTab", "insightsTab");
     renderStats();
-    renderCalendar();
-    renderProducts();
-    renderManualOrderProducts();
-    renderEggSettings();
+    renderAdminTab(activeAdminTabId(), true);
     saveAdminCache(currentAdminState());
 
-    const doneMessage = "Objednávka je uložená a dostupnost vajec je přepočítaná.";
+    const doneMessage = "Dostupnost vajec je aktuální.";
     setAdminRefreshState(doneMessage);
     window.setTimeout(() => {
       const state = document.getElementById("adminRefreshState");
@@ -956,7 +997,11 @@ function emailSubjectForOrder(order) {
 }
 
 function renderOrders() {
-  const list = filteredOrders();
+  const filtered = filteredOrders();
+  const list = filtered.slice(0, adminOrderRenderLimit);
+  const moreHtml = filtered.length > list.length
+    ? `<button id="loadMoreOrders" class="secondary-button" type="button">Zobrazit další (${filtered.length - list.length})</button>`
+    : "";
   $("#ordersList").innerHTML = list.length ? list.map(order => `
     <article class="card ${overdueOrderParts(order).length ? "overdue-card" : ""}">
       <div class="card-head">
@@ -1003,7 +1048,7 @@ function renderOrders() {
         </div>
         <div class="actions"><button class="primary-small" data-save-order="${esc(order.id)}">Uložit změny</button><button class="secondary-button" data-preview-ready="${esc(order.id)}">Náhled e-mailu</button><button class="secondary-button" data-resend-ready="${esc(order.id)}" data-part="regular">Odeslat znovu 1. část</button>${order.splitOrder ? `<button class="secondary-button" data-resend-ready="${esc(order.id)}" data-part="preorder">Odeslat znovu 2. část</button>` : ""}</div>
       </div>
-    </article>`).join("") : '<div class="empty">Žádné objednávky.</div>';
+    </article>`).join("") + moreHtml : '<div class="empty">Žádné objednávky.</div>';
 
   document.querySelectorAll("[data-remind-order]").forEach(button => {
     button.onclick = () => {
@@ -1019,14 +1064,18 @@ function renderOrders() {
           button.textContent = original;
           if (!data.ok) return alert(data.message);
           alert(data.message);
-          loadData(true);
+          if (!applyReturnedOrder(data, order.id)) loadData(true);
         });
         return;
       }
       if (order.phone) return openSmsReminder(order);
       if (order.email) {
         if (!confirm(`Objednávka nemá telefon. Odeslat ${order.name} připomínku e-mailem?`)) return;
-        post("sendPickupReminder", { id: order.id }, data => data.ok ? (alert(data.message), loadData(true)) : alert(data.message));
+        post("sendPickupReminder", { id: order.id }, data => {
+          if (!data.ok) return alert(data.message);
+          alert(data.message);
+          if (!applyReturnedOrder(data, order.id)) loadData(true);
+        });
         return;
       }
       alert("Objednávka nemá telefon ani e-mail.");
@@ -1076,16 +1125,36 @@ function renderOrders() {
   document.querySelectorAll("[data-resend-ready]").forEach(button => {
     button.onclick = () => {
       if (!confirm("Opravdu odeslat e-mail zákazníkovi znovu?")) return;
-      post("resendReadyEmail", {id: button.dataset.resendReady, part: button.dataset.part}, data => data.ok ? (alert(data.message), loadData()) : alert(data.message));
+      post("resendReadyEmail", {id: button.dataset.resendReady, part: button.dataset.part}, data => {
+        if (!data.ok) return alert(data.message);
+        alert(data.message);
+        if (!applyReturnedOrder(data, button.dataset.resendReady)) loadData(true);
+      });
     };
   });
 
   document.querySelectorAll("[data-delete-order]").forEach(button => {
     button.onclick = () => {
       if (!confirm("Opravdu smazat objednávku?")) return;
-      post("deleteOrder", { id: button.dataset.deleteOrder }, data => data.ok ? loadData() : alert(data.message));
+      const id = String(button.dataset.deleteOrder || "");
+      post("deleteOrder", { id }, data => {
+        if (!data.ok) return alert(data.message);
+        orders = orders.filter(order => String(order.id) !== id);
+        renderAll();
+        saveAdminCache(currentAdminState());
+        setAdminRefreshState(data.message || "Objednávka byla smazána.");
+        loadPlanningData();
+      });
     };
   });
+
+  const loadMore = document.getElementById("loadMoreOrders");
+  if (loadMore) {
+    loadMore.onclick = () => {
+      adminOrderRenderLimit += 30;
+      renderOrders();
+    };
+  }
 }
 
 function currentAdminState() {
@@ -1097,6 +1166,38 @@ function currentAdminState() {
     businessSettings,
     visitStats
   };
+}
+
+function applyReturnedOrder(data, fallbackId = "") {
+  if (!data?.order || typeof data.order !== "object") return false;
+  const id = String(data.order.id || data.id || fallbackId || "");
+  if (!id) return false;
+  const index = orders.findIndex(item => String(item.id) === id);
+  const next = {...(index >= 0 ? orders[index] : {}), ...data.order, id};
+  if (index >= 0) orders.splice(index, 1, next);
+  else orders.unshift(next);
+  renderAll();
+  saveAdminCache(currentAdminState());
+  return true;
+}
+
+function applySavedProduct(data, fallbackProduct) {
+  const source = data?.product && typeof data.product === "object" ? data.product : fallbackProduct;
+  if (!source) return false;
+  const id = String(source.id || data?.id || "");
+  if (!id) return false;
+  const index = products.findIndex(item => String(item.id) === id);
+  const previous = index >= 0 ? products[index] : null;
+  const next = {...(previous || {}), ...source, id};
+  next.reserved = Math.max(0, Number(next.reserved || 0));
+  next.availableStock = id === "2"
+    ? Math.max(0, Number(next.availableStock || 0))
+    : Math.max(0, Math.floor(Number(next.stock || 0) - next.reserved));
+  if (index >= 0) products.splice(index, 1, next);
+  else products.push(next);
+  renderAll();
+  saveAdminCache(currentAdminState());
+  return true;
 }
 
 function planningStatusGroup(order, part = "regular") {
@@ -1168,6 +1269,7 @@ function saveOrder(order, button = null, options = {}) {
       eggPlanningRefreshPending = planningChanged;
       eggPlanningMessage = "";
       renderAll();
+      saveAdminCache(currentAdminState());
       setAdminRefreshState(data.message || "Objednávka byla upravena.");
       window.setTimeout(() => {
         const state = document.getElementById("adminRefreshState");
@@ -1315,7 +1417,9 @@ function renderProducts() {
   document.querySelectorAll("[data-sp]").forEach(button => {
     button.onclick = () => {
       const id = button.dataset.sp;
-      const product = products.find(item => String(item.id) === id);
+      const current = products.find(item => String(item.id) === id);
+      if (!current) return alert("Produkt nebyl nalezen.");
+      const product = {...current};
       const name = document.querySelector(dataSelector("pn", id)).value.trim();
       if (!name) return alert("Vyplňte název produktu.");
       product.name = name;
@@ -1341,14 +1445,32 @@ function renderProducts() {
       product.soldOut = document.querySelector(dataSelector("po", id)).checked;
       product.preorder = document.querySelector(dataSelector("ppre", id)).checked;
       if (product.preorder && !product.restock) return alert("U předobjednávky vyplňte předpokládané datum naskladnění.");
-      post("saveProduct", { product }, data => data.ok ? loadData() : alert(data.message));
+      const planningAffected = id === "2" || Boolean(current.preorder) !== Boolean(product.preorder);
+      button.disabled = true;
+      const originalText = button.textContent;
+      button.textContent = "Ukládám…";
+      post("saveProduct", { product }, data => {
+        button.disabled = false;
+        button.textContent = originalText;
+        if (!data.ok) return alert(data.message);
+        if (!applySavedProduct(data, product)) return loadData(true);
+        setAdminRefreshState(data.message || "Produkt byl uložen.");
+        if (planningAffected) loadPlanningData();
+      });
     };
   });
 
   document.querySelectorAll("[data-dp]").forEach(button => {
     button.onclick = () => {
       if (!confirm("Opravdu smazat produkt?")) return;
-      post("deleteProduct", { id: button.dataset.dp }, data => data.ok ? loadData() : alert(data.message));
+      const id = String(button.dataset.dp || "");
+      post("deleteProduct", { id }, data => {
+        if (!data.ok) return alert(data.message);
+        products = products.filter(product => String(product.id) !== id);
+        renderAll();
+        saveAdminCache(currentAdminState());
+        setAdminRefreshState(data.message || "Produkt byl smazán.");
+      });
     };
   });
 }
@@ -1469,15 +1591,42 @@ function renderBusinessSettings() {
   $("#dailyOrderLimit").value = Number(s.dailyOrderLimit || 0);
 }
 
+function activeAdminTabId() {
+  return document.querySelector(".tab.active")?.dataset.tab || "ordersTab";
+}
+
+function markAdminTabsDirty(...panelIds) {
+  if (!panelIds.length) {
+    renderedAdminTabs.clear();
+    return;
+  }
+  panelIds.forEach(id => renderedAdminTabs.delete(String(id)));
+}
+
+function renderAdminTab(panelId, force = false) {
+  const id = String(panelId || "ordersTab");
+  if (!force && renderedAdminTabs.has(id)) return;
+
+  if (id === "ordersTab") renderOrders();
+  else if (id === "calendarTab") renderCalendar();
+  else if (id === "eggsTab") renderEggSettings();
+  else if (id === "productsTab") renderProducts();
+  else if (id === "insightsTab") renderInsights();
+  else if (id === "settingsTab") renderBusinessSettings();
+  else return;
+
+  renderedAdminTabs.add(id);
+  window.dispatchEvent(new CustomEvent("pdp:admin-tab-rendered", {detail:{panelId:id}}));
+}
+
 function renderAll() {
+  // Přepočítáme horní souhrn, ale obsah skrytých záložek vytvoříme až při otevření.
+  markAdminTabsDirty();
   renderStats();
-  renderOrders();
-  renderCalendar();
-  renderProducts();
-  renderManualOrderProducts();
-  renderEggSettings();
-  renderInsights();
-  renderBusinessSettings();
+  renderAdminTab(activeAdminTabId(), true);
+  window.dispatchEvent(new CustomEvent("pdp:admin-state-updated", {
+    detail:{panelId:activeAdminTabId()}
+  }));
 }
 
 document.querySelectorAll(".tab").forEach(tab => {
@@ -1485,11 +1634,21 @@ document.querySelectorAll(".tab").forEach(tab => {
     document.querySelectorAll(".tab,.tab-panel").forEach(element => element.classList.remove("active"));
     tab.classList.add("active");
     $("#" + tab.dataset.tab).classList.add("active");
+    renderAdminTab(tab.dataset.tab);
   };
 });
 
-["searchOrders", "statusFilter", "archiveFilter"].forEach(id => {
-  $("#" + id).addEventListener(id === "searchOrders" ? "input" : "change", renderOrders);
+let orderFilterTimer = 0;
+$("#searchOrders").addEventListener("input", () => {
+  clearTimeout(orderFilterTimer);
+  adminOrderRenderLimit = 30;
+  orderFilterTimer = window.setTimeout(() => renderOrders(), 120);
+});
+["statusFilter", "archiveFilter"].forEach(id => {
+  $("#" + id).addEventListener("change", () => {
+    adminOrderRenderLimit = 30;
+    renderOrders();
+  });
 });
 
 
@@ -1531,7 +1690,10 @@ $("#logoutButton").onclick = () => {
   showLogin("Byli jste odhlášeni.");
 };
 
-$("#showManualOrder").onclick = () => $("#manualOrderForm").classList.remove("hidden");
+$("#showManualOrder").onclick = () => {
+  renderManualOrderProducts();
+  $("#manualOrderForm").classList.remove("hidden");
+};
 $("#cancelManualOrder").onclick = () => $("#manualOrderForm").classList.add("hidden");
 $("#saveManualOrder").onclick = () => {
   const items = products.map(product => ({
@@ -1541,6 +1703,10 @@ $("#saveManualOrder").onclick = () => {
     price: product.price
   })).filter(item => item.qty > 0);
 
+  const button = $("#saveManualOrder");
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = "Ukládám…";
   post("manualOrder", {
     name: $("#manualName").value,
     phone: $("#manualPhone").value,
@@ -1549,7 +1715,15 @@ $("#saveManualOrder").onclick = () => {
     status: $("#manualStatus").value,
     note: $("#manualNote").value,
     items
-  }, data => data.ok ? loadData() : alert(data.message));
+  }, data => {
+    button.disabled = false;
+    button.textContent = originalText;
+    if (!data.ok) return alert(data.message);
+    if (!applyReturnedOrder(data, data.id)) loadData(true);
+    $("#manualOrderForm").classList.add("hidden");
+    setAdminRefreshState(data.message || "Objednávka byla uložena.");
+    loadPlanningData();
+  });
 };
 
 $("#showProductForm").onclick = () => $("#productForm").classList.remove("hidden");
@@ -1581,7 +1755,18 @@ $("#saveNewProduct").onclick = () => {
     emailText: $("#newProductEmailText")?.value.trim() || ""
   };
   if (product.emailGroup === "VLASTNI" && !product.emailText) return alert("U vlastního textu vyplňte vlastní označení.");
-  post("saveProduct", { product }, data => data.ok ? loadData() : alert(data.message));
+  const button = $("#saveNewProduct");
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = "Ukládám…";
+  post("saveProduct", { product }, data => {
+    button.disabled = false;
+    button.textContent = originalText;
+    if (!data.ok) return alert(data.message);
+    if (!applySavedProduct(data, product)) loadData(true);
+    $("#productForm").classList.add("hidden");
+    setAdminRefreshState(data.message || "Produkt byl uložen.");
+  });
 };
 
 $("#saveEggSettings").onclick = () => {
@@ -1600,7 +1785,14 @@ $("#saveEggSettings").onclick = () => {
     button.disabled = false;
     button.textContent = "Uložit nastavení";
     if (!data.ok) return alert(data.message);
-    loadData();
+    if (data.eggSettings) eggSettings = data.eggSettings;
+    eggPlanningRefreshPending = true;
+    markAdminTabsDirty("eggsTab", "productsTab");
+    renderStats();
+    if (activeAdminTabId() === "eggsTab") renderAdminTab("eggsTab", true);
+    saveAdminCache(currentAdminState());
+    setAdminRefreshState(data.message || "Nastavení vajec bylo uloženo.");
+    loadPlanningData();
   });
 };
 
@@ -1626,8 +1818,11 @@ $("#saveBusinessSettings").onclick = () => {
   post("saveBusinessSettings", { settings }, data => {
     if (!data.ok) return alert(data.message);
     businessSettings = data.settings || settings;
-    alert("Nastavení webu bylo uloženo.");
+    markAdminTabsDirty("settingsTab");
     renderBusinessSettings();
+    renderedAdminTabs.add("settingsTab");
+    saveAdminCache(currentAdminState());
+    setAdminRefreshState(data.message || "Nastavení webu bylo uloženo.");
   });
 };
 
@@ -1661,7 +1856,10 @@ if (excludeMyVisits) {
         ? "Toto zařízení je vyloučeno. Jeho dřívější návštěvy byly odstraněny."
         : "Toto zařízení se bude znovu započítávat do návštěvnosti.");
       renderStats();
-      renderInsights();
+      markAdminTabsDirty("insightsTab");
+      if (activeAdminTabId() === "insightsTab") renderAdminTab("insightsTab", true);
+      saveAdminCache(currentAdminState());
+      window.dispatchEvent(new CustomEvent("pdp:visit-stats-updated"));
     });
   });
 }

@@ -1,4 +1,4 @@
-// Admin v2.9 – návštěvníci, přesné návštěvy a rychlé společné uložení objednávky + obalů
+// Admin V3.2 – návštěvníci a obaly se načítají až při skutečném použití
 (() => {
   const money2 = value => `${Math.round(Number(value || 0))} Kč`;
   const esc2 = value => String(value ?? "")
@@ -7,6 +7,8 @@
   const COLORS = ["#2f7d55", "#d99a3e", "#5b7fa3", "#a66b7c", "#7c8d45", "#8b6f47", "#6d6aa8", "#b86e3c", "#4f8c8b", "#9b7b9d"];
   let recentVisitsLoadedV26 = false;
   let packagingLoadedV26 = false;
+  let recentVisitsLoadingV26 = false;
+  let packagingLoadingV26 = false;
 
   function dateKey(value) {
     if (!value) return "";
@@ -105,7 +107,7 @@
     if (panelId === "productStatsTab") renderProductAnalytics();
     if (panelId === "visitsTab") {
       renderVisitAnalytics();
-      loadRecentVisitsV26(true);
+      loadRecentVisitsV26();
     }
     if (panelId === "packagingTab") loadPackagingV26();
   }
@@ -522,10 +524,25 @@
 
   async function loadRecentVisitsV26(force = false) {
     if (recentVisitsLoadedV26 && !force) return;
+    if (recentVisitsLoadingV26) return;
+    recentVisitsLoadingV26 = true;
+    const recentHost = document.getElementById("vaRecent");
+    if (recentHost && !recentVisitsLoadedV26) recentHost.innerHTML = '<div class="empty">Načítám návštěvnost…</div>';
     const result = await postPromiseV26("getRecentVisits", {limit:100});
-    if (!result.ok) return;
+    recentVisitsLoadingV26 = false;
+    if (!result.ok) {
+      if (recentHost) recentHost.innerHTML = `<div class="empty">${esc2(result.message || "Návštěvnost se nepodařilo načíst.")}</div>`;
+      return;
+    }
     recentVisitsLoadedV26 = true;
     window.PDP_RECENT_VISITS_V26 = Array.isArray(result.recentVisits) ? result.recentVisits : [];
+    if (result.visitStats && typeof result.visitStats === "object") {
+      try { visitStats = result.visitStats; } catch (_) {}
+      if (typeof saveAdminCache === "function" && typeof currentAdminState === "function") {
+        saveAdminCache(currentAdminState());
+      }
+      window.dispatchEvent(new CustomEvent("pdp:visit-stats-updated"));
+    }
     renderVisitAnalytics();
   }
 
@@ -534,7 +551,12 @@
       injectPackagingIntoOrdersV26();
       return;
     }
+    if (packagingLoadingV26) return;
+    packagingLoadingV26 = true;
+    const loadingHost = document.getElementById("packagingStockContent");
+    if (loadingHost && !packagingLoadedV26) loadingHost.innerHTML = '<div class="empty">Načítám sklad obalů…</div>';
     const result = await postPromiseV26("getPackagingData", {});
+    packagingLoadingV26 = false;
     if (!result.ok) {
       if (isExpiredSessionV261(result)) return;
       const host = document.getElementById("packagingStockContent");
@@ -878,19 +900,7 @@
     const originalApplyAdminData = applyAdminData;
     applyAdminData = function(data, saveCache = true) {
       originalApplyAdminData(data, saveCache);
-      setTimeout(() => {
-        loadPackagingV26();
-      }, 0);
-    };
-  }
-
-  function wrapRenderInsights() {
-    if (typeof renderInsights !== "function") return;
-    const original = renderInsights;
-    renderInsights = function() {
-      original();
-      renderProductAnalytics();
-      renderVisitAnalytics();
+      if (packagingLoadedV26) setTimeout(injectPackagingIntoOrdersV26, 0);
     };
   }
 
@@ -905,10 +915,26 @@
     addPackagingTabV26();
     wrapOrdersForPackagingV26();
     wrapApplyAdminDataV270();
-    wrapRenderInsights();
-    renderProductAnalytics();
-    renderVisitAnalytics();
-    loadPackagingV26();
+
+    // Obaly načteme až při otevření skladu nebo úpravy objednávky s vejci.
+    document.addEventListener("click", event => {
+      const button = event.target.closest?.("[data-edit-order]");
+      if (!button || packagingLoadedV26 || packagingLoadingV26) return;
+      const orderId = String(button.dataset.editOrder || "");
+      const sourceOrders = typeof orders !== "undefined" && Array.isArray(orders) ? orders : [];
+      const order = sourceOrders.find(item => String(item.id) === orderId);
+      if (orderNeedsPackagingV26(order)) loadPackagingV26();
+    });
+
+    window.addEventListener("pdp:visit-stats-updated", () => {
+      if (document.getElementById("visitsTab")?.classList.contains("active")) renderVisitAnalytics();
+    });
+    window.addEventListener("pdp:admin-state-updated", () => {
+      const active = document.querySelector(".tab.active")?.dataset.tab || "";
+      if (active === "productStatsTab") renderProductAnalytics();
+      else if (active === "visitsTab") renderVisitAnalytics();
+      else if (active === "packagingTab" && packagingLoadedV26) renderPackagingStockV26();
+    });
 
     document.querySelectorAll(".tab").forEach(tab => {
       tab.addEventListener("click", () => {

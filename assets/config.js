@@ -10,7 +10,7 @@ window.PDP_CONFIG = {
     window.addEventListener("load", () => {
       if (document.querySelector('script[data-pdp-admin-enhancements]')) return;
       const script = document.createElement("script");
-      script.src = "../assets/admin-enhancements.js?v=293-20260818";
+      script.src = "../assets/admin-enhancements.js?v=320-20260819";
       script.dataset.pdpAdminEnhancements = "1";
       document.body.appendChild(script);
     });
@@ -52,4 +52,3 @@ window.PDP_CONFIG = {
     setTimeout(loadVisitTracker, 6000);
   }
 })();
-
