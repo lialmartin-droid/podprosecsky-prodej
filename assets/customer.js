@@ -1,6 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "3.1.1";
-window.PDP_PRODUCTS_VERIFIED = false;
-console.info("Podprosečské produkty – customer.js V3.1.1 – okamžitý náhled a ověřená dostupnost");
+window.PDP_CUSTOMER_VERSION = "3.3.0";
+console.info("Podprosečské produkty – customer.js V3.3.0 – věrnostní sleva na vejce");
 
 // Karty produktů se při první návštěvě vykreslí okamžitě z bezpečného náhledu.
 // Sklad a objednávání se odemknou až po potvrzení živých dat z Google Tabulky.
@@ -12,11 +11,17 @@ let eggAvailability = null;
 let availabilityBlocked = false;
 let businessSettings = {};
 let autoPickupDate = "";
+let loyaltyOrderState = null;
+let loyaltyLookupTimer = 0;
+let loyaltyRequestCounter = 0;
+let activeLoyaltyRequest = null;
+const loyaltyRequestQueue = [];
 const cart = {};
 const VISITOR_ID_KEY = "pdp-visitor-id-v1";
 const VISIT_TRACKED_KEY = "pdp-visit-tracked-v1";
 const ADMIN_VISIT_EXCLUDE_KEY = "pdp-admin-exclude-visits";
 const ADMIN_VISIT_EXCLUDE_COOKIE = "pdp_admin_exclude_visits";
+const LOYALTY_CONTACT_KEY = "pdp-loyalty-contact-v1";
 
 const productsEl = document.getElementById("products");
 const summaryEl = document.getElementById("summary");
@@ -26,6 +31,9 @@ const feedbackEl = document.getElementById("feedback");
 const pickupInput = document.getElementById("pickupDate");
 const availabilityEl = document.getElementById("pickupAvailability");
 const submitButton = document.getElementById("submitOrder");
+const loyaltyOrderStatusEl = document.getElementById("loyaltyOrderStatus");
+const loyaltyOptInEl = document.getElementById("loyaltyOptIn");
+const loyaltyPublicStatusEl = document.getElementById("loyaltyPublicStatus");
 
 let submissionPending = false;
 let submissionFinished = false;
@@ -339,7 +347,7 @@ const FIRST_PAINT_PRODUCTS = [
 
 let productsRequestInFlight = false;
 let productsRequestCounter = 0;
-const PRODUCTS_CACHE_KEY = "pdp-products-cache-v8-first-paint";
+const PRODUCTS_CACHE_KEY = "pdp-products-cache-v7-first-paint";
 const PRODUCTS_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 
 function saveProductsCache(data) {
@@ -406,6 +414,242 @@ function appendJsonp(url, callbackName, onError) {
     if (onError) onError();
   };
   document.head.appendChild(script);
+}
+
+function currentLoyaltySettings() {
+  const source = businessSettings && businessSettings.loyalty || {};
+  return {
+    enabled: source.enabled !== false,
+    eggsRequired: Math.max(1, Number(source.eggsRequired || 100)),
+    discountCzk: Math.max(1, Number(source.discountCzk || 20)),
+    startDate: String(source.startDate || "2026-08-27")
+  };
+}
+
+function renderLoyaltyRule() {
+  const settings = currentLoyaltySettings();
+  const title = document.getElementById("loyaltyRuleTitle");
+  const text = document.getElementById("loyaltyRuleText");
+  const section = document.getElementById("vernostni-program");
+  const orderBox = document.getElementById("loyaltyOrderBox");
+  if (section) section.classList.toggle("hidden", !settings.enabled);
+  if (orderBox) orderBox.classList.toggle("hidden", !settings.enabled);
+  if (title) title.textContent = settings.enabled ? `${settings.eggsRequired} vajec = sleva ${settings.discountCzk} Kč` : "Věrnostní program je pozastavený";
+  if (text) text.textContent = settings.enabled
+    ? `Za každých ${settings.eggsRequired} skutečně vyzvednutých vajec získáte slevu ${settings.discountCzk} Kč na další objednávku vajec.`
+    : "Věrnostní program je nyní dočasně vypnutý.";
+}
+
+function normalizeLoyaltyContact(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function validLoyaltyContact(value) {
+  const contact = normalizeLoyaltyContact(value);
+  if (contact.includes("@")) return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(contact);
+  return contact.replace(/\D/g, "").length >= 9;
+}
+
+function rememberLoyaltyContact(value) {
+  try {
+    if (validLoyaltyContact(value)) localStorage.setItem(LOYALTY_CONTACT_KEY, normalizeLoyaltyContact(value));
+  } catch (_) {}
+}
+
+function enqueueLoyaltyRequest(action, payload, context, callback) {
+  const requestId = `l${Date.now()}${++loyaltyRequestCounter}`;
+  loyaltyRequestQueue.push({ action, payload: { ...(payload || {}), requestId }, context, callback, requestId });
+  processLoyaltyRequestQueue();
+}
+
+function processLoyaltyRequestQueue() {
+  if (activeLoyaltyRequest || !loyaltyRequestQueue.length) return;
+  const endpoint = backendUrl();
+  const job = loyaltyRequestQueue.shift();
+  if (!endpoint || !endpoint.endsWith("/exec")) {
+    job.callback?.({ ok: false, message: "Věrnostní program není správně propojený." });
+    processLoyaltyRequestQueue();
+    return;
+  }
+  const form = document.getElementById("loyaltyBackendForm");
+  if (!form) {
+    job.callback?.({ ok: false, message: "Věrnostní formulář není připravený." });
+    processLoyaltyRequestQueue();
+    return;
+  }
+  activeLoyaltyRequest = job;
+  form.action = endpoint;
+  document.getElementById("loyaltyAction").value = job.action;
+  document.getElementById("loyaltyPayload").value = JSON.stringify(job.payload);
+  job.timeout = window.setTimeout(() => {
+    if (activeLoyaltyRequest !== job) return;
+    activeLoyaltyRequest = null;
+    job.callback?.({ ok: false, message: "Ověření věrnostního stavu trvá příliš dlouho. Zkuste to znovu." });
+    processLoyaltyRequestQueue();
+  }, 25000);
+  form.submit();
+}
+
+function handleLoyaltyBackendResult(data) {
+  const job = activeLoyaltyRequest;
+  if (!job || !data || !["loyaltyStatus", "loyaltyJoin"].includes(String(data.kind || ""))) return false;
+  if (data.requestId && data.requestId !== job.requestId) return true;
+  clearTimeout(job.timeout);
+  activeLoyaltyRequest = null;
+  job.callback?.(data);
+  processLoyaltyRequestQueue();
+  return true;
+}
+
+function loyaltyStatusMarkup(status) {
+  if (!status || !status.enrolled) return "";
+  if (!status.active) return "<strong>Věrnostní účet je pozastavený.</strong><br>Pro další informace nás prosím kontaktujte.";
+  const required = Math.max(1, Number(status.eggsRequired || currentLoyaltySettings().eggsRequired));
+  const balance = Math.max(0, Number(status.balance || 0));
+  const percent = Math.max(0, Math.min(100, Math.round((balance / required) * 100)));
+  if (status.rewardReady) {
+    const countText = Number(status.availableRewards || 0) > 1 ? ` Máte připravené ${Number(status.availableRewards)} odměny.` : "";
+    return `<strong>🎉 Máte připravenou slevu ${Number(status.discountCzk || 0)} Kč.</strong>${countText}<br>Sleva se automaticky odečte u další objednávky vajec.<div class="loyalty-progress"><i style="width:${percent}%"></i></div><small>Do další odměny máte ${balance} z ${required} vajec.</small>`;
+  }
+  return `<strong>${status.firstName ? `${esc(status.firstName)}, ` : ""}máte ${balance} z ${required} vajec.</strong><div class="loyalty-progress"><i style="width:${percent}%"></i></div><small>Do slevy ${Number(status.discountCzk || 0)} Kč zbývá ${Math.max(0, Number(status.eggsNeeded || 0))} vajec.</small>`;
+}
+
+function renderPublicLoyaltyStatus(status, errorMessage = "") {
+  const joinFields = document.getElementById("loyaltyJoinFields");
+  if (!loyaltyPublicStatusEl) return;
+  loyaltyPublicStatusEl.className = "loyalty-status";
+  if (errorMessage) {
+    loyaltyPublicStatusEl.classList.add("error");
+    loyaltyPublicStatusEl.textContent = errorMessage;
+    return;
+  }
+  if (!status || !status.enrolled) {
+    loyaltyPublicStatusEl.innerHTML = "<strong>Tento kontakt zatím není zapojený.</strong><br>Vyplňte jméno a můžete začít sbírat vajíčka od příštího vyzvednutí.";
+    joinFields?.classList.remove("hidden");
+    return;
+  }
+  loyaltyPublicStatusEl.classList.toggle("reward-ready", Boolean(status.rewardReady));
+  loyaltyPublicStatusEl.innerHTML = loyaltyStatusMarkup(status);
+  joinFields?.classList.add("hidden");
+}
+
+function eggCartSubtotal() {
+  return Object.entries(cart).reduce((sum, [id, quantity]) => {
+    const product = products.find(item => String(item.id) === String(id));
+    return sum + (product && isEggProduct(product) ? Number(product.price || 0) * Number(quantity || 0) : 0);
+  }, 0);
+}
+
+function loyaltyPreviewDiscount() {
+  const status = loyaltyOrderState;
+  if (!currentLoyaltySettings().enabled || !status || !status.enrolled || !status.active || !status.rewardReady) return 0;
+  const discount = Math.max(0, Number(status.discountCzk || 0));
+  return eggCartSubtotal() >= discount ? discount : 0;
+}
+
+function renderOrderLoyaltyStatus() {
+  const box = document.getElementById("loyaltyOrderBox");
+  if (!box || !loyaltyOrderStatusEl || !loyaltyOptInEl) return;
+  box.classList.remove("has-reward", "is-member");
+  const settings = currentLoyaltySettings();
+  if (!settings.enabled) return;
+  if (loyaltyOrderState && loyaltyOrderState.enrolled) {
+    loyaltyOptInEl.checked = true;
+    box.classList.add("is-member");
+    if (loyaltyOrderState.rewardReady) {
+      box.classList.add("has-reward");
+      const discount = Number(loyaltyOrderState.discountCzk || settings.discountCzk);
+      loyaltyOrderStatusEl.textContent = eggCartSubtotal() >= discount
+        ? `Máte připravenou slevu ${discount} Kč. V tomto nákupu ji automaticky odečteme.`
+        : `Máte připravenou slevu ${discount} Kč. Pro její využití musí být hodnota vajec alespoň ${discount} Kč.`;
+    } else {
+      loyaltyOrderStatusEl.textContent = `Máte ${Number(loyaltyOrderState.balance || 0)} z ${Number(loyaltyOrderState.eggsRequired || settings.eggsRequired)} vajec. Do další slevy zbývá ${Number(loyaltyOrderState.eggsNeeded || 0)}.`;
+    }
+    return;
+  }
+  loyaltyOrderStatusEl.textContent = loyaltyOptInEl.checked
+    ? `Po převzetí této objednávky se vajíčka započítají do slevy ${settings.discountCzk} Kč.`
+    : "Zaškrtnutím se bez hesla zapojíte do věrnostního programu.";
+}
+
+function orderLoyaltyContact() {
+  const email = normalizeLoyaltyContact(document.getElementById("customerEmail")?.value);
+  const phone = normalizeLoyaltyContact(document.getElementById("customerPhone")?.value);
+  if (validLoyaltyContact(email)) return email;
+  if (validLoyaltyContact(phone)) return phone;
+  return "";
+}
+
+function lookupOrderLoyalty() {
+  clearTimeout(loyaltyLookupTimer);
+  loyaltyLookupTimer = window.setTimeout(() => {
+    const contact = orderLoyaltyContact();
+    if (!contact || !currentLoyaltySettings().enabled) {
+      loyaltyOrderState = null;
+      renderOrderLoyaltyStatus();
+      renderSummary();
+      return;
+    }
+    loyaltyOrderStatusEl.textContent = "Ověřuji Váš věrnostní stav…";
+    enqueueLoyaltyRequest("loyaltyStatus", { contact }, "order", data => {
+      if (orderLoyaltyContact() !== contact) return;
+      if (!data.ok) {
+        loyaltyOrderState = null;
+        loyaltyOrderStatusEl.textContent = data.message || "Věrnostní stav se nepodařilo ověřit.";
+      } else {
+        loyaltyOrderState = data.loyalty || null;
+        if (loyaltyOrderState?.enrolled) rememberLoyaltyContact(contact);
+      }
+      renderOrderLoyaltyStatus();
+      renderSummary();
+    });
+  }, 650);
+}
+
+function lookupPublicLoyalty() {
+  const input = document.getElementById("loyaltyLookupContact");
+  const button = document.getElementById("loyaltyLookupButton");
+  const contact = normalizeLoyaltyContact(input?.value);
+  if (!validLoyaltyContact(contact)) {
+    renderPublicLoyaltyStatus(null, "Zadejte platný telefon nebo e-mail.");
+    input?.focus();
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "Ověřuji…";
+  loyaltyPublicStatusEl.className = "loyalty-status";
+  loyaltyPublicStatusEl.textContent = "Načítám Váš věrnostní stav…";
+  enqueueLoyaltyRequest("loyaltyStatus", { contact }, "public", data => {
+    button.disabled = false;
+    button.textContent = "Zobrazit můj stav";
+    if (!data.ok) return renderPublicLoyaltyStatus(null, data.message || "Věrnostní stav se nepodařilo načíst.");
+    rememberLoyaltyContact(contact);
+    renderPublicLoyaltyStatus(data.loyalty || null);
+  });
+}
+
+function joinPublicLoyalty() {
+  const contactInput = document.getElementById("loyaltyLookupContact");
+  const nameInput = document.getElementById("loyaltyJoinName");
+  const button = document.getElementById("loyaltyJoinButton");
+  const contact = normalizeLoyaltyContact(contactInput?.value);
+  const name = String(nameInput?.value || "").trim();
+  if (!validLoyaltyContact(contact)) return renderPublicLoyaltyStatus(null, "Zadejte platný telefon nebo e-mail.");
+  if (name.length < 2) {
+    nameInput?.focus();
+    return renderPublicLoyaltyStatus(null, "Vyplňte jméno a příjmení.");
+  }
+  button.disabled = true;
+  button.textContent = "Zapisujeme…";
+  enqueueLoyaltyRequest("joinLoyalty", { contact, name }, "join", data => {
+    button.disabled = false;
+    button.textContent = "Zapojit se do slev";
+    if (!data.ok) return renderPublicLoyaltyStatus(null, data.message || "Do programu se nepodařilo zapsat.");
+    rememberLoyaltyContact(contact);
+    renderPublicLoyaltyStatus(data.loyalty || null);
+    if (orderLoyaltyContact() === contact) loyaltyOrderState = data.loyalty || loyaltyOrderState;
+    renderSummary();
+  });
 }
 
 function useProductsCacheFallback(message) {
@@ -504,8 +748,6 @@ function loadProducts(background = false) {
     });
 
     renderAll();
-    window.PDP_PRODUCTS_VERIFIED = true;
-    try { window.dispatchEvent(new Event("pdp-products-verified")); } catch (_) {}
   };
 
   appendJsonp(
@@ -982,6 +1224,11 @@ function renderSummary(forceNearestPickup = false) {
 
   const entries = Object.entries(cart);
   const count = entries.reduce((sum, [, quantity]) => sum + quantity, 0);
+  const cartSubtotal = entries.reduce((sum, [id, quantity]) => {
+    const product = products.find(item => String(item.id) === String(id));
+    return sum + (product ? product.price * quantity : 0);
+  }, 0);
+  const loyaltyDiscount = loyaltyPreviewDiscount();
   countEl.textContent = productsVerified
     ? `${count} ${count === 1 ? "položka" : count > 1 && count < 5 ? "položky" : "položek"}`
     : "Aktualizuji…";
@@ -993,13 +1240,10 @@ function renderSummary(forceNearestPickup = false) {
   } else {
     summaryEl.className = "";
     summaryEl.innerHTML = "";
-    let total = 0;
-
     entries.forEach(([id, quantity]) => {
       const product = products.find(item => String(item.id) === String(id));
       if (!product) return;
       const rowTotal = product.price * quantity;
-      total += rowTotal;
       const row = document.createElement("div");
       row.className = "summary-row";
       const label = document.createElement("span");
@@ -1010,25 +1254,29 @@ function renderSummary(forceNearestPickup = false) {
       summaryEl.appendChild(row);
     });
 
-    totalEl.textContent = money(total);
+    if (loyaltyDiscount > 0) {
+      const discountRow = document.createElement("div");
+      discountRow.className = "summary-row loyalty-discount-row";
+      discountRow.innerHTML = `<span>Věrnostní sleva na vejce</span><strong>−${money(loyaltyDiscount)}</strong>`;
+      summaryEl.appendChild(discountRow);
+    }
+    totalEl.textContent = money(Math.max(0, cartSubtotal - loyaltyDiscount));
   }
 
   const mobileCartBar = document.getElementById("mobileCartBar");
   const mobileCartText = document.getElementById("mobileCartText");
   if (mobileCartBar && mobileCartText) {
-    const total = entries.reduce((sum, [id, quantity]) => {
-      const product = products.find(item => String(item.id) === String(id));
-      return sum + (product ? product.price * quantity : 0);
-    }, 0);
     mobileCartBar.classList.toggle("hidden", count <= 0);
-    mobileCartText.textContent = `${count} ${count === 1 ? "položka" : count < 5 ? "položky" : "položek"} · ${money(total)}`;
+    mobileCartText.textContent = `${count} ${count === 1 ? "položka" : count < 5 ? "položky" : "položek"} · ${money(Math.max(0, cartSubtotal - loyaltyDiscount))}`;
   }
 
+  renderOrderLoyaltyStatus();
   renderSplitOptions();
   updatePickupAvailability(forceNearestPickup);
 }
 
 function renderAll() {
+  renderLoyaltyRule();
   renderProducts();
   renderSummary();
 }
@@ -1049,6 +1297,9 @@ function finish(success, message) {
     ["customerName", "customerPhone", "customerEmail", "pickupDate", "customerNote"].forEach(id => {
       document.getElementById(id).value = "";
     });
+    loyaltyOrderState = null;
+    if (loyaltyOptInEl) loyaltyOptInEl.checked = false;
+    renderOrderLoyaltyStatus();
     loadProducts();
   } else {
     submitButton.disabled = availabilityBlocked || !productsVerified;
@@ -1070,7 +1321,17 @@ function isTrustedAppsScriptOrigin(origin) {
 
 window.addEventListener("message", event => {
   const data = event.data;
-  if ((!submissionPending && !watchPending) || !data || data.type !== "PDP_BACKEND_RESULT") return;
+  if (!data || data.type !== "PDP_BACKEND_RESULT") return;
+
+  if (activeLoyaltyRequest && ["loyaltyStatus", "loyaltyJoin"].includes(String(data.kind || ""))) {
+    const loyaltyFrame = document.getElementById("loyaltySubmitFrame");
+    const directLoyaltyMessage = Boolean(loyaltyFrame && event.source === loyaltyFrame.contentWindow);
+    if (!directLoyaltyMessage && !isTrustedAppsScriptOrigin(event.origin)) return;
+    handleLoyaltyBackendResult(data);
+    return;
+  }
+
+  if (!submissionPending && !watchPending) return;
 
   // HtmlService vrací výsledek z vnořeného rámce Googlu. Zdroj proto
   // nemusí být přímo orderSubmitFrame.contentWindow.
@@ -1084,7 +1345,11 @@ window.addEventListener("message", event => {
     watchPending = null;
     return;
   }
-  finish(Boolean(data.ok), data.ok ? "Objednávka byla odeslána. Brzy se vám ozveme." : (data.message || "Objednávku se nepodařilo odeslat."));
+  const appliedDiscount = Math.max(0, Number(data.loyalty?.discountApplied || 0));
+  const successMessage = appliedDiscount > 0
+    ? `Objednávka byla odeslána. Věrnostní sleva ${appliedDiscount} Kč byla automaticky započítána.`
+    : "Objednávka byla odeslána. Brzy se vám ozveme.";
+  finish(Boolean(data.ok), data.ok ? successMessage : (data.message || "Objednávku se nepodařilo odeslat."));
 });
 
 function orderRequestId() {
@@ -1156,6 +1421,7 @@ submitButton.addEventListener("click", () => {
     contactMethod,
     splitOrder: splitMode === "split",
     preorderPickup: preorderPickup,
+    loyaltyOptIn: Boolean(loyaltyOptInEl?.checked || loyaltyOrderState?.enrolled),
     requestId: orderRequestId(),
     visitorId: visitorId(),
     visitSource: detectVisitSource()
@@ -1200,10 +1466,37 @@ pickupInput.addEventListener("change", () => {
   }
 });
 
+["customerPhone", "customerEmail"].forEach(id => {
+  const input = document.getElementById(id);
+  input?.addEventListener("input", lookupOrderLoyalty);
+  input?.addEventListener("blur", lookupOrderLoyalty);
+});
+loyaltyOptInEl?.addEventListener("change", () => {
+  renderOrderLoyaltyStatus();
+  renderSummary();
+});
+document.getElementById("loyaltyLookupButton")?.addEventListener("click", lookupPublicLoyalty);
+document.getElementById("loyaltyJoinButton")?.addEventListener("click", joinPublicLoyalty);
+document.getElementById("loyaltyLookupContact")?.addEventListener("keydown", event => {
+  if (event.key === "Enter") lookupPublicLoyalty();
+});
+document.getElementById("loyaltyJoinName")?.addEventListener("keydown", event => {
+  if (event.key === "Enter") joinPublicLoyalty();
+});
+
 const cachedOfferShown = loadProductsCache();
 const firstOfferShown = cachedOfferShown || loadFirstPaintOffer();
 if (!firstOfferShown) showProductsLoading();
 loadProducts(Boolean(firstOfferShown));
+
+try {
+  const rememberedLoyaltyContact = localStorage.getItem(LOYALTY_CONTACT_KEY) || "";
+  const lookupInput = document.getElementById("loyaltyLookupContact");
+  if (lookupInput && validLoyaltyContact(rememberedLoyaltyContact)) {
+    lookupInput.value = rememberedLoyaltyContact;
+    window.setTimeout(lookupPublicLoyalty, 1800);
+  }
+} catch (_) {}
 
 // Nabídka a hlavně vejce mají přednost před zápisem návštěvnosti. Tracker
 // spustíme až ve volné chvíli, aby při prvním otevření nesoutěžil se skladem.

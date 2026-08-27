@@ -1,0 +1,99 @@
+PODPROSEČSKÉ DOMÁCÍ PRODUKTY – AKTUALIZACE V3.3.0
+VĚRNOSTNÍ SLEVY NA VEJCE
+
+Program začíná 27. 8. 2026. Nákupy vyzvednuté před tímto datem se
+nezapočítají ani při pozdější úpravě staré objednávky.
+
+VÝCHOZÍ PRAVIDLO
+- 100 skutečně vyzvednutých vajec = sleva 20 Kč.
+- Počet vajec i výši slevy lze kdykoliv změnit v administraci.
+- Přebytečná vejce se převádějí do další odměny.
+- V jedné objednávce se použije nejvýše jedna připravená sleva.
+- Sleva se uplatní jen na objednávku obsahující vejce a jen pokud je
+  hodnota objednaných vajec alespoň ve výši slevy.
+- Při zrušení objednávky se rezervovaná sleva automaticky vrátí.
+
+CO JE NOVÉ PRO ZÁKAZNÍKA
+- Jednoduché zapojení bez hesla: jméno a telefon nebo e-mail.
+- Kontrola stavu podle telefonu nebo e-mailu.
+- Přehled, kolik vajec má započteno a kolik zbývá do další slevy.
+- Připravená sleva se u další objednávky vajec odečte automaticky.
+- Před odesláním objednávky se zobrazí upozornění i snížená cena.
+- Uplatněná sleva je uvedena také v potvrzovacím e-mailu.
+
+CO JE NOVÉ V ADMINISTRACI
+- Záložka „Věrnostní slevy“.
+- Zapnutí nebo pozastavení programu.
+- Nastavení počtu vajec potřebných pro odměnu a výše slevy.
+- Seznam zákazníků, jejich průběh, připravené a použité slevy.
+- Vyhledávání zákazníků, ruční oprava počtu vajec a pozastavení zákazníka.
+- Vejce se připíší až při označení objednávky jako „Vyzvednuto“.
+
+======================================================================
+1. NEJDŘÍVE AKTUALIZUJTE GOOGLE APPS SCRIPT
+======================================================================
+
+1. Otevřete Apps Script napojený na provozní Google Tabulku.
+2. Celý obsah stávajícího souboru Code.gs nahraďte souborem /Code.gs
+   z tohoto balíčku.
+3. Celý obsah stávajícího souboru Code_V2_6_ADDON.gs nahraďte souborem
+   /Code_V2_6_ADDON.gs z tohoto balíčku.
+4. Projekt uložte.
+5. V horním seznamu funkcí vyberte setupLoyaltyProgramV330 a spusťte ji
+   právě jednou. Při prvním spuštění potvrďte požadovaná oprávnění.
+6. Po úspěchu se zobrazí zpráva, že program začíná 27. 8. 2026 a výchozí
+   pravidlo je 100 vajec = sleva 20 Kč.
+7. Zvolte Nasadit > Spravovat nasazení, otevřete stávající webovou aplikaci,
+   vyberte Nová verze a potvrďte Nasadit.
+
+Použijte stávající nasazení, aby zůstala stejná koncová adresa /exec.
+Není potřeba znovu spouštět celou funkci setup().
+
+Funkce setupLoyaltyProgramV330 automaticky založí tyto nové listy:
+- Věrnostní zákazníci
+- Věrnostní odměny
+- Věrnostní pohyby
+
+Zároveň doplní věrnostní nastavení a nové sloupce na konec listu Objednávky.
+Dosavadní objednávky a ostatní data zůstanou zachované.
+
+======================================================================
+2. POTOM NAHRAJTE WEB NA GITHUB
+======================================================================
+
+Obsah tohoto balíčku nahrajte do KOŘENE stávajícího repozitáře a potvrďte
+nahrazení souborů. Zachovejte adresáře /admin a /assets.
+
+Nahrazují se tyto soubory:
+
+  /Code.gs
+  /Code_V2_6_ADDON.gs
+  /index.html
+  /admin/index.html
+  /assets/customer.js
+  /assets/admin.js
+  /assets/admin-enhancements.js
+  /assets/config.js
+  /assets/style.css
+
+Soubor /assets/config.js ponechává stávající adresu Apps Scriptu.
+
+======================================================================
+3. KONTROLA PO NASAZENÍ
+======================================================================
+
+1. Vyčkejte na dokončení GitHub Pages deploymentu.
+2. Zákaznickou stránku i administraci úplně zavřete a znovu otevřete.
+   Případně proveďte tvrdé obnovení stránky.
+3. Na zákaznické stránce ověřte část „Věrnostní sleva na vajíčka“.
+4. V administraci otevřete záložku „Věrnostní slevy“ a nastavte požadované
+   pravidlo. Výchozí hodnota je 100 vajec a 20 Kč.
+5. Zkušebního zákazníka lze založit na zákaznické stránce. V administraci
+   lze jeho počet vajec upravit ručně a ověřit zobrazení připravené slevy.
+
+DŮLEŽITÉ
+- Staré vyzvednuté nákupy se automaticky nedovážejí.
+- U starší, ale dosud nevyzvednuté objednávky se vejce započítají jen tehdy,
+  když ji zákazník skutečně převezme 27. 8. 2026 nebo později a je zapojený.
+- Sleva se nikdy neodečítá ručně z ceny produktu; systém ji drží jako
+  samostatnou odměnu a odečte ji od celkové ceny příslušné objednávky.

@@ -312,3 +312,17 @@ footer .footer-contact a{color:#fff!important;font-weight:800;font-size:15px;opa
   .location-copy h3{font-size:24px}
   .location-map,.location-map iframe{min-height:300px}
 }
+
+/* V3.3.0 – věrnostní sleva na vejce */
+.loyalty-section{scroll-margin-top:20px;margin-top:58px}
+.loyalty-card{display:grid;grid-template-columns:minmax(0,.9fr) minmax(320px,1.1fr);gap:24px;padding:26px;border:1px solid #d9cda9;border-radius:26px;background:linear-gradient(135deg,#fff9df,#f1f7ea);box-shadow:0 12px 34px rgba(64,57,42,.08)}
+.loyalty-card-copy{padding:8px 6px}.loyalty-card-copy h3{margin:7px 0 8px;font-family:"Merienda",cursive;font-size:27px;color:#5d3819}.loyalty-card-copy p{margin:8px 0;line-height:1.55}.loyalty-icon{font-size:38px}
+.loyalty-check-card{padding:18px;border:1px solid rgba(72,92,58,.18);border-radius:20px;background:rgba(255,255,255,.82)}
+.loyalty-check-card .secondary-button,.loyalty-check-card .primary-small{width:100%;margin-top:12px}
+.loyalty-status{margin-top:14px;padding:15px;border-radius:15px;background:#edf5e9;color:#315d3a;line-height:1.5}.loyalty-status.reward-ready{background:#fff0bd;color:#664700}.loyalty-status.error{background:#f9e7e5;color:var(--red)}
+.loyalty-progress{height:12px;margin:12px 0 7px;border-radius:999px;background:#dfe7d9;overflow:hidden}.loyalty-progress>i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#4f7b55,#82a46f)}
+.loyalty-join-fields{margin-top:14px;padding-top:8px;border-top:1px solid #e4d8c7}
+.loyalty-order-box{margin-top:6px}.loyalty-order-box input[type=checkbox]{width:22px;height:22px;min-height:0;flex:0 0 22px;margin:2px 0 0}.loyalty-order-box label>span{display:flex;flex-direction:column;gap:4px}.loyalty-order-box small{color:var(--muted);line-height:1.4}.loyalty-order-box .field-help{margin:10px 0 0}.loyalty-order-box.has-reward{border-color:#d5aa34;background:#fff8d9}.loyalty-order-box.is-member{border-color:#86a27e;background:#f5faf2}
+.summary-row.loyalty-discount-row{color:#2f7d55;font-weight:800}.summary-row.loyalty-discount-row strong{color:#2f7d55}
+.loyalty-admin-customer.inactive{opacity:.62}.loyalty-admin-progress{margin:10px 0}.loyalty-adjust-row{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.loyalty-adjust-row label{flex:1;min-width:150px}.loyalty-adjust-row button{flex:0 0 auto}
+@media(max-width:760px){.loyalty-card{grid-template-columns:1fr;padding:19px;gap:14px}.loyalty-card-copy{padding:2px}.loyalty-card-copy h3{font-size:23px}.loyalty-section{margin-top:44px}.loyalty-check-card{padding:15px}}

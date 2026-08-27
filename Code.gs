@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V3.2.0
+ * Podprosečské domácí produkty — sdílený backend V3.3.0
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -10,6 +10,9 @@ const CONFIG = Object.freeze({
   WATCHLIST_SHEET: 'Hlídací pes',
   VISITS_SHEET: 'Návštěvnost',
   NOTIFICATION_QUEUE_SHEET: 'E-mail fronta',
+  LOYALTY_CUSTOMERS_SHEET: 'Věrnostní zákazníci',
+  LOYALTY_REWARDS_SHEET: 'Věrnostní odměny',
+  LOYALTY_LEDGER_SHEET: 'Věrnostní pohyby',
   BRAND_NAME: 'Podprosečské domácí produkty',
   TIME_ZONE: 'Europe/Prague',
   SESSION_SECONDS: 21600,
@@ -21,6 +24,10 @@ const CONFIG = Object.freeze({
   DEFAULT_EGG_DAILY_PRODUCTION: 10,
   DEFAULT_EGG_SAFETY_RESERVE: 0,
   DEFAULT_EGG_PLANNING_DAYS: 60,
+  DEFAULT_LOYALTY_EGGS_REQUIRED: 100,
+  DEFAULT_LOYALTY_DISCOUNT_CZK: 20,
+  LOYALTY_START_DATE: '2026-08-27',
+  ORDER_COLUMN_COUNT: 33,
   MAX_IMAGE_BYTES: 1600000,
   PRODUCT_IMAGES_FOLDER: 'Podprosecske_produkty_obrazky',
   PUBLIC_CACHE_SECONDS: 60,
@@ -35,6 +42,9 @@ function setup() {
   const watchlist = getOrCreateSheet_(CONFIG.WATCHLIST_SHEET);
   const visits = getOrCreateSheet_(CONFIG.VISITS_SHEET);
   const notificationQueue = getOrCreateSheet_(CONFIG.NOTIFICATION_QUEUE_SHEET);
+  const loyaltyCustomers = getOrCreateSheet_(CONFIG.LOYALTY_CUSTOMERS_SHEET);
+  const loyaltyRewards = getOrCreateSheet_(CONFIG.LOYALTY_REWARDS_SHEET);
+  const loyaltyLedger = getOrCreateSheet_(CONFIG.LOYALTY_LEDGER_SHEET);
 
   formatOrdersSheet_(orders);
   ensureOrderNumbers_(orders);
@@ -43,9 +53,13 @@ function setup() {
   formatWatchlistSheet_(watchlist);
   formatVisitsSheet_(visits);
   formatOrderNotificationQueueSheet_(notificationQueue);
+  formatLoyaltyCustomersSheet_(loyaltyCustomers);
+  formatLoyaltyRewardsSheet_(loyaltyRewards);
+  formatLoyaltyLedgerSheet_(loyaltyLedger);
   seedProducts_(products);
   repairDefaultProductSettings_(products);
   seedEggSettings_(settings);
+  seedLoyaltySettings_(settings);
   normalizeEggStockDateSetting_(settings);
   ensurePickupReminderTrigger_();
   ensureOrderNotificationQueueTrigger_(true);
@@ -68,7 +82,8 @@ function setup() {
       '',
       'Heslo si bezpečně uložte. Změnit ho lze funkcí changeAdminPassword().',
       '',
-      'V administraci nyní najdete také záložku Vejce, kde nastavíte aktuální sklad a denní snášku.'
+      'V administraci nyní najdete také záložku Vejce, kde nastavíte aktuální sklad a denní snášku.',
+      'V záložce Věrnostní slevy nastavíte počet vajec potřebný pro odměnu a výši slevy.'
     ].join('\n'),
     name: CONFIG.BRAND_NAME
   });
@@ -221,7 +236,8 @@ function publicBusinessSettingsFromMapFast_(map) {
     pauseFrom: normalizeDateKey_(map.PAUSE_FROM, ''),
     pauseTo: normalizeDateKey_(map.PAUSE_TO, ''),
     pauseMessage: restoreSheetText_(map.PAUSE_MESSAGE || ''),
-    dailyOrderLimit: Math.max(0, safeInteger_(map.DAILY_ORDER_LIMIT, 0))
+    dailyOrderLimit: Math.max(0, safeInteger_(map.DAILY_ORDER_LIMIT, 0)),
+    loyalty: loyaltySettingsFromMap_(map)
   };
 }
 
@@ -482,7 +498,7 @@ function buildPublicPayload_() {
     const cached = cache.get(publicPayloadCacheKey_());
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (parsed && parsed.ok && parsed.version === '3.1.1' && Array.isArray(parsed.products)) return parsed;
+      if (parsed && parsed.ok && parsed.version === '3.3.0' && Array.isArray(parsed.products)) return parsed;
     }
   } catch (error) {
     console.error('Načtení veřejné cache selhalo.', error);
@@ -494,7 +510,7 @@ function buildPublicPayload_() {
   const availability = buildEggAvailabilityFromIndexFast_(eggSettings, reservationIndex);
   const payload = {
     ok: true,
-    version: '3.1.1',
+    version: '3.3.0',
     products: publicProductsWithAvailabilityFast_(catalog.products, reservationIndex, availability),
     availability: availability,
     settings: publicBusinessSettingsFromMapFast_(catalog.settingsMap),
@@ -537,7 +553,7 @@ function buildAdminPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.2.0',
+    version: '3.3.0',
     products: readProductsFast_(reservations, availability, catalog.products),
     orders: orders,
     eggSettings: availability.settings,
@@ -556,7 +572,7 @@ function buildAdminPlanningPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.2.0',
+    version: '3.3.0',
     products: readProductsFast_(reservations, availability, catalog.products),
     eggSettings: availability.settings,
     eggAvailability: availability,
@@ -627,7 +643,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '3.2.0',
+      version: '3.3.0',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -656,6 +672,8 @@ function doPost(e) {
     if (action === 'login') return login_(payload);
     if (action === 'createOrder') return createOrder_(payload, false);
     if (action === 'subscribeStock') return withMutationLock_(() => subscribeStock_(payload), 10000);
+    if (action === 'loyaltyStatus') return loyaltyStatusResponse_(payload);
+    if (action === 'joinLoyalty') return withMutationLock_(() => joinLoyalty_(payload), 15000);
 
     const token = cleanText_(e.parameter.token || payload.token || '', 100);
     requireToken_(token);
@@ -676,6 +694,10 @@ function doPost(e) {
     if (action === 'resendReadyEmail') return resendReadyEmail_(payload);
     if (action === 'sendPickupReminder') return sendPickupReminder_(payload);
     if (action === 'setVisitExclusion') return withMutationLock_(() => setVisitExclusion_(payload), 10000);
+    if (action === 'getLoyaltyData') return getLoyaltyAdminData_();
+    if (action === 'saveLoyaltySettings') return withMutationLock_(() => saveLoyaltySettings_(payload), 20000);
+    if (action === 'adjustLoyaltyCustomer') return withMutationLock_(() => adjustLoyaltyCustomer_(payload), 20000);
+    if (action === 'setLoyaltyCustomerActive') return withMutationLock_(() => setLoyaltyCustomerActive_(payload), 15000);
 
     // Volitelné rozšíření V2.6+ (sklad obalů a přesné návštěvy).
     const extensionResult = typeof handleV26Action_ === 'function' ? handleV26Action_(action, payload) : null;
@@ -1021,7 +1043,7 @@ function getSessionVersion_() {
 function findOrderByRequestId_(sheet, requestId) {
   const id = String(requestId || '');
   if (!id || sheet.getLastRow() < 2) return null;
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 27).getValues();
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, CONFIG.ORDER_COLUMN_COUNT).getValues();
   for (let i = values.length - 1; i >= 0; i--) {
     if (String(values[i][26] || '') === id) return orderFromSheetRow_(values[i]);
   }
@@ -1040,6 +1062,7 @@ function createOrder_(payload, manual) {
   let orderNumber;
   let sheet;
   let savedOrder;
+  let loyaltyWarning = '';
 
   try {
     // Zámek chrání pouze validaci dostupnosti + zápis. E-maily se posílají až po jeho uvolnění.
@@ -1061,7 +1084,8 @@ function createOrder_(payload, manual) {
         return htmlResponse_(true, 'Objednávka už byla přijata. Nevytváříme ji podruhé.', existing.id, {
           orderNumber: existing.orderNumber,
           order: manual ? existing : undefined,
-          duplicatePrevented: true
+          duplicatePrevented: true,
+          loyalty: publicLoyaltyOrderResult_(existing)
         });
       }
     }
@@ -1074,12 +1098,21 @@ function createOrder_(payload, manual) {
     id = Utilities.getUuid();
     createdAt = new Date();
     orderNumber = nextOrderNumber_(createdAt);
-    const itemsText = order.items.map(i => `${i.qty}× ${i.name} (${i.qty * i.price} Kč)`).join(', ');
-    let stockAdjusted = false;
-
     const fulfilledAt = !order.splitOrder && isFulfilledStatus_(order.status) ? createdAt : '';
     const regularFulfilledAt = order.splitOrder && isFulfilledStatus_(order.regularStatus) ? createdAt : '';
     const preorderFulfilledAt = order.splitOrder && isFulfilledStatus_(order.preorderStatus) ? createdAt : '';
+    order.fulfilledAtKey = normalizeDateKey_(fulfilledAt, '');
+    order.regularFulfilledAtKey = normalizeDateKey_(regularFulfilledAt, '');
+    order.preorderFulfilledAtKey = normalizeDateKey_(preorderFulfilledAt, '');
+    try {
+      order = prepareLoyaltyForOrder_(payload, order, id, manual);
+    } catch (loyaltyError) {
+      console.error('Věrnostní program se při vytvoření objednávky nepodařilo zpracovat.', loyaltyError);
+      loyaltyWarning = ' Věrnostní program se nepodařilo ověřit; objednávka byla uložena bez slevy.';
+      order = clearLoyaltyOrderMeta_(order, toBool_(payload && payload.loyaltyOptIn));
+    }
+    const itemsText = order.items.map(i => `${i.qty}× ${i.name} (${i.qty * i.price} Kč)`).join(', ');
+    let stockAdjusted = false;
 
     try {
       applyProductStockDeltas_(stockDeltas);
@@ -1090,10 +1123,19 @@ function createOrder_(payload, manual) {
         safeSheetText_(itemsText), order.total, safeSheetText_(order.note), manual ? 'Administrace' : 'Web', JSON.stringify(order.items), safeSheetText_(order.email),
         safeSheetText_(order.contactMethod), order.splitOrder, order.preorderPickup, order.regularStatus, order.preorderStatus,
         orderNumber, '', '', JSON.stringify([]), '', JSON.stringify([{type:'created', at:createdAt.toISOString(), text:'Objednávka vytvořena'}]),
-        fulfilledAt, regularFulfilledAt, preorderFulfilledAt, requestId
+        fulfilledAt, regularFulfilledAt, preorderFulfilledAt, requestId,
+        order.loyaltyCustomerId || '', order.loyaltyDiscount || 0, order.loyaltyRewardId || '',
+        order.loyaltyRewardState || '', order.loyaltyEggsCounted || 0, order.loyaltyOptIn
       ];
       sheet.appendRow(orderRow);
       savedOrder = orderFromSheetRow_(orderRow);
+      try {
+        savedOrder = syncLoyaltyAfterOrderState_(null, savedOrder, sheet, sheet.getLastRow());
+        order = savedOrder;
+      } catch (loyaltySyncError) {
+        console.error('Věrnostní stav nové objednávky se nepodařilo dokončit.', loyaltySyncError);
+        loyaltyWarning = ' Věrnostní stav se nepodařilo dokončit; objednávku zkontrolujte v administraci.';
+      }
 
       // Visitor ID posílá zákaznická stránka. Uložíme ho mimo list Objednávky,
       // takže kvůli propojení návštěvnosti neměníme stabilní strukturu objednávek.
@@ -1118,6 +1160,10 @@ function createOrder_(payload, manual) {
         invalidatePublicReservationIndex_();
       }
     } catch (error) {
+      if (order && order.loyaltyRewardId) {
+        try { releaseLoyaltyReward_(order.loyaltyRewardId, id); }
+        catch (loyaltyRollbackError) { console.error('Vrácení věrnostní odměny po chybě selhalo.', loyaltyRollbackError); }
+      }
       if (stockAdjusted) {
         try { reverseProductStockDeltas_(stockDeltas); } catch (rollbackError) { console.error('Vrácení skladu selhalo.', rollbackError); }
       }
@@ -1162,9 +1208,10 @@ function createOrder_(payload, manual) {
     }
   }
 
-  return htmlResponse_(true, (manual ? 'Objednávka byla uložena.' : 'Objednávka byla přijata.') + emailWarning, id, {
+  return htmlResponse_(true, (manual ? 'Objednávka byla uložena.' : 'Objednávka byla přijata.') + emailWarning + loyaltyWarning, id, {
     orderNumber:orderNumber,
-    order:manual ? savedOrder : undefined
+    order:manual ? savedOrder : undefined,
+    loyalty: publicLoyaltyOrderResult_(savedOrder || order)
   });
 }
 
@@ -1249,6 +1296,7 @@ function recordOrderNotification_(id, type, at, text) {
 function saveOrder_(payload, skipPublicRefresh) {
   const lock = LockService.getScriptLock();
   let result = null;
+  let loyaltyWarning = '';
 
   try {
     lock.waitLock(20000);
@@ -1271,7 +1319,7 @@ function saveOrder_(payload, skipPublicRefresh) {
     if (!row) throw new Error('Objednávka nebyla nalezena.');
 
     const oldOrder = orderFromSheetRow_(values[row - 1]);
-    const oldOrderRow = values[row - 1].slice(0, 27);
+    const oldOrderRow = values[row - 1].slice(0, CONFIG.ORDER_COLUMN_COUNT);
     const created = values[row - 1][1] || new Date();
     const source = values[row - 1][9] || 'Administrace';
     const itemsText = order.items.map(i => `${i.qty}× ${i.name} (${i.qty * i.price} Kč)`).join(', ');
@@ -1284,9 +1332,9 @@ function saveOrder_(payload, skipPublicRefresh) {
     const oldPreorderStatus = oldOrder.splitOrder ? oldOrder.preorderStatus : 'Zrušeno';
     const newPreorderStatus = order.splitOrder ? order.preorderStatus : 'Zrušeno';
 
-    let fulfilledAt = oldOrder.fulfilledAt || '';
-    let regularFulfilledAt = oldOrder.regularFulfilledAt || '';
-    let preorderFulfilledAt = oldOrder.preorderFulfilledAt || '';
+    let fulfilledAt = values[row - 1][23] || '';
+    let regularFulfilledAt = values[row - 1][24] || '';
+    let preorderFulfilledAt = values[row - 1][25] || '';
 
     if (!order.splitOrder) {
       if (newRegularStatus === 'Vyzvednuto' && oldRegularStatus !== 'Vyzvednuto') fulfilledAt = new Date();
@@ -1300,6 +1348,9 @@ function saveOrder_(payload, skipPublicRefresh) {
       if (newPreorderStatus === 'Vyzvednuto' && oldPreorderStatus !== 'Vyzvednuto') preorderFulfilledAt = new Date();
       if (newPreorderStatus !== 'Vyzvednuto' && oldPreorderStatus === 'Vyzvednuto') preorderFulfilledAt = '';
     }
+    order.fulfilledAtKey = normalizeDateKey_(fulfilledAt, '');
+    order.regularFulfilledAtKey = normalizeDateKey_(regularFulfilledAt, '');
+    order.preorderFulfilledAtKey = normalizeDateKey_(preorderFulfilledAt, '');
 
     if (newRegularStatus !== oldRegularStatus) {
       timeline.push({type:'status', at:new Date().toISOString(), text:'Stav dostupné části: ' + newRegularStatus});
@@ -1325,6 +1376,13 @@ function saveOrder_(payload, skipPublicRefresh) {
         : (() => { throw new Error('Doplněk skladu obalů je zastaralý. Nahrajte také nový Code_V2_6_ADDON.gs.'); })())
       : null;
     const stockDeltas = fulfilledStockDeltas_(oldOrder, order);
+    try {
+      prepareLoyaltyForUpdatedOrder_(submitted, order, oldOrder, id);
+    } catch (loyaltyError) {
+      console.error('Věrnostní program se při úpravě objednávky nepodařilo připravit.', loyaltyError);
+      preserveLoyaltyOrderMeta_(order, oldOrder);
+      loyaltyWarning = ' Věrnostní stav se nepodařilo ověřit.';
+    }
     const hasStockDeltas = Object.keys(stockDeltas).some(key => Number(stockDeltas[key] || 0) !== 0);
     let stockChangesApplied = false;
     let orderChangesApplied = false;
@@ -1336,23 +1394,46 @@ function saveOrder_(payload, skipPublicRefresh) {
         stockChangesApplied = true;
       }
 
-      sheet.getRange(row, 1, 1, 27).setValues([[
+      sheet.getRange(row, 1, 1, CONFIG.ORDER_COLUMN_COUNT).setValues([[
         id, created, order.status, safeSheetText_(order.name), safeSheetText_(order.phone), order.pickup,
         safeSheetText_(itemsText), order.total, safeSheetText_(order.note), source, JSON.stringify(order.items), safeSheetText_(order.email),
         safeSheetText_(order.contactMethod || oldOrder.contactMethod || 'SMS'), order.splitOrder, order.preorderPickup,
         order.regularStatus, order.preorderStatus, orderNumber, oldOrder.readyEmailRegularAt || '', oldOrder.readyEmailPreorderAt || '',
         JSON.stringify(communication), safeSheetText_(submitted.internalNote || oldOrder.internalNote || ''), JSON.stringify(timeline),
-        fulfilledAt, regularFulfilledAt, preorderFulfilledAt, oldOrder.requestId || ''
+        fulfilledAt, regularFulfilledAt, preorderFulfilledAt, oldOrder.requestId || '',
+        order.loyaltyCustomerId || '', order.loyaltyDiscount || 0, order.loyaltyRewardId || '',
+        order.loyaltyRewardState || '', order.loyaltyEggsCounted || 0, order.loyaltyOptIn
       ]]);
       orderChangesApplied = true;
 
       if (packagingPlan) {
         packagingResult = commitPackagingOrderUpdateV290_(packagingPlan, orderNumber);
       }
+
+      try {
+        const syncedOrder = syncLoyaltyAfterOrderState_(oldOrder, Object.assign({}, order, {
+          id:id,
+          orderNumber:orderNumber,
+          fulfilledAt:fulfilledAt,
+          regularFulfilledAt:regularFulfilledAt,
+          preorderFulfilledAt:preorderFulfilledAt,
+          fulfilledAtKey:normalizeDateKey_(fulfilledAt, ''),
+          regularFulfilledAtKey:normalizeDateKey_(regularFulfilledAt, ''),
+          preorderFulfilledAtKey:normalizeDateKey_(preorderFulfilledAt, '')
+        }), sheet, row);
+        Object.assign(order, syncedOrder);
+      } catch (loyaltySyncError) {
+        console.error('Věrnostní stav upravené objednávky se nepodařilo dokončit.', loyaltySyncError);
+        loyaltyWarning = ' Věrnostní stav se nepodařilo dokončit; změnu lze zopakovat uložením objednávky.';
+      }
     } catch (error) {
       if (orderChangesApplied) {
-        try { sheet.getRange(row, 1, 1, 27).setValues([oldOrderRow]); }
+        try { sheet.getRange(row, 1, 1, CONFIG.ORDER_COLUMN_COUNT).setValues([oldOrderRow]); }
         catch (rollbackError) { console.error('Vrácení objednávky po chybě obalů selhalo.', rollbackError); }
+      }
+      if (order._loyaltyNewReward && order.loyaltyRewardId) {
+        try { releaseLoyaltyReward_(order.loyaltyRewardId, id); }
+        catch (loyaltyRollbackError) { console.error('Vrácení nové věrnostní odměny po chybě selhalo.', loyaltyRollbackError); }
       }
       if (stockChangesApplied) {
         try { reverseProductStockDeltas_(stockDeltas); } catch (rollbackError) { console.error('Vrácení skladu po chybě selhalo.', rollbackError); }
@@ -1409,14 +1490,15 @@ function saveOrder_(payload, skipPublicRefresh) {
     }
   }
 
-  return htmlResponse_(true, 'Objednávka byla upravena.' + (queuedCount ? ' E-mail se odešle na pozadí.' : '') + queueWarning, result.id, {
+  return htmlResponse_(true, 'Objednávka byla upravena.' + (queuedCount ? ' E-mail se odešle na pozadí.' : '') + queueWarning + loyaltyWarning, result.id, {
     order: Object.assign({}, result.order, {
       id: result.id,
       orderNumber: result.orderNumber
     }),
     orderNumber: result.orderNumber,
     notificationsQueued: queuedCount,
-    packaging: result.packaging
+    packaging: result.packaging,
+    loyalty: publicLoyaltyOrderResult_(result.order)
   });
 }
 
@@ -1428,7 +1510,9 @@ function deleteOrder_(payload) {
   const deletedOrders = [];
   for (let i = values.length - 1; i >= 1; i--) {
     if (String(values[i][0]) !== id) continue;
-    deletedOrders.push(orderFromSheetRow_(values[i]));
+    const deletedOrder = orderFromSheetRow_(values[i]);
+    reverseLoyaltyForDeletedOrder_(deletedOrder);
+    deletedOrders.push(deletedOrder);
     const year = orderNumberYear_(values[i][17], values[i][1]);
     if (year) affectedYears[year] = true;
     sheet.deleteRow(i + 1);
@@ -1759,6 +1843,7 @@ function orderFromSheetRow_(row) {
   const splitOrder = toBool_(row[13]);
   const regularStatus = String(row[15] || status || 'Nová');
   const preorderStatus = String(row[16] || 'Nová');
+  const subtotal = (Array.isArray(items) ? items : []).reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0), 0);
 
   return {
     id: String(row[0] || ''),
@@ -1787,7 +1872,17 @@ function orderFromSheetRow_(row) {
     fulfilledAt: partFulfilledTimestamp_(row[23], timeline, status, 'Stav dostupné části: Vyzvednuto'),
     regularFulfilledAt: partFulfilledTimestamp_(row[24], timeline, regularStatus, 'Stav dostupné části: Vyzvednuto'),
     preorderFulfilledAt: partFulfilledTimestamp_(row[25], timeline, preorderStatus, 'Stav předobjednané části: Vyzvednuto'),
+    fulfilledAtKey: normalizeDateKey_(row[23], ''),
+    regularFulfilledAtKey: normalizeDateKey_(row[24], ''),
+    preorderFulfilledAtKey: normalizeDateKey_(row[25], ''),
     requestId: String(row[26] || '')
+    ,loyaltyCustomerId: String(row[27] || '')
+    ,loyaltyDiscount: Math.max(0, Number(row[28] || 0))
+    ,loyaltyRewardId: String(row[29] || '')
+    ,loyaltyRewardState: String(row[30] || '')
+    ,loyaltyEggsCounted: Math.max(0, Math.floor(Number(row[31] || 0)))
+    ,loyaltyOptIn: toBool_(row[32])
+    ,subtotal: subtotal
   };
 }
 
@@ -1850,6 +1945,7 @@ function validateOrder_(payload, manual) {
     };
   });
 
+  const subtotal = items.reduce((sum, item) => sum + item.qty * item.price, 0);
   return {
     name: name,
     phone: phone,
@@ -1858,7 +1954,8 @@ function validateOrder_(payload, manual) {
     note: note,
     status: splitOrder ? aggregateSplitStatus_(regularStatus, preorderStatus) : status,
     items: items,
-    total: items.reduce((sum, item) => sum + item.qty * item.price, 0),
+    subtotal: subtotal,
+    total: subtotal,
     contactMethod: contactMethod,
     splitOrder: splitOrder,
     preorderPickup: preorderPickup,
@@ -1993,7 +2090,7 @@ function productFromSheetRow_(row) {
 }
 
 function formatOrdersSheet_(sheet) {
-  const headers = ['Interní ID', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON', 'E-mail', 'Kontakt před vyzvednutím', 'Rozdělená objednávka', 'Termín předobjednávky', 'Stav dostupné části', 'Stav předobjednávky', 'Číslo objednávky', 'E-mail připraveno 1', 'E-mail připraveno 2', 'Komunikace JSON', 'Interní poznámka', 'Časová osa JSON', 'Skutečně vyzvednuto', 'Vyzvednuta dostupná část', 'Vyzvednuta předobjednaná část', 'Request ID'];
+  const headers = ['Interní ID', 'Vytvořeno', 'Stav', 'Jméno', 'Telefon', 'Termín vyzvednutí', 'Položky', 'Celkem Kč', 'Poznámka', 'Zdroj', 'ItemsJSON', 'E-mail', 'Kontakt před vyzvednutím', 'Rozdělená objednávka', 'Termín předobjednávky', 'Stav dostupné části', 'Stav předobjednávky', 'Číslo objednávky', 'E-mail připraveno 1', 'E-mail připraveno 2', 'Komunikace JSON', 'Interní poznámka', 'Časová osa JSON', 'Skutečně vyzvednuto', 'Vyzvednuta dostupná část', 'Vyzvednuta předobjednaná část', 'Request ID', 'Věrnostní zákazník ID', 'Věrnostní sleva Kč', 'Věrnostní odměna ID', 'Stav věrnostní odměny', 'Započtená vejce', 'Zapojen do věrnosti'];
   ensureHeaders_(sheet, headers);
 }
 
@@ -2132,6 +2229,722 @@ function saveBusinessSettings_(payload) {
   ]);
   invalidatePublicCatalogCache_();
   return htmlResponse_(true, 'Nastavení webu bylo uloženo.', '', { settings:saved });
+}
+
+
+// -----------------------------------------------------------------------------
+// V3.3 – věrnostní program na vejce
+// -----------------------------------------------------------------------------
+
+let LOYALTY_INFRA_CACHE_V330_ = null;
+
+function formatLoyaltyCustomersSheet_(sheet) {
+  ensureHeaders_(sheet, ['ID zákazníka', 'Zapsán', 'Jméno', 'Telefon', 'E-mail', 'Vejce do další odměny', 'Vejce celkem', 'Aktivní', 'Aktualizováno', 'Poslední objednávka', 'Poznámka']);
+}
+
+function formatLoyaltyRewardsSheet_(sheet) {
+  ensureHeaders_(sheet, ['ID odměny', 'ID zákazníka', 'Získána', 'Požadováno vajec', 'Sleva Kč', 'Stav', 'ID objednávky', 'Rezervována', 'Uplatněna', 'Aktualizováno']);
+}
+
+function formatLoyaltyLedgerSheet_(sheet) {
+  ensureHeaders_(sheet, ['ID pohybu', 'Čas', 'ID zákazníka', 'ID objednávky', 'Číslo objednávky', 'Typ', 'Změna vajec', 'Nový zůstatek', 'Poznámka']);
+}
+
+function seedLoyaltySettings_(sheet) {
+  setSettingIfMissing_(sheet, 'LOYALTY_ENABLED', true, 'Zapnout věrnostní program na vejce');
+  setSettingIfMissing_(sheet, 'LOYALTY_EGGS_REQUIRED', CONFIG.DEFAULT_LOYALTY_EGGS_REQUIRED, 'Počet vyzvednutých vajec potřebných pro jednu odměnu');
+  setSettingIfMissing_(sheet, 'LOYALTY_DISCOUNT_CZK', CONFIG.DEFAULT_LOYALTY_DISCOUNT_CZK, 'Výše věrnostní slevy v Kč');
+  setSettingIfMissing_(sheet, 'LOYALTY_START_DATE', CONFIG.LOYALTY_START_DATE, 'Začátek věrnostního programu', true);
+}
+
+function ensureLoyaltyInfrastructure_() {
+  if (LOYALTY_INFRA_CACHE_V330_) return LOYALTY_INFRA_CACHE_V330_;
+  const settingsSheet = getOrCreateSheet_(CONFIG.SETTINGS_SHEET);
+  formatSettingsSheet_(settingsSheet);
+  seedLoyaltySettings_(settingsSheet);
+  const customers = getOrCreateSheet_(CONFIG.LOYALTY_CUSTOMERS_SHEET);
+  const rewards = getOrCreateSheet_(CONFIG.LOYALTY_REWARDS_SHEET);
+  const ledger = getOrCreateSheet_(CONFIG.LOYALTY_LEDGER_SHEET);
+  formatLoyaltyCustomersSheet_(customers);
+  formatLoyaltyRewardsSheet_(rewards);
+  formatLoyaltyLedgerSheet_(ledger);
+  LOYALTY_INFRA_CACHE_V330_ = {settings:settingsSheet, customers:customers, rewards:rewards, ledger:ledger};
+  return LOYALTY_INFRA_CACHE_V330_;
+}
+
+function setupLoyaltyProgramV330() {
+  return withMutationLock_(() => {
+    ensureLoyaltyInfrastructure_();
+    formatOrdersSheet_(getOrCreateSheet_(CONFIG.ORDERS_SHEET));
+    invalidatePublicCatalogCache_();
+    return 'Věrnostní program V3.3 je připraven. Začíná 27. 8. 2026, výchozí pravidlo je 100 vajec = sleva 20 Kč.';
+  }, 20000);
+}
+
+function loyaltySettingsFromMap_(map) {
+  const source = map || {};
+  const enabledValue = Object.prototype.hasOwnProperty.call(source, 'LOYALTY_ENABLED')
+    ? toBool_(source.LOYALTY_ENABLED)
+    : true;
+  return {
+    enabled: enabledValue,
+    eggsRequired: Math.max(1, safeInteger_(source.LOYALTY_EGGS_REQUIRED, CONFIG.DEFAULT_LOYALTY_EGGS_REQUIRED)),
+    discountCzk: Math.max(1, safeInteger_(source.LOYALTY_DISCOUNT_CZK, CONFIG.DEFAULT_LOYALTY_DISCOUNT_CZK)),
+    startDate: normalizeDateKey_(source.LOYALTY_START_DATE, CONFIG.LOYALTY_START_DATE)
+  };
+}
+
+function readLoyaltySettings_() {
+  const infra = ensureLoyaltyInfrastructure_();
+  return loyaltySettingsFromMap_(readSettingsMap_(infra.settings));
+}
+
+function normalizeLoyaltyEmail_(value) {
+  return cleanText_(value, 254).trim().toLowerCase();
+}
+
+function normalizeLoyaltyPhone_(value) {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.indexOf('00420') === 0) digits = digits.slice(5);
+  else if (digits.indexOf('420') === 0 && digits.length > 9) digits = digits.slice(3);
+  return digits;
+}
+
+function loyaltyContactsFromPayload_(payload) {
+  const source = payload || {};
+  const contact = cleanText_(source.contact, 254).trim();
+  let email = normalizeLoyaltyEmail_(source.email);
+  let phone = normalizeLoyaltyPhone_(source.phone);
+  if (contact) {
+    if (contact.indexOf('@') >= 0 && !email) email = normalizeLoyaltyEmail_(contact);
+    else if (!phone) phone = normalizeLoyaltyPhone_(contact);
+  }
+  return {email:email, phone:phone};
+}
+
+function validateLoyaltyContacts_(contacts) {
+  if (!contacts.email && contacts.phone.length < 9) {
+    throw new Error('Zadejte platný telefon nebo e-mail.');
+  }
+  if (contacts.email && !isValidEmail_(contacts.email)) {
+    throw new Error('Zadejte platný telefon nebo e-mail.');
+  }
+}
+
+function loyaltyCustomerFromRow_(row, rowNumber) {
+  return {
+    rowNumber: rowNumber,
+    id: String(row[0] || ''),
+    createdValue: row[1] || '',
+    created: formatDateTime_(row[1]),
+    name: restoreSheetText_(row[2] || ''),
+    phone: String(row[3] || ''),
+    email: String(row[4] || '').toLowerCase(),
+    balance: Math.floor(Number(row[5] || 0)),
+    lifetimeEggs: Math.max(0, Math.floor(Number(row[6] || 0))),
+    active: row[7] === '' ? true : toBool_(row[7]),
+    updatedValue: row[8] || '',
+    updated: formatDateTime_(row[8]),
+    lastOrderId: String(row[9] || ''),
+    note: restoreSheetText_(row[10] || '')
+  };
+}
+
+function readLoyaltyCustomers_() {
+  const sheet = ensureLoyaltyInfrastructure_().customers;
+  if (sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 11).getValues()
+    .map((row, index) => loyaltyCustomerFromRow_(row, index + 2))
+    .filter(customer => customer.id);
+}
+
+function saveLoyaltyCustomer_(customer) {
+  const sheet = ensureLoyaltyInfrastructure_().customers;
+  if (!customer || !customer.id) throw new Error('Věrnostní zákazník není platný.');
+  const rowNumber = Number(customer.rowNumber || 0);
+  const values = [[
+    customer.id,
+    customer.createdValue || new Date(),
+    safeSheetText_(customer.name || ''),
+    normalizeLoyaltyPhone_(customer.phone),
+    normalizeLoyaltyEmail_(customer.email),
+    Math.floor(Number(customer.balance || 0)),
+    Math.max(0, Math.floor(Number(customer.lifetimeEggs || 0))),
+    customer.active !== false,
+    new Date(),
+    customer.lastOrderId || '',
+    safeSheetText_(customer.note || '')
+  ]];
+  if (rowNumber >= 2) sheet.getRange(rowNumber, 1, 1, 11).setValues(values);
+  else {
+    sheet.appendRow(values[0]);
+    customer.rowNumber = sheet.getLastRow();
+  }
+  customer.updatedValue = values[0][8];
+  return customer;
+}
+
+function findLoyaltyCustomerById_(id) {
+  const customerId = String(id || '');
+  return readLoyaltyCustomers_().find(customer => customer.id === customerId) || null;
+}
+
+function findLoyaltyCustomerByContacts_(contacts) {
+  const source = contacts || {};
+  const email = normalizeLoyaltyEmail_(source.email);
+  const phone = normalizeLoyaltyPhone_(source.phone);
+  if (!email && !phone) return null;
+  const matches = readLoyaltyCustomers_().filter(customer =>
+    (email && customer.email === email) || (phone && customer.phone === phone)
+  );
+  const ids = Array.from(new Set(matches.map(customer => customer.id)));
+  if (ids.length > 1) {
+    throw new Error('Telefon a e-mail jsou vedené u různých zákazníků. Záznamy spojte v administraci.');
+  }
+  return matches.length ? matches[0] : null;
+}
+
+function createLoyaltyCustomer_(name, contacts) {
+  const customer = {
+    id: Utilities.getUuid(),
+    createdValue: new Date(),
+    name: cleanText_(name, 100),
+    phone: normalizeLoyaltyPhone_(contacts.phone),
+    email: normalizeLoyaltyEmail_(contacts.email),
+    balance: 0,
+    lifetimeEggs: 0,
+    active: true,
+    lastOrderId: '',
+    note: ''
+  };
+  if (customer.name.length < 2) throw new Error('Vyplňte jméno.');
+  validateLoyaltyContacts_(contacts);
+  return saveLoyaltyCustomer_(customer);
+}
+
+function updateLoyaltyCustomerIdentity_(customer, name, contacts) {
+  if (!customer) return null;
+  const nextName = cleanText_(name, 100);
+  const nextPhone = normalizeLoyaltyPhone_(contacts && contacts.phone);
+  const nextEmail = normalizeLoyaltyEmail_(contacts && contacts.email);
+  let changed = false;
+  if (nextName && nextName !== customer.name) { customer.name = nextName; changed = true; }
+  if (nextPhone && nextPhone !== customer.phone) { customer.phone = nextPhone; changed = true; }
+  if (nextEmail && nextEmail !== customer.email) { customer.email = nextEmail; changed = true; }
+  return changed ? saveLoyaltyCustomer_(customer) : customer;
+}
+
+function loyaltyRewardFromRow_(row, rowNumber) {
+  return {
+    rowNumber: rowNumber,
+    id: String(row[0] || ''),
+    customerId: String(row[1] || ''),
+    earnedAtValue: row[2] || '',
+    earnedAt: formatDateTime_(row[2]),
+    eggsRequired: Math.max(1, Math.floor(Number(row[3] || CONFIG.DEFAULT_LOYALTY_EGGS_REQUIRED))),
+    amount: Math.max(0, Number(row[4] || 0)),
+    state: String(row[5] || 'Dostupná'),
+    orderId: String(row[6] || ''),
+    reservedAtValue: row[7] || '',
+    usedAtValue: row[8] || '',
+    updatedValue: row[9] || ''
+  };
+}
+
+function readLoyaltyRewards_() {
+  const sheet = ensureLoyaltyInfrastructure_().rewards;
+  if (sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues()
+    .map((row, index) => loyaltyRewardFromRow_(row, index + 2))
+    .filter(reward => reward.id);
+}
+
+function saveLoyaltyReward_(reward) {
+  const sheet = ensureLoyaltyInfrastructure_().rewards;
+  const values = [[
+    reward.id,
+    reward.customerId,
+    reward.earnedAtValue || new Date(),
+    Math.max(1, Math.floor(Number(reward.eggsRequired || CONFIG.DEFAULT_LOYALTY_EGGS_REQUIRED))),
+    Math.max(0, Number(reward.amount || 0)),
+    reward.state || 'Dostupná',
+    reward.orderId || '',
+    reward.reservedAtValue || '',
+    reward.usedAtValue || '',
+    new Date()
+  ]];
+  if (Number(reward.rowNumber || 0) >= 2) sheet.getRange(reward.rowNumber, 1, 1, 10).setValues(values);
+  else {
+    sheet.appendRow(values[0]);
+    reward.rowNumber = sheet.getLastRow();
+  }
+  return reward;
+}
+
+function createLoyaltyReward_(customerId, settings) {
+  return saveLoyaltyReward_({
+    id: Utilities.getUuid(),
+    customerId: customerId,
+    earnedAtValue: new Date(),
+    eggsRequired: settings.eggsRequired,
+    amount: settings.discountCzk,
+    state: 'Dostupná',
+    orderId: '',
+    reservedAtValue: '',
+    usedAtValue: ''
+  });
+}
+
+function appendLoyaltyMovement_(customerId, orderId, orderNumber, type, eggDelta, balance, note) {
+  const sheet = ensureLoyaltyInfrastructure_().ledger;
+  sheet.appendRow([
+    Utilities.getUuid(), new Date(), customerId || '', orderId || '', orderNumber || '',
+    safeSheetText_(type || ''), Math.floor(Number(eggDelta || 0)), Math.floor(Number(balance || 0)), safeSheetText_(note || '')
+  ]);
+}
+
+function reserveLoyaltyRewardForOrder_(customerId, orderId, eggSubtotal) {
+  const reward = readLoyaltyRewards_()
+    .filter(item => item.customerId === customerId && item.state === 'Dostupná' && Number(item.amount || 0) <= Number(eggSubtotal || 0))
+    .sort((a, b) => String(a.earnedAt || '').localeCompare(String(b.earnedAt || '')))[0];
+  if (!reward) return null;
+  reward.state = 'Rezervovaná';
+  reward.orderId = orderId;
+  reward.reservedAtValue = new Date();
+  reward.usedAtValue = '';
+  saveLoyaltyReward_(reward);
+  appendLoyaltyMovement_(customerId, orderId, '', 'Rezervace odměny', 0, 0, `Sleva ${reward.amount} Kč rezervována pro objednávku.`);
+  return reward;
+}
+
+function setLoyaltyRewardState_(reward, state, orderId) {
+  if (!reward) return null;
+  reward.state = state;
+  reward.orderId = state === 'Dostupná' ? '' : String(orderId || reward.orderId || '');
+  if (state === 'Dostupná') {
+    reward.reservedAtValue = '';
+    reward.usedAtValue = '';
+  } else if (state === 'Rezervovaná') {
+    reward.reservedAtValue = reward.reservedAtValue || new Date();
+    reward.usedAtValue = '';
+  } else if (state === 'Uplatněná') {
+    reward.reservedAtValue = reward.reservedAtValue || new Date();
+    reward.usedAtValue = new Date();
+  }
+  return saveLoyaltyReward_(reward);
+}
+
+function releaseLoyaltyReward_(rewardId, orderId) {
+  const reward = readLoyaltyRewards_().find(item => item.id === String(rewardId || ''));
+  if (!reward) return null;
+  if (orderId && reward.orderId && reward.orderId !== String(orderId)) return reward;
+  setLoyaltyRewardState_(reward, 'Dostupná', '');
+  appendLoyaltyMovement_(reward.customerId, orderId || '', '', 'Vrácení odměny', 0, 0, `Sleva ${reward.amount} Kč vrácena zákazníkovi.`);
+  return reward;
+}
+
+function applyLoyaltyEggDelta_(customerId, delta, orderId, orderNumber, note) {
+  const customer = findLoyaltyCustomerById_(customerId);
+  if (!customer) throw new Error('Věrnostní zákazník nebyl nalezen.');
+  const change = Math.floor(Number(delta || 0));
+  if (!change) return customer;
+  const settings = readLoyaltySettings_();
+  customer.balance = Math.floor(Number(customer.balance || 0)) + change;
+  customer.lifetimeEggs = Math.max(0, Math.floor(Number(customer.lifetimeEggs || 0)) + change);
+  customer.lastOrderId = orderId || customer.lastOrderId || '';
+
+  let rewardsCreated = 0;
+  while (customer.balance >= settings.eggsRequired) {
+    customer.balance -= settings.eggsRequired;
+    createLoyaltyReward_(customer.id, settings);
+    rewardsCreated += 1;
+  }
+
+  if (customer.balance < 0) {
+    const cancellable = readLoyaltyRewards_()
+      .filter(reward => reward.customerId === customer.id && reward.state === 'Dostupná')
+      .sort((a, b) => String(b.earnedAt || '').localeCompare(String(a.earnedAt || '')));
+    while (customer.balance < 0 && cancellable.length) {
+      const reward = cancellable.shift();
+      reward.state = 'Zrušená';
+      reward.orderId = orderId || '';
+      saveLoyaltyReward_(reward);
+      customer.balance += reward.eggsRequired;
+    }
+  }
+
+  saveLoyaltyCustomer_(customer);
+  appendLoyaltyMovement_(customer.id, orderId, orderNumber, change > 0 ? 'Přičtení vajec' : 'Oprava vajec', change, customer.balance,
+    `${note || 'Změna věrnostního zůstatku.'}${rewardsCreated ? ` Vytvořeno odměn: ${rewardsCreated}.` : ''}`);
+  return customer;
+}
+
+function publicLoyaltyStatus_(customer, settings, allRewards) {
+  const config = settings || readLoyaltySettings_();
+  const rewards = (allRewards || readLoyaltyRewards_()).filter(reward => customer && reward.customerId === customer.id);
+  const available = rewards.filter(reward => reward.state === 'Dostupná');
+  const reserved = rewards.filter(reward => reward.state === 'Rezervovaná');
+  const balance = customer ? Math.floor(Number(customer.balance || 0)) : 0;
+  const nextReward = available.sort((a, b) => String(a.earnedAt || '').localeCompare(String(b.earnedAt || '')))[0] || null;
+  return {
+    enabled: config.enabled,
+    enrolled: Boolean(customer),
+    active: Boolean(customer && customer.active),
+    firstName: customer ? cleanText_(String(customer.name || '').trim().split(/\s+/)[0], 50) : '',
+    balance: Math.max(0, balance),
+    eggsRequired: config.eggsRequired,
+    eggsNeeded: customer ? (available.length ? 0 : Math.max(0, config.eggsRequired - balance)) : config.eggsRequired,
+    availableRewards: available.length,
+    reservedRewards: reserved.length,
+    rewardReady: available.length > 0,
+    discountCzk: nextReward ? Number(nextReward.amount || 0) : config.discountCzk,
+    startDate: config.startDate
+  };
+}
+
+function loyaltyStatusResponse_(payload) {
+  const settings = readLoyaltySettings_();
+  const contacts = loyaltyContactsFromPayload_(payload);
+  validateLoyaltyContacts_(contacts);
+  const customer = findLoyaltyCustomerByContacts_(contacts);
+  return htmlResponse_(true, customer ? 'Věrnostní stav byl načten.' : 'Kontakt zatím není ve věrnostním programu.', '', {
+    kind: 'loyaltyStatus',
+    requestId: cleanText_(payload && payload.requestId, 100),
+    loyalty: publicLoyaltyStatus_(customer, settings)
+  });
+}
+
+function joinLoyalty_(payload) {
+  const settings = readLoyaltySettings_();
+  if (!settings.enabled) throw new Error('Věrnostní program je nyní vypnutý.');
+  const contacts = loyaltyContactsFromPayload_(payload);
+  validateLoyaltyContacts_(contacts);
+  const name = cleanText_(payload && payload.name, 100);
+  let customer = findLoyaltyCustomerByContacts_(contacts);
+  const created = !customer;
+  if (!customer) customer = createLoyaltyCustomer_(name, contacts);
+  else {
+    if (!customer.active) { customer.active = true; saveLoyaltyCustomer_(customer); }
+    customer = updateLoyaltyCustomerIdentity_(customer, name || customer.name, contacts);
+  }
+  return htmlResponse_(true, created ? 'Byli jste zařazeni do věrnostního programu.' : 'Váš věrnostní stav byl načten.', '', {
+    kind: 'loyaltyJoin',
+    requestId: cleanText_(payload && payload.requestId, 100),
+    loyalty: publicLoyaltyStatus_(customer, settings)
+  });
+}
+
+function loyaltySubtotal_(order) {
+  return (order && order.items || []).reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0), 0);
+}
+
+function loyaltyEggSubtotal_(order) {
+  return (order && order.items || [])
+    .filter(item => String(item.productId) === CONFIG.EGG_PRODUCT_ID)
+    .reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.price || 0), 0);
+}
+
+function loyaltyEggPartStatus_(order) {
+  return String(order && order.splitOrder ? order.regularStatus : order && order.status || 'Nová');
+}
+
+function loyaltyActiveEggQty_(order) {
+  return loyaltyEggPartStatus_(order) === 'Zrušeno' ? 0 : eggQtyFromItems_(order && order.items);
+}
+
+function loyaltyFulfilledEggQty_(order) {
+  return loyaltyEggPartStatus_(order) === 'Vyzvednuto' ? eggQtyFromItems_(order && order.items) : 0;
+}
+
+function loyaltyEggFulfilledDateKey_(order) {
+  if (!order) return '';
+  const value = order.splitOrder
+    ? (order.regularFulfilledAtKey || order.regularFulfilledAt)
+    : (order.fulfilledAtKey || order.fulfilledAt);
+  return normalizeDateKey_(value, '');
+}
+
+function loyaltyOrderMayUseReward_(order, settings) {
+  if (loyaltyFulfilledEggQty_(order) <= 0) return true;
+  const fulfilledDate = loyaltyEggFulfilledDateKey_(order);
+  return Boolean(fulfilledDate && fulfilledDate >= settings.startDate);
+}
+
+function clearLoyaltyOrderMeta_(order, optedIn) {
+  const subtotal = loyaltySubtotal_(order);
+  return Object.assign(order, {
+    subtotal: subtotal,
+    total: subtotal,
+    loyaltyCustomerId: '',
+    loyaltyDiscount: 0,
+    loyaltyRewardId: '',
+    loyaltyRewardState: '',
+    loyaltyEggsCounted: 0,
+    loyaltyOptIn: Boolean(optedIn)
+  });
+}
+
+function preserveLoyaltyOrderMeta_(order, oldOrder) {
+  const subtotal = loyaltySubtotal_(order);
+  return Object.assign(order, {
+    subtotal: subtotal,
+    loyaltyCustomerId: oldOrder.loyaltyCustomerId || '',
+    loyaltyDiscount: Math.max(0, Number(oldOrder.loyaltyDiscount || 0)),
+    loyaltyRewardId: oldOrder.loyaltyRewardId || '',
+    loyaltyRewardState: oldOrder.loyaltyRewardState || '',
+    loyaltyEggsCounted: Math.max(0, Number(oldOrder.loyaltyEggsCounted || 0)),
+    loyaltyOptIn: Boolean(oldOrder.loyaltyOptIn || oldOrder.loyaltyCustomerId),
+    total: Math.max(0, subtotal - Math.max(0, Number(oldOrder.loyaltyDiscount || 0)))
+  });
+}
+
+function resolveLoyaltyCustomerForOrder_(payload, order, allowCreate) {
+  const contacts = loyaltyContactsFromPayload_({phone:order.phone, email:order.email});
+  let customer = findLoyaltyCustomerByContacts_(contacts);
+  if (!customer && allowCreate) customer = createLoyaltyCustomer_(order.name, contacts);
+  if (customer) customer = updateLoyaltyCustomerIdentity_(customer, order.name, contacts);
+  return customer && customer.active ? customer : null;
+}
+
+function prepareLoyaltyForOrder_(payload, order, orderId, manual) {
+  const optedIn = toBool_(payload && payload.loyaltyOptIn);
+  clearLoyaltyOrderMeta_(order, optedIn);
+  const settings = readLoyaltySettings_();
+  if (!settings.enabled) return order;
+  const customer = resolveLoyaltyCustomerForOrder_(payload, order, optedIn);
+  if (!customer) return order;
+  order.loyaltyCustomerId = customer.id;
+  order.loyaltyOptIn = true;
+  customer.lastOrderId = orderId;
+  saveLoyaltyCustomer_(customer);
+  if (loyaltyActiveEggQty_(order) > 0 && loyaltyOrderMayUseReward_(order, settings)) {
+    const reward = reserveLoyaltyRewardForOrder_(customer.id, orderId, loyaltyEggSubtotal_(order));
+    if (reward) {
+      order.loyaltyDiscount = Number(reward.amount || 0);
+      order.loyaltyRewardId = reward.id;
+      order.loyaltyRewardState = 'reserved';
+      order.total = Math.max(0, order.subtotal - order.loyaltyDiscount);
+    }
+  }
+  return order;
+}
+
+function prepareLoyaltyForUpdatedOrder_(payload, order, oldOrder, orderId) {
+  preserveLoyaltyOrderMeta_(order, oldOrder);
+  const settings = readLoyaltySettings_();
+  let customer = oldOrder.loyaltyCustomerId ? findLoyaltyCustomerById_(oldOrder.loyaltyCustomerId) : null;
+  if (!customer && settings.enabled) {
+    customer = resolveLoyaltyCustomerForOrder_(payload, order, toBool_(payload && payload.loyaltyOptIn));
+  } else if (customer) {
+    customer = updateLoyaltyCustomerIdentity_(customer, order.name, loyaltyContactsFromPayload_({phone:order.phone, email:order.email}));
+  }
+  if (!customer || !customer.active) return order;
+  order.loyaltyCustomerId = customer.id;
+  order.loyaltyOptIn = true;
+  customer.lastOrderId = orderId;
+  saveLoyaltyCustomer_(customer);
+
+  if ((!order.loyaltyRewardId || order.loyaltyRewardState === 'released') && settings.enabled && loyaltyActiveEggQty_(order) > 0 && loyaltyOrderMayUseReward_(order, settings)) {
+    const reward = reserveLoyaltyRewardForOrder_(customer.id, orderId, loyaltyEggSubtotal_(order));
+    if (reward) {
+      order.loyaltyRewardId = reward.id;
+      order.loyaltyRewardState = 'reserved';
+      order.loyaltyDiscount = Number(reward.amount || 0);
+      order._loyaltyNewReward = true;
+    }
+  }
+  order.total = Math.max(0, order.subtotal - Math.max(0, Number(order.loyaltyDiscount || 0)));
+  return order;
+}
+
+function syncLoyaltyAfterOrderState_(oldOrder, order, ordersSheet, orderRow) {
+  if (!order || !order.loyaltyCustomerId) return order;
+  const customer = findLoyaltyCustomerById_(order.loyaltyCustomerId);
+  if (!customer) return order;
+  const settings = readLoyaltySettings_();
+  let reward = order.loyaltyRewardId
+    ? readLoyaltyRewards_().find(item => item.id === order.loyaltyRewardId)
+    : null;
+  const activeEggs = loyaltyActiveEggQty_(order);
+  const fulfilledEggs = loyaltyFulfilledEggQty_(order);
+  const fulfilledDate = loyaltyEggFulfilledDateKey_(order);
+  const fulfillmentEligible = fulfilledEggs > 0 && Boolean(fulfilledDate && fulfilledDate >= settings.startDate);
+
+  if (reward) {
+    if (!activeEggs || loyaltyEggSubtotal_(order) < Number(reward.amount || 0) || (fulfilledEggs > 0 && !fulfillmentEligible)) {
+      setLoyaltyRewardState_(reward, 'Dostupná', '');
+      appendLoyaltyMovement_(customer.id, order.id, order.orderNumber, 'Vrácení odměny', 0, customer.balance, 'Objednávka už nesplňuje podmínky slevy.');
+      order.loyaltyRewardId = '';
+      order.loyaltyRewardState = 'released';
+      order.loyaltyDiscount = 0;
+    } else if (fulfilledEggs > 0) {
+      setLoyaltyRewardState_(reward, 'Uplatněná', order.id);
+      order.loyaltyRewardState = 'used';
+    } else {
+      setLoyaltyRewardState_(reward, 'Rezervovaná', order.id);
+      order.loyaltyRewardState = 'reserved';
+    }
+  } else if (order.loyaltyDiscount > 0) {
+    order.loyaltyRewardId = '';
+    order.loyaltyRewardState = '';
+    order.loyaltyDiscount = 0;
+  }
+
+  const oldCounted = Math.max(0, Math.floor(Number(oldOrder && oldOrder.loyaltyEggsCounted || 0)));
+  const canStartCounting = settings.enabled && customer.active && fulfillmentEligible;
+  const targetCounted = fulfilledEggs > 0 && (oldCounted > 0 || canStartCounting) ? fulfilledEggs : 0;
+  const delta = targetCounted - oldCounted;
+  if (delta) {
+    applyLoyaltyEggDelta_(customer.id, delta, order.id, order.orderNumber, 'Podle skutečně vyzvednutého množství objednávky.');
+  }
+  order.loyaltyEggsCounted = targetCounted;
+  order.subtotal = loyaltySubtotal_(order);
+  order.total = Math.max(0, order.subtotal - Math.max(0, Number(order.loyaltyDiscount || 0)));
+
+  if (ordersSheet && Number(orderRow || 0) >= 2) {
+    ordersSheet.getRange(orderRow, 8).setValue(order.total);
+    ordersSheet.getRange(orderRow, 28, 1, 6).setValues([[
+      order.loyaltyCustomerId || '', order.loyaltyDiscount || 0, order.loyaltyRewardId || '',
+      order.loyaltyRewardState || '', order.loyaltyEggsCounted || 0, order.loyaltyOptIn
+    ]]);
+  }
+  return order;
+}
+
+function reverseLoyaltyForDeletedOrder_(order) {
+  if (!order || !order.loyaltyCustomerId) return;
+  if (Number(order.loyaltyEggsCounted || 0) > 0) {
+    applyLoyaltyEggDelta_(order.loyaltyCustomerId, -Math.floor(Number(order.loyaltyEggsCounted || 0)), order.id, order.orderNumber, 'Objednávka byla smazána.');
+  }
+  if (order.loyaltyRewardId) releaseLoyaltyReward_(order.loyaltyRewardId, order.id);
+}
+
+function publicLoyaltyOrderResult_(order) {
+  const source = order || {};
+  return {
+    enrolled: Boolean(source.loyaltyCustomerId),
+    discountApplied: Math.max(0, Number(source.loyaltyDiscount || 0)),
+    rewardState: String(source.loyaltyRewardState || ''),
+    eggsCounted: Math.max(0, Number(source.loyaltyEggsCounted || 0))
+  };
+}
+
+function loyaltyAdminSnapshot_() {
+  const settings = readLoyaltySettings_();
+  const rewards = readLoyaltyRewards_();
+  const customers = readLoyaltyCustomers_().map(customer => {
+    const own = rewards.filter(reward => reward.customerId === customer.id);
+    const available = own.filter(reward => reward.state === 'Dostupná');
+    const reserved = own.filter(reward => reward.state === 'Rezervovaná');
+    const used = own.filter(reward => reward.state === 'Uplatněná');
+    return {
+      id: customer.id,
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email,
+      balance: customer.balance,
+      lifetimeEggs: customer.lifetimeEggs,
+      active: customer.active,
+      created: customer.created,
+      updated: customer.updated,
+      availableRewards: available.length,
+      reservedRewards: reserved.length,
+      usedRewards: used.length,
+      eggsNeeded: available.length ? 0 : Math.max(0, settings.eggsRequired - customer.balance),
+      nextDiscount: available.length ? Number(available[0].amount || settings.discountCzk) : settings.discountCzk
+    };
+  }).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'cs'));
+
+  const ledgerSheet = ensureLoyaltyInfrastructure_().ledger;
+  let movements = [];
+  if (ledgerSheet.getLastRow() >= 2) {
+    const count = Math.min(100, ledgerSheet.getLastRow() - 1);
+    const start = ledgerSheet.getLastRow() - count + 1;
+    movements = ledgerSheet.getRange(start, 1, count, 9).getValues().reverse().map(row => ({
+      id:String(row[0] || ''), at:formatDateTime_(row[1]), customerId:String(row[2] || ''), orderId:String(row[3] || ''),
+      orderNumber:String(row[4] || ''), type:restoreSheetText_(row[5] || ''), eggDelta:Number(row[6] || 0),
+      balance:Number(row[7] || 0), note:restoreSheetText_(row[8] || '')
+    }));
+  }
+  return {
+    settings: settings,
+    customers: customers,
+    movements: movements,
+    summary: {
+      customers: customers.filter(customer => customer.active).length,
+      availableRewards: customers.reduce((sum, customer) => sum + customer.availableRewards, 0),
+      usedRewards: customers.reduce((sum, customer) => sum + customer.usedRewards, 0),
+      lifetimeEggs: customers.reduce((sum, customer) => sum + customer.lifetimeEggs, 0)
+    }
+  };
+}
+
+function getLoyaltyAdminData_() {
+  const snapshot = loyaltyAdminSnapshot_();
+  return htmlResponse_(true, 'Věrnostní program byl načten.', '', {
+    kind:'loyaltyAdmin', loyaltySettings:snapshot.settings, loyaltyCustomers:snapshot.customers,
+    loyaltyMovements:snapshot.movements, loyaltySummary:snapshot.summary
+  });
+}
+
+function saveLoyaltySettings_(payload) {
+  const source = payload && (payload.settings || payload) || {};
+  const enabled = toBool_(source.enabled);
+  const eggsRequired = clampInteger_(source.eggsRequired, 1, 10000, 'Počet vajec pro slevu');
+  const discountCzk = clampInteger_(source.discountCzk, 1, 10000, 'Výše slevy');
+  const infra = ensureLoyaltyInfrastructure_();
+  setSettingsBatch_(infra.settings, [
+    {key:'LOYALTY_ENABLED', value:enabled, description:'Zapnout věrnostní program na vejce'},
+    {key:'LOYALTY_EGGS_REQUIRED', value:eggsRequired, description:'Počet vyzvednutých vajec potřebných pro jednu odměnu'},
+    {key:'LOYALTY_DISCOUNT_CZK', value:discountCzk, description:'Výše věrnostní slevy v Kč'},
+    {key:'LOYALTY_START_DATE', value:CONFIG.LOYALTY_START_DATE, description:'Začátek věrnostního programu', text:true}
+  ]);
+  if (enabled) {
+    const settings = {enabled:true, eggsRequired:eggsRequired, discountCzk:discountCzk, startDate:CONFIG.LOYALTY_START_DATE};
+    readLoyaltyCustomers_().filter(customer => customer.active).forEach(customer => {
+      let changed = false;
+      while (customer.balance >= settings.eggsRequired) {
+        customer.balance -= settings.eggsRequired;
+        createLoyaltyReward_(customer.id, settings);
+        changed = true;
+      }
+      if (changed) saveLoyaltyCustomer_(customer);
+    });
+  }
+  invalidatePublicCatalogCache_();
+  const snapshot = loyaltyAdminSnapshot_();
+  return htmlResponse_(true, 'Nastavení věrnostního programu bylo uloženo.', '', {
+    loyaltySettings:snapshot.settings, loyaltyCustomers:snapshot.customers,
+    loyaltyMovements:snapshot.movements, loyaltySummary:snapshot.summary
+  });
+}
+
+function adjustLoyaltyCustomer_(payload) {
+  const id = cleanIdentifier_(payload && payload.id, 'ID zákazníka');
+  const delta = clampInteger_(payload && payload.delta, -10000, 10000, 'Úprava vajec');
+  if (!delta) throw new Error('Zadejte nenulovou změnu počtu vajec.');
+  const customer = findLoyaltyCustomerById_(id);
+  if (!customer) throw new Error('Věrnostní zákazník nebyl nalezen.');
+  applyLoyaltyEggDelta_(id, delta, '', '', cleanText_(payload && payload.note || 'Ruční úprava v administraci', 300));
+  const snapshot = loyaltyAdminSnapshot_();
+  return htmlResponse_(true, 'Věrnostní stav zákazníka byl upraven.', id, {
+    loyaltySettings:snapshot.settings, loyaltyCustomers:snapshot.customers,
+    loyaltyMovements:snapshot.movements, loyaltySummary:snapshot.summary
+  });
+}
+
+function setLoyaltyCustomerActive_(payload) {
+  const id = cleanIdentifier_(payload && payload.id, 'ID zákazníka');
+  const customer = findLoyaltyCustomerById_(id);
+  if (!customer) throw new Error('Věrnostní zákazník nebyl nalezen.');
+  customer.active = toBool_(payload && payload.active);
+  saveLoyaltyCustomer_(customer);
+  appendLoyaltyMovement_(id, '', '', customer.active ? 'Aktivace zákazníka' : 'Pozastavení zákazníka', 0, customer.balance, 'Změna v administraci.');
+  const snapshot = loyaltyAdminSnapshot_();
+  return htmlResponse_(true, customer.active ? 'Zákazník byl aktivován.' : 'Zákazník byl pozastaven.', id, {
+    loyaltySettings:snapshot.settings, loyaltyCustomers:snapshot.customers,
+    loyaltyMovements:snapshot.movements, loyaltySummary:snapshot.summary
+  });
 }
 
 
@@ -2969,6 +3782,7 @@ function buildTextEmail_(order, id, createdAt) {
     '',
     'Položky:',
     ...order.items.map(item => `- ${item.qty}× ${item.name}: ${item.qty * item.price} Kč`),
+    ...(Number(order.loyaltyDiscount || 0) > 0 ? ['', `Mezisoučet: ${loyaltySubtotal_(order)} Kč`, `Věrnostní sleva na vejce: -${Number(order.loyaltyDiscount)} Kč`] : []),
     '',
     `Celkem: ${order.total} Kč`,
     `Poznámka: ${order.note || '—'}`
@@ -2976,7 +3790,8 @@ function buildTextEmail_(order, id, createdAt) {
 }
 
 function buildHtmlEmail_(order, id) {
-  const rows = order.items.map(item => `<tr><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml_(item.qty + '× ' + item.name)}</td><td style="text-align:right;font-weight:700">${item.qty * item.price} Kč</td></tr>`).join('');
+  const discountRow = Number(order.loyaltyDiscount || 0) > 0 ? `<tr><td style="padding:8px;color:#2f7d55"><b>Věrnostní sleva na vejce</b></td><td style="text-align:right;font-weight:700;color:#2f7d55">-${Number(order.loyaltyDiscount)} Kč</td></tr>` : '';
+  const rows = order.items.map(item => `<tr><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml_(item.qty + '× ' + item.name)}</td><td style="text-align:right;font-weight:700">${item.qty * item.price} Kč</td></tr>`).join('') + discountRow;
   return `<div style="font-family:Arial;max-width:600px"><h2>${escapeHtml_(CONFIG.BRAND_NAME)}</h2><p><b>Jméno:</b> ${escapeHtml_(order.name)}<br><b>Telefon:</b> ${escapeHtml_(order.phone)}<br><b>E-mail:</b> ${escapeHtml_(order.email || 'neuveden')}<br><b>Vyzvednutí:</b> ${escapeHtml_(order.pickup || 'neuvedeno')}</p><table style="width:100%;border-collapse:collapse">${rows}</table><p style="font-size:22px;text-align:right"><b>Celkem: ${order.total} Kč</b></p><p><b>Poznámka:</b> ${escapeHtml_(order.note || '—')}</p><small>ID: ${escapeHtml_(id)}</small></div>`;
 }
 
@@ -3179,6 +3994,7 @@ function buildCustomerTextEmail_(order, id) {
     '',
     'Přehled objednávky:',
     ...order.items.map(item => `- ${item.qty}× ${item.name}: ${item.qty * item.price} Kč`),
+    ...(Number(order.loyaltyDiscount || 0) > 0 ? ['', `Mezisoučet: ${loyaltySubtotal_(order)} Kč`, `Věrnostní sleva na vejce: -${Number(order.loyaltyDiscount)} Kč`, 'Sleva byla automaticky započítána do tohoto nákupu.'] : []),
     '',
     `Celkem: ${order.total} Kč`,
     `Termín vyzvednutí: ${formatCustomerPickupDate_(order.pickup)}`,
@@ -3198,7 +4014,8 @@ function buildCustomerTextEmail_(order, id) {
 
 function buildCustomerHtmlEmail_(order, id) {
   const greeting = firstNameVocative_(order.name);
-  const rows = order.items.map(item => `<tr><td style="padding:9px 0;border-bottom:1px solid #eadfce">${escapeHtml_(item.qty + '× ' + item.name)}</td><td style="padding:9px 0;border-bottom:1px solid #eadfce;text-align:right;font-weight:700">${item.qty * item.price} Kč</td></tr>`).join('');
+  const discountRow = Number(order.loyaltyDiscount || 0) > 0 ? `<tr><td style="padding:10px 0;color:#2f7d55"><b>Věrnostní sleva na vejce</b><br><small>Sleva byla automaticky započítána.</small></td><td style="padding:10px 0;text-align:right;font-weight:700;color:#2f7d55">-${Number(order.loyaltyDiscount)} Kč</td></tr>` : '';
+  const rows = order.items.map(item => `<tr><td style="padding:9px 0;border-bottom:1px solid #eadfce">${escapeHtml_(item.qty + '× ' + item.name)}</td><td style="padding:9px 0;border-bottom:1px solid #eadfce;text-align:right;font-weight:700">${item.qty * item.price} Kč</td></tr>`).join('') + discountRow;
   const split = order.splitOrder ? `<p style="padding:16px;background:#eef7ff;border-radius:12px"><b>${escapeHtml_(splitOrderMessage_(order))}</b></p>` : '';
   return `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#2b241f;line-height:1.55"><div style="background:#f3b72e;padding:22px 26px;border-radius:18px 18px 0 0"><h1 style="font-size:24px;margin:0">${escapeHtml_(CONFIG.BRAND_NAME)}</h1></div><div style="padding:26px;border:1px solid #eadfce;border-top:0;border-radius:0 0 18px 18px"><p>Dobrý den${greeting ? ', <b>' + escapeHtml_(greeting) + '</b>' : ''},</p><p style="padding:16px;background:#fff8e5;border-radius:12px"><b>${escapeHtml_(customerWorkMessage_(order))}</b></p>${split}<table style="width:100%;border-collapse:collapse;margin-top:18px">${rows}</table><p style="font-size:22px;text-align:right"><b>Celkem: ${order.total} Kč</b></p><p><b>Termín vyzvednutí:</b> ${escapeHtml_(formatCustomerPickupDate_(order.pickup))}${order.splitOrder ? `<br><b>Termín předobjednané části:</b> ${escapeHtml_(formatCustomerPickupDate_(order.preorderPickup))}` : ''}<br><b>Kontakt před vyzvednutím:</b> ${escapeHtml_(order.contactMethod)}<br><b>Číslo objednávky:</b> ${escapeHtml_(id)}</p><p style="margin-top:28px">Děkujeme za Vaši objednávku.</p><p style="margin-top:24px">S přáním krásného dne<br><b>Martin Dvořák</b><br>${escapeHtml_(CONFIG.BRAND_NAME)}<br><i>Poctivé produkty od našich včel, slepiček a ze zahrádky.</i></p></div></div>`;
 }

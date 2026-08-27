@@ -17,11 +17,11 @@
   <link rel="dns-prefetch" href="//script.google.com">
   <link rel="dns-prefetch" href="//script.googleusercontent.com">
   <link rel="preload" href="../assets/config.js?v=320-20260819" as="script">
-  <link rel="preload" href="../assets/admin.js?v=320-20260819" as="script">
-  <link rel="preload" href="../assets/admin-enhancements.js?v=320-20260819" as="script">
-  <link rel="stylesheet" href="../assets/style.css?v=320-20260819">
+  <link rel="preload" href="../assets/admin.js?v=330-20260827" as="script">
+  <link rel="preload" href="../assets/admin-enhancements.js?v=330-20260827" as="script">
+  <link rel="stylesheet" href="../assets/style.css?v=330-20260827-loyalty">
 </head>
-<body data-pdp-admin-version="3.2.0">
+<body data-pdp-admin-version="3.3.0">
 <section id="adminLogin" class="login-screen hidden">
   <div class="login-card">
     <div style="font-size:46px">🌼🐝🐔</div>
@@ -40,7 +40,7 @@
     <div class="hero-icons"><span>🌼🐝</span><span>🐔🏡</span></div>
     <div class="kicker">Administrace</div>
     <h1>Podprosečské domácí produkty</h1>
-    <p>Objednávky, rezervace vajec, kalendář a správa nabídky.</p>
+    <p>Objednávky, rezervace vajec, věrnostní slevy, kalendář a správa nabídky.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button id="logoutButton" class="secondary-button" type="button">Odhlásit</button><a href="../" class="secondary-button" style="display:inline-block;text-decoration:none">← Zpět na nabídku</a></div>
   </header>
 
@@ -94,6 +94,7 @@
             <div id="manualProducts" class="quantity-list"></div>
           </div>
           <label class="full"><span>Poznámka</span><textarea id="manualNote" rows="3"></textarea></label>
+          <label class="full"><input id="manualLoyaltyOptIn" type="checkbox"> Zařadit zákazníka do věrnostních slev na vejce</label>
         </div>
         <div class="actions">
           <button id="cancelManualOrder" class="secondary-button">Zrušit</button>
@@ -258,7 +259,7 @@
   <input id="adminPayload" name="payload" type="hidden">
 </form>
 <script src="../assets/config.js?v=320-20260819"></script>
-<script src="../assets/admin.js?v=320-20260819"></script>
-<script src="../assets/admin-enhancements.js?v=320-20260819" data-pdp-admin-enhancements="1"></script>
+<script src="../assets/admin.js?v=330-20260827"></script>
+<script src="../assets/admin-enhancements.js?v=330-20260827" data-pdp-admin-enhancements="1"></script>
 </body>
 </html>

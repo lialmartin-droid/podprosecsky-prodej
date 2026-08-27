@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "3.2.0";
-console.info("Podprosečské produkty – admin.js V3.2.0 – rychlé a postupné načítání administrace");
+window.PDP_ADMIN_VERSION = "3.3.0";
+console.info("Podprosečské produkty – admin.js V3.3.0 – věrnostní slevy na vejce");
 
 let products = [];
 let orders = [];
@@ -1011,13 +1011,15 @@ function renderOrders() {
           <div class="badges">
             <span class="badge blue">${esc(localDate(order.pickup))}</span>
             ${orderItemBadges(order)}
+            ${order.loyaltyCustomerId ? '<span class="badge green">❤ Věrnostní zákazník</span>' : ""}
+            ${Number(order.loyaltyDiscount || 0) > 0 ? `<span class="badge orange">Sleva −${money(order.loyaltyDiscount)}</span>` : ""}
             ${archived(order) ? '<span class="badge gray">Archiv</span>' : ""}
             ${overdueOrderParts(order).map(part => `<span class="badge red">⚠️ ${esc(overdueBadgeText(part))}</span>`).join("")}
           </div>
         </div>
-        <strong>${money(order.total)}</strong>
+        <div style="text-align:right"><strong>${money(order.total)}</strong>${Number(order.loyaltyDiscount || 0) > 0 ? `<div class="meta">před slevou ${money(order.subtotal || Number(order.total || 0) + Number(order.loyaltyDiscount || 0))}</div>` : ""}</div>
       </div>
-      <div class="item-list">${itemHtml(order)}</div>
+      <div class="item-list">${itemHtml(order)}${Number(order.loyaltyDiscount || 0) > 0 ? `<div class="summary-row loyalty-discount-row"><span>Věrnostní sleva na vejce</span><strong>−${money(order.loyaltyDiscount)}</strong></div>` : ""}</div>
       ${order.note ? `<div class="meta">Poznámka zákazníka: ${esc(order.note)}</div>` : ""}${order.internalNote ? `<div class="meta"><strong>Interní poznámka:</strong> ${esc(order.internalNote)}</div>` : ""}
       ${order.splitOrder ? `<div class="split-parts"><div class="split-part"><strong>1. Dostupné produkty</strong><div class="meta">${esc(localDate(order.pickup))}</div>${statusBadge(order.regularStatus || order.status)}</div><div class="split-part"><strong>2. Předobjednané produkty</strong><div class="meta">${esc(localDate(order.preorderPickup))}</div>${statusBadge(order.preorderStatus || "Nová")}</div></div>` : ""}
       <div class="card-bottom">
@@ -1044,7 +1046,7 @@ function renderOrders() {
               }).join("")}
             </div>
           </div>
-          <label class="full"><span>Poznámka zákazníka</span><textarea data-ot="${esc(order.id)}">${esc(order.note)}</textarea></label><label class="full"><span>Interní poznámka (vidíš jen ty)</span><textarea data-oin="${esc(order.id)}">${esc(order.internalNote || "")}</textarea></label><div class="full"><span class="field-label">Komunikace</span><div class="meta">${(order.communication || []).length ? (order.communication || []).map(x => `✔ ${esc(x.text)} · ${esc(new Date(x.at).toLocaleString("cs-CZ"))}`).join("<br>") : "Zatím bez dalších zpráv."}</div></div><div class="full"><span class="field-label">Časová osa</span><div class="meta">${(order.timeline || []).length ? (order.timeline || []).map(x => `${esc(x.text)} · ${esc(new Date(x.at).toLocaleString("cs-CZ"))}`).join("<br>") : "Bez záznamu."}</div></div>
+          <label class="full"><span>Poznámka zákazníka</span><textarea data-ot="${esc(order.id)}">${esc(order.note)}</textarea></label><label class="full"><span>Interní poznámka (vidíš jen ty)</span><textarea data-oin="${esc(order.id)}">${esc(order.internalNote || "")}</textarea></label><label class="full"><input data-ol="${esc(order.id)}" type="checkbox" ${order.loyaltyOptIn || order.loyaltyCustomerId ? "checked" : ""}> Zařadit zákazníka do věrnostních slev na vejce</label><div class="full"><span class="field-label">Komunikace</span><div class="meta">${(order.communication || []).length ? (order.communication || []).map(x => `✔ ${esc(x.text)} · ${esc(new Date(x.at).toLocaleString("cs-CZ"))}`).join("<br>") : "Zatím bez dalších zpráv."}</div></div><div class="full"><span class="field-label">Časová osa</span><div class="meta">${(order.timeline || []).length ? (order.timeline || []).map(x => `${esc(x.text)} · ${esc(new Date(x.at).toLocaleString("cs-CZ"))}`).join("<br>") : "Bez záznamu."}</div></div>
         </div>
         <div class="actions"><button class="primary-small" data-save-order="${esc(order.id)}">Uložit změny</button><button class="secondary-button" data-preview-ready="${esc(order.id)}">Náhled e-mailu</button><button class="secondary-button" data-resend-ready="${esc(order.id)}" data-part="regular">Odeslat znovu 1. část</button>${order.splitOrder ? `<button class="secondary-button" data-resend-ready="${esc(order.id)}" data-part="preorder">Odeslat znovu 2. část</button>` : ""}</div>
       </div>
@@ -1106,6 +1108,7 @@ function renderOrders() {
       }
       order.note = document.querySelector(dataSelector("ot", id)).value;
       order.internalNote = document.querySelector(dataSelector("oin", id)).value;
+      order.loyaltyOptIn = Boolean(document.querySelector(dataSelector("ol", id))?.checked);
       order.items = products.map(product => {
         const quantity = Number(document.querySelector(dataSelector("oi", `${id}-${product.id}`)).value) || 0;
         return { productId: String(product.id), name: product.name, qty: quantity, price: product.price };
@@ -1178,6 +1181,7 @@ function applyReturnedOrder(data, fallbackId = "") {
   else orders.unshift(next);
   renderAll();
   saveAdminCache(currentAdminState());
+  if (data?.loyalty) window.dispatchEvent(new CustomEvent("pdp:loyalty-changed"));
   return true;
 }
 
@@ -1714,6 +1718,7 @@ $("#saveManualOrder").onclick = () => {
     pickup: $("#manualPickup").value,
     status: $("#manualStatus").value,
     note: $("#manualNote").value,
+    loyaltyOptIn: Boolean($("#manualLoyaltyOptIn")?.checked),
     items
   }, data => {
     button.disabled = false;
@@ -1721,6 +1726,7 @@ $("#saveManualOrder").onclick = () => {
     if (!data.ok) return alert(data.message);
     if (!applyReturnedOrder(data, data.id)) loadData(true);
     $("#manualOrderForm").classList.add("hidden");
+    if ($("#manualLoyaltyOptIn")) $("#manualLoyaltyOptIn").checked = false;
     setAdminRefreshState(data.message || "Objednávka byla uložena.");
     loadPlanningData();
   });

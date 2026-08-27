@@ -1,4 +1,4 @@
-// Admin V3.2 – návštěvníci a obaly se načítají až při skutečném použití
+// Admin V3.3 – návštěvníci, obaly a věrnostní zákazníci se načítají až při použití
 (() => {
   const money2 = value => `${Math.round(Number(value || 0))} Kč`;
   const esc2 = value => String(value ?? "")
@@ -9,6 +9,9 @@
   let packagingLoadedV26 = false;
   let recentVisitsLoadingV26 = false;
   let packagingLoadingV26 = false;
+  let loyaltyLoadedV330 = false;
+  let loyaltyLoadingV330 = false;
+  let loyaltyV330 = {settings:{enabled:true,eggsRequired:100,discountCzk:20,startDate:"2026-08-27"},customers:[],movements:[],summary:{}};
 
   function dateKey(value) {
     if (!value) return "";
@@ -110,6 +113,7 @@
       loadRecentVisitsV26();
     }
     if (panelId === "packagingTab") loadPackagingV26();
+    if (panelId === "loyaltyTab") loadLoyaltyV330();
   }
 
   function cleanOldStats() {
@@ -601,6 +605,158 @@
     document.getElementById("packagingRefresh")?.addEventListener("click", () => loadPackagingV26(true));
   }
 
+  function addLoyaltyTabV330() {
+    const main = document.querySelector("#adminApp main.content");
+    const settingsPanel = document.getElementById("settingsTab");
+    if (!main || !settingsPanel || document.getElementById("loyaltyTab")) return;
+    const panel = document.createElement("section");
+    panel.id = "loyaltyTab";
+    panel.className = "tab-panel";
+    panel.innerHTML = `
+      <div class="section-head">
+        <div><div class="eyebrow">Odměny za vejce</div><h2>Věrnostní slevy</h2></div>
+        <button id="loyaltyRefreshV330" class="secondary-button" type="button">Aktualizovat</button>
+      </div>
+      <div class="admin-form">
+        <h3>Nastavení programu</h3>
+        <p class="settings-note">Program počítá pouze vejce z objednávek označených jako <strong>Vyzvednuto</strong>. Začíná 27. 8. 2026 a starší nákupy se nezapočítávají.</p>
+        <div class="form-grid">
+          <label><input id="loyaltyEnabledV330" type="checkbox"> Věrnostní program je zapnutý</label>
+          <label><span>Začátek programu</span><input id="loyaltyStartV330" type="date" value="2026-08-27" disabled></label>
+          <label><span>Vajec potřebných ke slevě</span><input id="loyaltyEggsV330" type="number" min="1" max="10000" step="1"></label>
+          <label><span>Výše slevy v Kč</span><input id="loyaltyDiscountV330" type="number" min="1" max="10000" step="1"></label>
+        </div>
+        <div class="actions"><button id="saveLoyaltySettingsV330" class="primary-small" type="button">Uložit nastavení slev</button></div>
+      </div>
+      <div id="loyaltySummaryV330" class="analytics-cards"></div>
+      <div class="filter-grid" style="grid-template-columns:1fr">
+        <input id="loyaltySearchV330" placeholder="Hledat jméno, telefon nebo e-mail">
+      </div>
+      <div id="loyaltyCustomersV330" class="stack"><div class="empty">Věrnostní zákazníky načteme po otevření této záložky.</div></div>
+      <article class="analytics-panel" style="margin-top:18px"><h3>Poslední pohyby</h3><div id="loyaltyMovementsV330"></div></article>`;
+    main.insertBefore(panel, settingsPanel);
+    addTab("Věrnostní slevy", "loyaltyTab");
+    document.getElementById("loyaltyRefreshV330")?.addEventListener("click", () => loadLoyaltyV330(true));
+    document.getElementById("loyaltySearchV330")?.addEventListener("input", renderLoyaltyV330);
+    document.getElementById("saveLoyaltySettingsV330")?.addEventListener("click", saveLoyaltySettingsV330);
+  }
+
+  function applyLoyaltyResultV330(result) {
+    loyaltyV330 = {
+      settings: result.loyaltySettings || loyaltyV330.settings,
+      customers: Array.isArray(result.loyaltyCustomers) ? result.loyaltyCustomers : [],
+      movements: Array.isArray(result.loyaltyMovements) ? result.loyaltyMovements : [],
+      summary: result.loyaltySummary || {}
+    };
+    loyaltyLoadedV330 = true;
+    renderLoyaltyV330();
+  }
+
+  async function loadLoyaltyV330(force = false) {
+    if (loyaltyLoadedV330 && !force) {
+      renderLoyaltyV330();
+      return;
+    }
+    if (loyaltyLoadingV330) return;
+    loyaltyLoadingV330 = true;
+    const host = document.getElementById("loyaltyCustomersV330");
+    if (host) host.innerHTML = '<div class="empty">Načítám věrnostní zákazníky…</div>';
+    const result = await postPromiseV26("getLoyaltyData", {});
+    loyaltyLoadingV330 = false;
+    if (!result.ok) {
+      if (host) host.innerHTML = `<div class="empty">${esc2(result.message || "Věrnostní program se nepodařilo načíst.")}</div>`;
+      return;
+    }
+    applyLoyaltyResultV330(result);
+  }
+
+  function loyaltyProgressV330(customer, settings) {
+    const required = Math.max(1, Number(settings.eggsRequired || 100));
+    const balance = Math.max(0, Number(customer.balance || 0));
+    return Math.max(0, Math.min(100, Math.round((balance / required) * 100)));
+  }
+
+  function renderLoyaltyV330() {
+    if (!document.getElementById("loyaltyTab")) return;
+    const settings = loyaltyV330.settings || {};
+    const enabled = document.getElementById("loyaltyEnabledV330");
+    const eggs = document.getElementById("loyaltyEggsV330");
+    const discount = document.getElementById("loyaltyDiscountV330");
+    const start = document.getElementById("loyaltyStartV330");
+    if (enabled) enabled.checked = settings.enabled !== false;
+    if (eggs) eggs.value = Number(settings.eggsRequired || 100);
+    if (discount) discount.value = Number(settings.discountCzk || 20);
+    if (start) start.value = settings.startDate || "2026-08-27";
+
+    const summary = loyaltyV330.summary || {};
+    const summaryHost = document.getElementById("loyaltySummaryV330");
+    if (summaryHost) summaryHost.innerHTML = `
+      <div class="analytics-card"><span>Aktivní zákazníci</span><strong>${Number(summary.customers || 0)}</strong></div>
+      <div class="analytics-card"><span>Připravené slevy</span><strong>${Number(summary.availableRewards || 0)}</strong></div>
+      <div class="analytics-card"><span>Uplatněné slevy</span><strong>${Number(summary.usedRewards || 0)}</strong></div>
+      <div class="analytics-card"><span>Započtená vejce celkem</span><strong>${Number(summary.lifetimeEggs || 0)}</strong></div>`;
+
+    const query = String(document.getElementById("loyaltySearchV330")?.value || "").trim().toLocaleLowerCase("cs-CZ");
+    const customers = (loyaltyV330.customers || []).filter(customer =>
+      !query || `${customer.name || ""} ${customer.phone || ""} ${customer.email || ""}`.toLocaleLowerCase("cs-CZ").includes(query)
+    );
+    const host = document.getElementById("loyaltyCustomersV330");
+    if (host) host.innerHTML = customers.length ? customers.map(customer => {
+      const required = Math.max(1, Number(settings.eggsRequired || 100));
+      const progress = loyaltyProgressV330(customer, settings);
+      return `<article class="card loyalty-admin-customer ${customer.active ? "" : "inactive"}">
+        <div class="card-head"><div><h3>${esc2(customer.name || "Bez jména")}</h3><div class="meta">${esc2(customer.phone || "bez telefonu")}${customer.email ? ` · ${esc2(customer.email)}` : ""}</div><div class="badges"><span class="badge ${customer.active ? "green" : "gray"}">${customer.active ? "Aktivní" : "Pozastaven"}</span>${Number(customer.availableRewards || 0) ? `<span class="badge orange">🎁 ${Number(customer.availableRewards)} připravená sleva</span>` : ""}${Number(customer.reservedRewards || 0) ? `<span class="badge blue">${Number(customer.reservedRewards)} sleva v objednávce</span>` : ""}</div></div><strong>${Number(customer.balance || 0)} / ${required} vajec</strong></div>
+        <div class="loyalty-admin-progress"><div class="loyalty-progress"><i style="width:${progress}%"></i></div><div class="meta">${Number(customer.availableRewards || 0) ? `Sleva ${Number(customer.nextDiscount || settings.discountCzk || 0)} Kč je připravená.` : `Do slevy zbývá ${Number(customer.eggsNeeded || 0)} vajec.`} Celkem započteno ${Number(customer.lifetimeEggs || 0)} vajec.</div></div>
+        <div class="loyalty-adjust-row"><label><span>Ruční úprava vajec (+ nebo −)</span><input data-loyalty-delta-v330="${esc2(customer.id)}" type="number" step="1" placeholder="např. 10 nebo -5"></label><button class="secondary-button" data-loyalty-adjust-v330="${esc2(customer.id)}" type="button">Uložit úpravu</button><button class="${customer.active ? "danger-button" : "primary-small"}" data-loyalty-active-v330="${esc2(customer.id)}" data-active="${customer.active ? "0" : "1"}" type="button">${customer.active ? "Pozastavit" : "Aktivovat"}</button></div>
+      </article>`;
+    }).join("") : '<div class="empty">Žádní odpovídající věrnostní zákazníci.</div>';
+
+    document.querySelectorAll("[data-loyalty-adjust-v330]").forEach(button => {
+      button.onclick = async () => {
+        const id = String(button.dataset.loyaltyAdjustV330 || "");
+        const input = document.querySelector(`[data-loyalty-delta-v330="${CSS.escape(id)}"]`);
+        const delta = Number(input?.value || 0);
+        if (!Number.isInteger(delta) || !delta) return alert("Zadejte celé nenulové číslo, například 10 nebo -5.");
+        button.disabled = true;
+        const result = await postPromiseV26("adjustLoyaltyCustomer", {id, delta, note:"Ruční úprava v administraci"});
+        button.disabled = false;
+        if (!result.ok) return alert(result.message || "Věrnostní stav se nepodařilo upravit.");
+        applyLoyaltyResultV330(result);
+      };
+    });
+    document.querySelectorAll("[data-loyalty-active-v330]").forEach(button => {
+      button.onclick = async () => {
+        button.disabled = true;
+        const result = await postPromiseV26("setLoyaltyCustomerActive", {id:button.dataset.loyaltyActiveV330, active:button.dataset.active === "1"});
+        button.disabled = false;
+        if (!result.ok) return alert(result.message || "Stav zákazníka se nepodařilo změnit.");
+        applyLoyaltyResultV330(result);
+      };
+    });
+
+    const names = new Map((loyaltyV330.customers || []).map(customer => [String(customer.id), customer.name]));
+    const movementsHost = document.getElementById("loyaltyMovementsV330");
+    if (movementsHost) movementsHost.innerHTML = (loyaltyV330.movements || []).length
+      ? loyaltyV330.movements.slice(0, 60).map(movement => `<div class="rank-row"><span>${esc2(movement.at || "")} · ${esc2(names.get(String(movement.customerId)) || "Zákazník")}<small>${esc2(movement.type || "")}${movement.orderNumber ? ` · ${esc2(movement.orderNumber)}` : ""}${movement.note ? ` · ${esc2(movement.note)}` : ""}</small></span><strong>${Number(movement.eggDelta || 0) > 0 ? "+" : ""}${Number(movement.eggDelta || 0)} vajec</strong></div>`).join("")
+      : '<div class="empty">Zatím bez pohybů.</div>';
+  }
+
+  async function saveLoyaltySettingsV330() {
+    const button = document.getElementById("saveLoyaltySettingsV330");
+    const eggsRequired = Number(document.getElementById("loyaltyEggsV330")?.value || 0);
+    const discountCzk = Number(document.getElementById("loyaltyDiscountV330")?.value || 0);
+    if (!Number.isInteger(eggsRequired) || eggsRequired < 1) return alert("Počet vajec musí být celé kladné číslo.");
+    if (!Number.isInteger(discountCzk) || discountCzk < 1) return alert("Výše slevy musí být celé kladné číslo.");
+    button.disabled = true;
+    button.textContent = "Ukládám…";
+    const result = await postPromiseV26("saveLoyaltySettings", {settings:{enabled:Boolean(document.getElementById("loyaltyEnabledV330")?.checked), eggsRequired, discountCzk}});
+    button.disabled = false;
+    button.textContent = "Uložit nastavení slev";
+    if (!result.ok) return alert(result.message || "Nastavení slev se nepodařilo uložit.");
+    applyLoyaltyResultV330(result);
+    if (typeof setAdminRefreshState === "function") setAdminRefreshState(result.message || "Nastavení věrnostního programu bylo uloženo.");
+  }
+
   function packagingCapacityTextV26(item) {
     const pieces = Math.max(1, Number(item.piecesPerPack || 1));
     if (pieces === 2) return `${Math.floor(Number(item.stock || 0) / 2)} sad po 30 vejcích`;
@@ -913,6 +1069,7 @@
     cleanOldStats();
     buildPanels();
     addPackagingTabV26();
+    addLoyaltyTabV330();
     wrapOrdersForPackagingV26();
     wrapApplyAdminDataV270();
 
@@ -934,6 +1091,11 @@
       if (active === "productStatsTab") renderProductAnalytics();
       else if (active === "visitsTab") renderVisitAnalytics();
       else if (active === "packagingTab" && packagingLoadedV26) renderPackagingStockV26();
+      else if (active === "loyaltyTab" && loyaltyLoadedV330) renderLoyaltyV330();
+    });
+    window.addEventListener("pdp:loyalty-changed", () => {
+      loyaltyLoadedV330 = false;
+      if (document.getElementById("loyaltyTab")?.classList.contains("active")) loadLoyaltyV330(true);
     });
 
     document.querySelectorAll(".tab").forEach(tab => {
