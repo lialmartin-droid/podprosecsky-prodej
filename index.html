@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/customer-icon-32.png?v=293-20260817">
   <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/customer-icon-180.png?v=293-20260817">
   <link rel="preload" as="image" href="assets/images/products/vajicka-real.webp" fetchpriority="high">
-  <link rel="preload" as="script" href="assets/customer.js?v=330-20260827">
+  <link rel="preload" as="script" href="assets/customer.js?v=331-20260830">
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <link rel="dns-prefetch" href="//script.google.com">
@@ -22,9 +22,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap&subset=latin-ext" rel="stylesheet">
-  <link rel="stylesheet" href="assets/style.css?v=330-20260827-loyalty">
+  <link rel="stylesheet" href="assets/style.css?v=331-20260830-loyalty-member">
 </head>
-<body data-pdp-version="3.3.0">
+<body data-pdp-version="3.3.1">
 <div class="site-shell v2-shell">
   <header class="v2-hero">
     <div class="v2-hero-copy">
@@ -123,7 +123,7 @@
         <label class="line-field"><span>Jméno a příjmení</span><input id="customerName" type="text" autocomplete="name" placeholder="Jan Novák"></label>
         <label class="line-field"><span>Telefon</span><input id="customerPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="777 123 456"></label>
         <label class="line-field"><span>E-mail</span><input id="customerEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="jan.novak@email.cz" required><small class="field-help">E-mail slouží pouze k potvrzení Vaší objednávky a informacím o jejím vyzvednutí. Žádné reklamní e-maily od nás nedostanete.</small></label>
-        <fieldset id="loyaltyOrderBox" class="choice-box loyalty-order-box"><legend>Věrnostní sleva na vejce</legend><label><input id="loyaltyOptIn" type="checkbox"> <span><strong>Chci sbírat vyzvednutá vajíčka do slevy</strong><small>Pokud už jste zapojeni, poznáme Vás podle telefonu nebo e-mailu a připravenou slevu započítáme automaticky.</small></span></label><div id="loyaltyOrderStatus" class="field-help" aria-live="polite">Po zadání kontaktu ověříme Váš věrnostní stav.</div></fieldset>
+        <fieldset id="loyaltyOrderBox" class="choice-box loyalty-order-box"><legend>Věrnostní sleva na vejce</legend><label id="loyaltyJoinChoice"><input id="loyaltyOptIn" type="checkbox"> <span><strong>Chci se zapojit do věrnostního programu</strong><small>Zaškrtněte pouze při prvním nákupu. Příště Vás poznáme podle telefonu nebo e-mailu.</small></span></label><div id="loyaltyOrderStatus" class="field-help" aria-live="polite">Po zadání kontaktu ověříme Váš věrnostní stav.</div></fieldset>
         <fieldset class="choice-box"><legend>Jak Vás máme informovat den před vyzvednutím?</legend><label><input type="radio" name="contactMethod" value="SMS" checked> SMS</label><label><input type="radio" name="contactMethod" value="E-mail"> E-mail</label></fieldset>
         <div id="splitOrderBox" class="choice-box hidden"><strong>Objednávka obsahuje dostupné i předobjednané produkty</strong><p class="field-help">Dostupné produkty můžete vyzvednout dříve a předobjednávku až po naskladnění.</p><label><input type="radio" name="splitOrder" value="together" checked> Vyzvednout vše najednou po naskladnění</label><label><input type="radio" name="splitOrder" value="split"> Rozdělit na dvě vyzvednutí</label><div class="notice"><strong>Upozornění:</strong> při rozdělení Vás budeme před každým vyzvednutím kontaktovat zvoleným způsobem.</div></div>
         <div id="splitPickupSummary" class="notice hidden"></div>
@@ -150,6 +150,6 @@
 <iframe name="loyaltySubmitFrame" id="loyaltySubmitFrame" hidden></iframe>
 <form id="loyaltyBackendForm" method="post" target="loyaltySubmitFrame" hidden><input id="loyaltyAction" name="action" type="hidden" value="loyaltyStatus"><input id="loyaltyPayload" name="payload" type="hidden"></form>
 <script src="assets/config.js?v=311-20260819"></script>
-<script src="assets/customer.js?v=330-20260827"></script>
+<script src="assets/customer.js?v=331-20260830"></script>
 </body>
 </html>

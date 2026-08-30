@@ -1,5 +1,16 @@
-PODPROSEČSKÉ DOMÁCÍ PRODUKTY – AKTUALIZACE V3.3.0
+PODPROSEČSKÉ DOMÁCÍ PRODUKTY – AKTUALIZACE V3.3.1
 VĚRNOSTNÍ SLEVY NA VEJCE
+
+RYCHLÁ AKTUALIZACE Z V3.3.0
+- Stávajícímu členovi se po rozpoznání telefonu nebo e-mailu už nezobrazuje
+  volba pro opětovné zapojení. Místo ní vidí potvrzení členství a svůj stav.
+- Nový zákazník nadále vidí jednorázovou možnost zapojení.
+- Pokud už máte nasazenou verzi V3.3.0, Apps Script znovu neměňte ani
+  nenasazujte. Na GitHubu stačí nahradit /index.html, /assets/customer.js
+  a /assets/style.css. Balíček přesto obsahuje i ostatní soubory pro snadné
+  nahrání přes celou předchozí verzi.
+
+Následující část zůstává jako úplný postup pro instalaci na starší verzi.
 
 Program začíná 27. 8. 2026. Nákupy vyzvednuté před tímto datem se
 nezapočítají ani při pozdější úpravě staré objednávky.
