@@ -1,5 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "3.3.0";
-console.info("Podprosečské produkty – customer.js V3.3.0 – věrnostní sleva na vejce");
+window.PDP_CUSTOMER_VERSION = "3.3.1";
+console.info("Podprosečské produkty – customer.js V3.3.1 – člen už znovu nepotvrzuje členství");
 
 // Karty produktů se při první návštěvě vykreslí okamžitě z bezpečného náhledu.
 // Sklad a objednávání se odemknou až po potvrzení živých dat z Google Tabulky.
@@ -12,6 +12,7 @@ let availabilityBlocked = false;
 let businessSettings = {};
 let autoPickupDate = "";
 let loyaltyOrderState = null;
+let loyaltyOptInAutoChecked = false;
 let loyaltyLookupTimer = 0;
 let loyaltyRequestCounter = 0;
 let activeLoyaltyRequest = null;
@@ -33,6 +34,7 @@ const availabilityEl = document.getElementById("pickupAvailability");
 const submitButton = document.getElementById("submitOrder");
 const loyaltyOrderStatusEl = document.getElementById("loyaltyOrderStatus");
 const loyaltyOptInEl = document.getElementById("loyaltyOptIn");
+const loyaltyJoinChoiceEl = document.getElementById("loyaltyJoinChoice");
 const loyaltyPublicStatusEl = document.getElementById("loyaltyPublicStatus");
 
 let submissionPending = false;
@@ -552,21 +554,35 @@ function renderOrderLoyaltyStatus() {
   if (!box || !loyaltyOrderStatusEl || !loyaltyOptInEl) return;
   box.classList.remove("has-reward", "is-member");
   const settings = currentLoyaltySettings();
-  if (!settings.enabled) return;
+  if (!settings.enabled) {
+    loyaltyJoinChoiceEl?.classList.add("hidden");
+    return;
+  }
   if (loyaltyOrderState && loyaltyOrderState.enrolled) {
     loyaltyOptInEl.checked = true;
+    loyaltyOptInAutoChecked = true;
+    loyaltyJoinChoiceEl?.classList.add("hidden");
     box.classList.add("is-member");
+    if (!loyaltyOrderState.active) {
+      loyaltyOrderStatusEl.textContent = "Váš věrnostní účet je pozastavený. Pro další informace nás prosím kontaktujte.";
+      return;
+    }
     if (loyaltyOrderState.rewardReady) {
       box.classList.add("has-reward");
       const discount = Number(loyaltyOrderState.discountCzk || settings.discountCzk);
       loyaltyOrderStatusEl.textContent = eggCartSubtotal() >= discount
-        ? `Máte připravenou slevu ${discount} Kč. V tomto nákupu ji automaticky odečteme.`
-        : `Máte připravenou slevu ${discount} Kč. Pro její využití musí být hodnota vajec alespoň ${discount} Kč.`;
+        ? `✓ Jste členem věrnostního programu. Máte připravenou slevu ${discount} Kč a v tomto nákupu ji automaticky odečteme.`
+        : `✓ Jste členem věrnostního programu. Máte připravenou slevu ${discount} Kč. Pro její využití musí být hodnota vajec alespoň ${discount} Kč.`;
     } else {
-      loyaltyOrderStatusEl.textContent = `Máte ${Number(loyaltyOrderState.balance || 0)} z ${Number(loyaltyOrderState.eggsRequired || settings.eggsRequired)} vajec. Do další slevy zbývá ${Number(loyaltyOrderState.eggsNeeded || 0)}.`;
+      loyaltyOrderStatusEl.textContent = `✓ Jste členem věrnostního programu. Máte ${Number(loyaltyOrderState.balance || 0)} z ${Number(loyaltyOrderState.eggsRequired || settings.eggsRequired)} vajec. Do další slevy zbývá ${Number(loyaltyOrderState.eggsNeeded || 0)}.`;
     }
     return;
   }
+  if (loyaltyOptInAutoChecked) {
+    loyaltyOptInEl.checked = false;
+    loyaltyOptInAutoChecked = false;
+  }
+  loyaltyJoinChoiceEl?.classList.remove("hidden");
   loyaltyOrderStatusEl.textContent = loyaltyOptInEl.checked
     ? `Po převzetí této objednávky se vajíčka započítají do slevy ${settings.discountCzk} Kč.`
     : "Zaškrtnutím se bez hesla zapojíte do věrnostního programu.";
