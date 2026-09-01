@@ -1,0 +1,23 @@
+MALÁ AKTUALIZACE V3.5.2 – JEDNOTNÁ HLAVIČKA A ČISTŠÍ FOTOALBUM
+
+Nahrajte celý obsah tohoto balíčku do kořene stávajícího GitHub repozitáře
+a potvrďte nahrazení stejnojmenných souborů.
+
+Mění se pouze:
+
+  /index.html
+  /fotoalbum/index.html
+  /kontakt/index.html
+  /vernost/index.html
+  /assets/style.css
+  /assets/album.js
+
+Co se opravuje:
+
+- Na všech veřejných stránkách je v hlavičce stejná ikona aplikace.
+- Emoji slepice a včely už v hlavičce nikde nejsou.
+- U fotografií bez vlastního názvu se nezobrazuje opakovaný text Fotografie.
+- Poslední lichá fotografie se na mobilu vycentruje.
+
+Ostatní soubory nemažte. Google Apps Script se kvůli této úpravě znovu
+nasazovat nemusí. Po dokončení GitHub Pages stránku zavřete a znovu otevřete.
