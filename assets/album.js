@@ -1,4 +1,4 @@
-window.PDP_ALBUM_VERSION = "3.5.0";
+window.PDP_ALBUM_VERSION = "3.5.2";
 
 const albumState = { photos:[], activeIndex:-1 };
 const albumStatus = document.getElementById("albumPageStatus");
@@ -25,7 +25,7 @@ function normalizeAlbum(input) {
   return (Array.isArray(input) ? input : [])
     .map((photo, index) => ({
       id:String(photo?.id || `photo-${index}`),
-      title:String(photo?.title || "Fotografie").trim(),
+      title:String(photo?.title || "").trim(),
       caption:String(photo?.caption || "").trim(),
       image:String(photo?.image || "").trim()
     }))
@@ -44,9 +44,9 @@ function renderAlbumPage() {
   albumStatus.className = "hidden";
   albumGrid.classList.remove("hidden");
   albumGrid.innerHTML = albumState.photos.map((photo, index) => `
-    <button class="photo-album-card" type="button" data-album-index="${index}" aria-label="Otevřít fotografii ${albumEsc(photo.title)}">
-      <img src="${albumEsc(albumThumbnail(photo.image))}" alt="${albumEsc(photo.title || "Fotografie z Pod Prosečí")}" loading="lazy" decoding="async">
-      <span><strong>${albumEsc(photo.title || "Fotografie")}</strong>${photo.caption ? `<small>${albumEsc(photo.caption)}</small>` : ""}</span>
+    <button class="photo-album-card" type="button" data-album-index="${index}" aria-label="Otevřít fotografii ${albumEsc(photo.title || String(index + 1))}">
+      <img src="${albumEsc(albumThumbnail(photo.image))}" alt="${albumEsc(photo.title || photo.caption || "Fotografie z Pod Prosečí")}" loading="lazy" decoding="async">
+      ${(photo.title || photo.caption) ? `<span>${photo.title ? `<strong>${albumEsc(photo.title)}</strong>` : ""}${photo.caption ? `<small>${albumEsc(photo.caption)}</small>` : ""}</span>` : ""}
     </button>`).join("");
   albumGrid.querySelectorAll("[data-album-index]").forEach(button => {
     button.onclick = () => openAlbumPhoto(Number(button.dataset.albumIndex));
