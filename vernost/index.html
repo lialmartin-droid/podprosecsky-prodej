@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f1e4">
+  <meta name="description" content="Bezpečný přehled věrnostní slevy a předchozích objednávek Podprosečských domácích produktů.">
+  <title>Věrnost a moje objednávky – Podprosečské domácí produkty</title>
+  <link rel="manifest" href="../manifest.webmanifest?v=293-20260817">
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/icons/customer-icon-32.png?v=293-20260817">
+  <link rel="apple-touch-icon" sizes="180x180" href="../assets/icons/customer-icon-180.png?v=293-20260817">
+  <link rel="preconnect" href="https://script.google.com">
+  <link rel="preconnect" href="https://script.googleusercontent.com">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap&subset=latin-ext" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/style.css?v=350-20260901-pages-account">
+</head>
+<body data-pdp-page-version="3.5.0">
+<div class="site-shell v2-shell subpage-shell">
+  <nav class="public-site-nav" aria-label="Hlavní navigace">
+    <a class="site-brand" href="../"><span aria-hidden="true">🐔🐝</span><strong>Pod Prosečí</strong></a>
+    <div class="public-site-links">
+      <a href="../">Nabídka</a>
+      <a href="../fotoalbum/">Fotoalbum</a>
+      <a class="active" href="./">Věrnost a objednávky</a>
+      <a href="../kontakt/">Kontakt</a>
+    </div>
+  </nav>
+
+  <header class="subpage-hero account-page-hero">
+    <div class="eyebrow">Váš bezpečný přehled</div>
+    <h1>Věrnost a moje objednávky</h1>
+    <p id="accountLoyaltyRule">Za skutečně vyzvednutá vajíčka získáváte slevu na další nákup. Přesné pravidlo právě načítáme.</p>
+  </header>
+
+  <main class="content subpage-content account-page-content">
+    <section id="accountLogin" class="account-auth-card">
+      <div class="account-auth-icon" aria-hidden="true">🔐</div>
+      <h2>Bezpečné přihlášení bez hesla</h2>
+      <p>Na e-mail používaný při objednávce Vám pošleme jednorázový šestimístný kód.</p>
+      <div id="accountEmailStep">
+        <label class="line-field"><span>E-mail z objednávky</span><input id="accountEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="jan.novak@email.cz"></label>
+        <button id="sendAccountCode" class="primary-button" type="button">Poslat ověřovací kód</button>
+      </div>
+      <div id="accountCodeStep" class="hidden">
+        <p id="accountCodeSentTo" class="account-code-hint"></p>
+        <label class="line-field"><span>Šestimístný kód</span><input id="accountCode" class="account-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="000000"></label>
+        <button id="verifyAccountCode" class="primary-button" type="button">Ověřit a zobrazit účet</button>
+        <div class="account-auth-actions"><button id="changeAccountEmail" class="text-button" type="button">Změnit e-mail</button><button id="resendAccountCode" class="text-button" type="button">Poslat nový kód</button></div>
+      </div>
+      <p id="accountAuthMessage" class="feedback" aria-live="polite"></p>
+      <p class="privacy-note">Kód platí 10 minut. E-mail používáme pouze k ověření Vašeho účtu, potvrzení objednávek a informacím o vyzvednutí. Žádné reklamní zprávy neposíláme.</p>
+    </section>
+
+    <section id="customerAccount" class="hidden">
+      <div class="account-toolbar"><div><div class="eyebrow">Přihlášený zákazník</div><h2 id="customerAccountTitle">Můj účet</h2><p id="customerAccountEmail" class="muted"></p></div><button id="logoutCustomerAccount" class="secondary-button" type="button">Odhlásit</button></div>
+
+      <section id="customerLoyaltyCard" class="account-loyalty-card"></section>
+
+      <section id="customerJoinLoyalty" class="account-join-card hidden">
+        <div><div class="eyebrow">Jednorázová registrace</div><h2>Zapojit se do věrnostního programu</h2><p>Počítat se začnou až vajíčka z objednávek skutečně převzatých po registraci.</p></div>
+        <div class="form-grid">
+          <label><span>Jméno a příjmení</span><input id="accountJoinName" type="text" autocomplete="name" placeholder="Jan Novák"></label>
+          <label><span>Telefon (nepovinný)</span><input id="accountJoinPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="777 123 456"></label>
+        </div>
+        <button id="joinFromCustomerAccount" class="primary-small" type="button">Zapojit se do slev</button>
+        <p id="accountJoinMessage" class="feedback" aria-live="polite"></p>
+      </section>
+
+      <section class="account-section">
+        <div class="section-head"><div><div class="eyebrow">Původní uložené údaje</div><h2>Moje objednávky</h2></div><span id="customerOrderCount" class="badge blue"></span></div>
+        <p class="account-transparency-note">Zobrazené ceny pocházejí přímo z okamžiku vytvoření objednávky. Pozdější změna ceny produktu tento přehled nezmění.</p>
+        <div id="customerOrdersList" class="customer-orders-list"></div>
+      </section>
+
+      <section id="customerRewardsSection" class="account-section hidden">
+        <div class="section-head"><div><div class="eyebrow">Kontrola slev</div><h2>Věrnostní odměny</h2></div></div>
+        <div id="customerRewardsList" class="customer-rewards-list"></div>
+      </section>
+
+      <section id="customerMovementsSection" class="account-section hidden">
+        <div class="section-head"><div><div class="eyebrow">Přehled započítání</div><h2>Pohyby věrnostního programu</h2></div></div>
+        <div id="customerMovementsList" class="customer-movements-list"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer><div><strong>Podprosečské domácí produkty</strong><br>Váš účet je chráněný jednorázovým kódem.</div><div class="footer-contact"><a href="../">Objednat produkty</a><br><a href="../kontakt/">Kontakt</a></div></footer>
+</div>
+
+<iframe name="customerAccountFrame" id="customerAccountFrame" hidden></iframe>
+<form id="customerAccountForm" method="post" target="customerAccountFrame" hidden><input id="customerAccountAction" name="action" type="hidden"><input id="customerAccountPayload" name="payload" type="hidden"></form>
+<script src="../assets/config.js?v=350-20260901"></script>
+<script src="../assets/account.js?v=350-20260901"></script>
+</body>
+</html>

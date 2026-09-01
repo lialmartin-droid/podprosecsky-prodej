@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/customer-icon-32.png?v=293-20260817">
   <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/customer-icon-180.png?v=293-20260817">
   <link rel="preload" as="image" href="assets/images/products/vajicka-real.webp" fetchpriority="high">
-  <link rel="preload" as="script" href="assets/customer.js?v=340-20260901">
+  <link rel="preload" as="script" href="assets/customer.js?v=350-20260901">
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <link rel="dns-prefetch" href="//script.google.com">
@@ -22,10 +22,19 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap&subset=latin-ext" rel="stylesheet">
-  <link rel="stylesheet" href="assets/style.css?v=340-20260901-album-calendar">
+  <link rel="stylesheet" href="assets/style.css?v=350-20260901-pages-account">
 </head>
-<body data-pdp-version="3.4.0">
+<body data-pdp-version="3.5.0">
 <div class="site-shell v2-shell">
+  <nav class="public-site-nav" aria-label="Hlavní navigace">
+    <a class="site-brand" href="./"><span aria-hidden="true">🐔🐝</span><strong>Pod Prosečí</strong></a>
+    <div class="public-site-links">
+      <a class="active" href="./">Nabídka</a>
+      <a href="fotoalbum/">Fotoalbum</a>
+      <a href="vernost/">Věrnost a objednávky</a>
+      <a href="kontakt/">Kontakt</a>
+    </div>
+  </nav>
   <header class="v2-hero">
     <div class="v2-hero-copy">
       <div class="kicker">Rodinné hospodářství z Pod Prosečí</div>
@@ -36,7 +45,6 @@
       <p class="hero-origin-note"><span aria-hidden="true">🥚</span><strong>Naše čerstvá vajíčka pocházejí přímo od slepiček z volného chovu u nás v Pod Prosečí v Jablonci nad Nisou.</strong></p>
       <div class="hero-actions">
         <a class="hero-cta" href="#nabidka">Prohlédnout nabídku</a>
-        <a class="hero-location-link" href="#kde-nas-najdete">Kde nás najdete</a>
       </div>
     </div>
     <div class="v2-hero-visual">
@@ -47,80 +55,12 @@
   <main class="content v2-content">
     <section id="publicBanner" class="public-banner hidden" aria-live="polite"></section>
 
-    <section class="origin-grid" aria-label="Odkud naše produkty pocházejí">
-      <article><img loading="lazy" decoding="async" src="assets/images/od-vcel.webp?v=240" alt="Včelí úly mezi květinami"><h2>Od našich včel</h2><p>Med, vosk a další včelí produkty z místní krajiny.</p></article>
-      <article><img loading="lazy" decoding="async" src="assets/images/od-slepic.webp" alt="Slepice a kohout ve volném výběhu"><h2>Od slepiček z volného chovu</h2><p>Čerstvá vejce od slepiček s každodenním přístupem ven.</p></article>
-    </section>
-
     <section id="nabidka" class="products-section">
       <div class="section-head">
         <div><div class="eyebrow">Aktuální nabídka</div><h2>Vyberte si něco dobrého</h2></div>
         <div id="itemCount" class="muted">Načítám…</div>
       </div>
       <div id="products"><div class="products-loading" role="status"><span class="loading-spinner" aria-hidden="true"></span><span>Načítám aktuální nabídku…</span></div></div>
-    </section>
-
-    <section id="vernostni-program" class="loyalty-section">
-      <div class="section-head">
-        <div><div class="eyebrow">Odměna za pravidelné nákupy</div><h2>Věrnostní sleva na vajíčka</h2></div>
-      </div>
-      <div class="loyalty-card">
-        <div class="loyalty-card-copy">
-          <div class="loyalty-icon" aria-hidden="true">🥚❤</div>
-          <h3 id="loyaltyRuleTitle">Sbírejte vajíčka do slevy</h3>
-          <p id="loyaltyRuleText">Po načtení nabídky se zobrazí aktuální pravidlo věrnostní slevy.</p>
-          <p class="field-help">Počítají se pouze skutečně vyzvednutá vajíčka od zapojení do programu. Bez hesla a bez reklamních zpráv.</p>
-        </div>
-        <div class="loyalty-check-card">
-          <label class="line-field"><span>Telefon nebo e-mail</span><input id="loyaltyLookupContact" type="text" autocomplete="email" placeholder="777 123 456 nebo e-mail"></label>
-          <button id="loyaltyLookupButton" class="secondary-button" type="button">Zobrazit můj stav</button>
-          <div id="loyaltyPublicStatus" class="loyalty-status hidden" aria-live="polite"></div>
-          <div id="loyaltyJoinFields" class="loyalty-join-fields hidden">
-            <label class="line-field"><span>Jméno a příjmení</span><input id="loyaltyJoinName" type="text" autocomplete="name" placeholder="Jan Novák"></label>
-            <button id="loyaltyJoinButton" class="primary-small" type="button">Zapojit se do slev</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="how-section">
-      <div class="section-head"><div><div class="eyebrow">Jednoduché objednání</div><h2>Jak to u nás funguje</h2></div></div>
-      <div class="how-grid">
-        <article><img loading="lazy" decoding="async" src="assets/images/steps/vyber.webp" alt="Košík s domácími produkty"><span>1</span><strong>Vyberete si produkty</strong><p>Prohlédnete si naši nabídku a vložíte do košíku to, na co máte chuť.</p></article>
-        <article><img loading="lazy" decoding="async" src="assets/images/steps/termin.webp" alt="Kalendář pro volbu termínu"><span>2</span><strong>Zvolíte termín vyzvednutí</strong><p>Vyberete si den, který Vám nejvíce vyhovuje.</p></article>
-        <article><img loading="lazy" decoding="async" src="assets/images/steps/potvrzeni.webp" alt="Obálka s potvrzením objednávky"><span>3</span><strong>Potvrdíme Vám objednávku</strong><p>Pošleme Vám potvrzení a den předem připomenutí.</p></article>
-        <article><img loading="lazy" decoding="async" src="assets/images/steps/vyzvednuti.webp" alt="Auto při vyzvednutí objednávky"><span>4</span><strong>Přijedete si pro své čerstvé produkty</strong><p>Těšíme se na Vás u nás v Pod Prosečí.</p></article>
-      </div>
-    </section>
-
-    <section id="fotoalbum" class="photo-album-section hidden">
-      <div class="section-head">
-        <div><div class="eyebrow">Ze života u nás</div><h2>Nahlédněte do Pod Prosečí</h2></div>
-      </div>
-      <p class="photo-album-intro">Naše slepičky, včely, zahrádka a chvíle, ze kterých vznikají poctivé domácí produkty.</p>
-      <div id="photoAlbumGrid" class="photo-album-grid"></div>
-    </section>
-
-    <section id="kde-nas-najdete" class="location-section">
-      <div class="section-head"><div><div class="eyebrow">Původ a vyzvednutí</div><h2>Kde naše produkty vznikají</h2></div></div>
-      <div class="location-card">
-        <div class="location-copy">
-          <div class="location-icon" aria-hidden="true">🐔🥚</div>
-          <h3>Pod Prosečí 102/2</h3>
-          <p class="location-city">Jablonec nad Nisou</p>
-          <p>Právě tady chováme naše slepičky ve volném výběhu a připravujeme objednávky k osobnímu vyzvednutí po potvrzení zvoleného termínu.</p>
-          <a class="location-route-button" href="https://www.google.com/maps/search/?api=1&amp;query=Pod%20Prose%C4%8D%C3%AD%20102%2F2%2C%20Jablonec%20nad%20Nisou" target="_blank" rel="noopener noreferrer">Otevřít trasu v Mapách</a>
-        </div>
-        <div class="location-map">
-          <iframe
-            title="Mapa místa vyzvednutí Pod Prosečí 102/2"
-            src="https://www.google.com/maps?q=Pod%20Prose%C4%8D%C3%AD%20102%2F2%2C%20Jablonec%20nad%20Nisou&amp;output=embed"
-            loading="lazy"
-            fetchpriority="low"
-            referrerpolicy="no-referrer-when-downgrade"
-            allowfullscreen></iframe>
-        </div>
-      </div>
     </section>
 
     <section class="order-section" id="objednavka">
@@ -131,7 +71,7 @@
         <label class="line-field"><span>Jméno a příjmení</span><input id="customerName" type="text" autocomplete="name" placeholder="Jan Novák"></label>
         <label class="line-field"><span>Telefon</span><input id="customerPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="777 123 456"></label>
         <label class="line-field"><span>E-mail</span><input id="customerEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="jan.novak@email.cz" required><small class="field-help">E-mail slouží pouze k potvrzení Vaší objednávky a informacím o jejím vyzvednutí. Žádné reklamní e-maily od nás nedostanete.</small></label>
-        <fieldset id="loyaltyOrderBox" class="choice-box loyalty-order-box"><legend>Věrnostní sleva na vejce</legend><label id="loyaltyJoinChoice"><input id="loyaltyOptIn" type="checkbox"> <span><strong>Chci se zapojit do věrnostního programu</strong><small>Zaškrtněte pouze při prvním nákupu. Příště Vás poznáme podle telefonu nebo e-mailu.</small></span></label><div id="loyaltyOrderStatus" class="field-help" aria-live="polite">Po zadání kontaktu ověříme Váš věrnostní stav.</div></fieldset>
+        <fieldset id="loyaltyOrderBox" class="choice-box loyalty-order-box"><legend>Věrnostní sleva na vejce</legend><div id="loyaltyJoinChoice" class="loyalty-account-link"><a href="vernost/">🥚 Otevřít věrnostní účet</a><small>Registrace, stav slevy i historie objednávek jsou na samostatné zabezpečené stránce.</small></div><div id="loyaltyOrderStatus" class="field-help" aria-live="polite">Po zadání kontaktu ověříme Váš věrnostní stav a případnou slevu.</div></fieldset>
         <fieldset class="choice-box"><legend>Jak Vás máme informovat den před vyzvednutím?</legend><label><input type="radio" name="contactMethod" value="SMS" checked> SMS</label><label><input type="radio" name="contactMethod" value="E-mail"> E-mail</label></fieldset>
         <div id="splitOrderBox" class="choice-box hidden"><strong>Objednávka obsahuje dostupné i předobjednané produkty</strong><p class="field-help">Dostupné produkty můžete vyzvednout dříve a předobjednávku až po naskladnění.</p><label><input type="radio" name="splitOrder" value="together" checked> Vyzvednout vše najednou po naskladnění</label><label><input type="radio" name="splitOrder" value="split"> Rozdělit na dvě vyzvednutí</label><div class="notice"><strong>Upozornění:</strong> při rozdělení Vás budeme před každým vyzvednutím kontaktovat zvoleným způsobem.</div></div>
         <div id="splitPickupSummary" class="notice hidden"></div>
@@ -151,19 +91,13 @@
 
   <div id="mobileCartBar" class="mobile-cart-bar hidden"><span id="mobileCartText">Košík je prázdný</span><a href="#objednavka">Pokračovat</a></div>
 
-  <footer><div><strong>Podprosečské domácí produkty</strong><br>Pod Prosečí 102/2 · Jablonec nad Nisou</div><div class="footer-contact"><a href="mailto:podprosecskeprodukty@gmail.com">podprosecskeprodukty@gmail.com</a><br><a href="tel:+420732687040">+420 732 687 040</a></div></footer>
-</div>
-<div id="photoLightbox" class="photo-lightbox hidden" role="dialog" aria-modal="true" aria-labelledby="photoLightboxTitle">
-  <button id="photoLightboxClose" class="photo-lightbox-close" type="button" aria-label="Zavřít fotografii">×</button>
-  <button id="photoLightboxPrevious" class="photo-lightbox-nav previous" type="button" aria-label="Předchozí fotografie">‹</button>
-  <figure><img id="photoLightboxImage" alt=""><figcaption><strong id="photoLightboxTitle"></strong><span id="photoLightboxCaption"></span></figcaption></figure>
-  <button id="photoLightboxNext" class="photo-lightbox-nav next" type="button" aria-label="Následující fotografie">›</button>
+  <footer><div><strong>Podprosečské domácí produkty</strong><br>Poctivé produkty od našich slepiček, včel a ze zahrádky.</div><div class="footer-contact"><a href="kontakt/">Kontakt a mapa</a><br><a href="vernost/">Věrnost a moje objednávky</a></div></footer>
 </div>
 <iframe name="orderSubmitFrame" id="orderSubmitFrame" hidden></iframe>
 <form id="backendOrderForm" method="post" target="orderSubmitFrame" hidden><input name="action" type="hidden" value="createOrder"><input id="backendPayload" name="payload" type="hidden"></form>
 <iframe name="loyaltySubmitFrame" id="loyaltySubmitFrame" hidden></iframe>
 <form id="loyaltyBackendForm" method="post" target="loyaltySubmitFrame" hidden><input id="loyaltyAction" name="action" type="hidden" value="loyaltyStatus"><input id="loyaltyPayload" name="payload" type="hidden"></form>
-<script src="assets/config.js?v=311-20260819"></script>
-<script src="assets/customer.js?v=340-20260901"></script>
+<script src="assets/config.js?v=350-20260901"></script>
+<script src="assets/customer.js?v=350-20260901"></script>
 </body>
 </html>

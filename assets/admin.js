@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "3.4.0";
-console.info("Podprosečské produkty – admin.js V3.4.0 – fotoalbum a měsíční kalendář");
+window.PDP_ADMIN_VERSION = "3.5.0";
+console.info("Podprosečské produkty – admin.js V3.5.0 – fotoalbum, kalendář a zákaznický účet");
 
 let products = [];
 let orders = [];

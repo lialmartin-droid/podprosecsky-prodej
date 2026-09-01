@@ -1,5 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "3.4.0";
-console.info("Podprosečské produkty – customer.js V3.4.0 – veřejné fotoalbum");
+window.PDP_CUSTOMER_VERSION = "3.5.0";
+console.info("Podprosečské produkty – customer.js V3.5.0 – zjednodušená hlavní stránka");
 
 // Karty produktů se při první návštěvě vykreslí okamžitě z bezpečného náhledu.
 // Sklad a objednávání se odemknou až po potvrzení živých dat z Google Tabulky.
@@ -570,7 +570,7 @@ function loyaltyPreviewDiscount() {
 
 function renderOrderLoyaltyStatus() {
   const box = document.getElementById("loyaltyOrderBox");
-  if (!box || !loyaltyOrderStatusEl || !loyaltyOptInEl) return;
+  if (!box || !loyaltyOrderStatusEl) return;
   box.classList.remove("has-reward", "is-member");
   const settings = currentLoyaltySettings();
   if (!settings.enabled) {
@@ -578,8 +578,6 @@ function renderOrderLoyaltyStatus() {
     return;
   }
   if (loyaltyOrderState && loyaltyOrderState.enrolled) {
-    loyaltyOptInEl.checked = true;
-    loyaltyOptInAutoChecked = true;
     loyaltyJoinChoiceEl?.classList.add("hidden");
     box.classList.add("is-member");
     if (!loyaltyOrderState.active) {
@@ -597,14 +595,8 @@ function renderOrderLoyaltyStatus() {
     }
     return;
   }
-  if (loyaltyOptInAutoChecked) {
-    loyaltyOptInEl.checked = false;
-    loyaltyOptInAutoChecked = false;
-  }
   loyaltyJoinChoiceEl?.classList.remove("hidden");
-  loyaltyOrderStatusEl.textContent = loyaltyOptInEl.checked
-    ? `Po převzetí této objednávky se vajíčka započítají do slevy ${settings.discountCzk} Kč.`
-    : "Zaškrtnutím se bez hesla zapojíte do věrnostního programu.";
+  loyaltyOrderStatusEl.textContent = "Pokud jste se právě zaregistrovali, po návratu zadejte svůj telefon nebo e-mail znovu.";
 }
 
 function orderLoyaltyContact() {
@@ -1591,7 +1583,7 @@ submitButton.addEventListener("click", () => {
     contactMethod,
     splitOrder: splitMode === "split",
     preorderPickup: preorderPickup,
-    loyaltyOptIn: Boolean(loyaltyOptInEl?.checked || loyaltyOrderState?.enrolled),
+    loyaltyOptIn: Boolean(loyaltyOrderState?.enrolled),
     requestId: orderRequestId(),
     visitorId: visitorId(),
     visitSource: detectVisitSource()

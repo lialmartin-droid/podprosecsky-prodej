@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V3.4.0
+ * Podprosečské domácí produkty — sdílený backend V3.5.0
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -33,6 +33,8 @@ const CONFIG = Object.freeze({
   PRODUCT_IMAGES_FOLDER: 'Podprosecske_produkty_obrazky',
   ALBUM_IMAGES_FOLDER: 'Podprosecske_fotoalbum',
   MAX_ALBUM_PHOTOS: 80,
+  CUSTOMER_ACCESS_CODE_SECONDS: 600,
+  CUSTOMER_ACCESS_SESSION_SECONDS: 21600,
   PUBLIC_CACHE_SECONDS: 60,
   PUBLIC_CATALOG_CACHE_SECONDS: 21600,
   VISIT_STATS_CACHE_SECONDS: 60
@@ -153,7 +155,7 @@ function reservationMapFromOrders_(orders, preorderMap) {
 }
 
 function publicPayloadCacheKey_() {
-  return 'public-payload-v340';
+  return 'public-payload-v350';
 }
 
 function publicCatalogCacheKey_() {
@@ -503,7 +505,7 @@ function buildPublicPayload_() {
     const cached = cache.get(publicPayloadCacheKey_());
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (parsed && parsed.ok && parsed.version === '3.4.0' && Array.isArray(parsed.products)) return parsed;
+      if (parsed && parsed.ok && parsed.version === '3.5.0' && Array.isArray(parsed.products)) return parsed;
     }
   } catch (error) {
     console.error('Načtení veřejné cache selhalo.', error);
@@ -515,11 +517,10 @@ function buildPublicPayload_() {
   const availability = buildEggAvailabilityFromIndexFast_(eggSettings, reservationIndex);
   const payload = {
     ok: true,
-    version: '3.4.0',
+    version: '3.5.0',
     products: publicProductsWithAvailabilityFast_(catalog.products, reservationIndex, availability),
     availability: availability,
     settings: publicBusinessSettingsFromMapFast_(catalog.settingsMap),
-    album: publicAlbumPhotos_(),
     generatedAt: new Date().toISOString()
   };
 
@@ -559,7 +560,7 @@ function buildAdminPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.4.0',
+    version: '3.5.0',
     products: readProductsFast_(reservations, availability, catalog.products),
     orders: orders,
     eggSettings: availability.settings,
@@ -579,7 +580,7 @@ function buildAdminPlanningPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.4.0',
+    version: '3.5.0',
     products: readProductsFast_(reservations, availability, catalog.products),
     eggSettings: availability.settings,
     eggAvailability: availability,
@@ -633,6 +634,15 @@ function doGet(e) {
       });
     }
 
+    if (action === 'album') {
+      return jsonpResponse_(e, { ok:true, version:'3.5.0', album:publicAlbumPhotos_() });
+    }
+
+    if (action === 'loyaltyInfo') {
+      const catalog = readPublicCatalogFast_();
+      return jsonpResponse_(e, { ok:true, version:'3.5.0', loyalty:loyaltySettingsFromMap_(catalog.settingsMap || {}) });
+    }
+
     if (action === 'trackVisit') {
       return jsonpResponse_(e, trackVisitFromRequest_(e));
     }
@@ -654,7 +664,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '3.4.0',
+      version: '3.5.0',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -684,7 +694,11 @@ function doPost(e) {
     if (action === 'createOrder') return createOrder_(payload, false);
     if (action === 'subscribeStock') return withMutationLock_(() => subscribeStock_(payload), 10000);
     if (action === 'loyaltyStatus') return loyaltyStatusResponse_(payload);
-    if (action === 'joinLoyalty') return withMutationLock_(() => joinLoyalty_(payload), 15000);
+    if (action === 'joinLoyalty') throw new Error('Registrace je nyní dostupná na zabezpečené stránce Věrnost a objednávky. Obnovte prosím hlavní stránku.');
+    if (action === 'requestCustomerAccess') return requestCustomerAccess_(payload);
+    if (action === 'verifyCustomerAccess') return verifyCustomerAccess_(payload);
+    if (action === 'customerAccountData') return customerAccountData_(payload);
+    if (action === 'joinCustomerAccountLoyalty') return withMutationLock_(() => joinCustomerAccountLoyalty_(payload), 15000);
 
     const token = cleanText_(e.parameter.token || payload.token || '', 100);
     requireToken_(token);
@@ -2845,6 +2859,256 @@ function joinLoyalty_(payload) {
     kind: 'loyaltyJoin',
     requestId: cleanText_(payload && payload.requestId, 100),
     loyalty: publicLoyaltyStatus_(customer, settings)
+  });
+}
+
+function customerAccessHash_(value) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value || ''));
+  return Utilities.base64EncodeWebSafe(bytes).replace(/=+$/g, '').slice(0, 42);
+}
+
+function customerAccessEmailHint_(email) {
+  const parts = String(email || '').split('@');
+  if (parts.length !== 2) return '';
+  const name = parts[0];
+  const visible = name.length <= 2 ? name.charAt(0) : name.slice(0, 2);
+  return visible + '***@' + parts[1];
+}
+
+function requestCustomerAccess_(payload) {
+  const email = normalizeLoyaltyEmail_(payload && payload.email);
+  if (!isValidEmail_(email)) throw new Error('Zadejte platnou e-mailovou adresu.');
+
+  const cache = CacheService.getScriptCache();
+  const now = Date.now();
+  const emailHash = customerAccessHash_(email);
+  const rateKey = 'customer-access-rate-' + emailHash;
+  let rate = null;
+  try { rate = JSON.parse(cache.get(rateKey) || 'null'); } catch (_) {}
+  if (!rate || now - Number(rate.windowStarted || 0) >= 3600000) {
+    rate = {windowStarted:now, count:0, lastSent:0};
+  }
+  if (now - Number(rate.lastSent || 0) < 60000) {
+    throw new Error('Nový kód lze poslat nejdříve za jednu minutu.');
+  }
+  if (Number(rate.count || 0) >= 5) {
+    throw new Error('Bylo odesláno příliš mnoho kódů. Zkuste to znovu přibližně za hodinu.');
+  }
+
+  const globalKey = 'customer-access-global-' + Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyyMMdd-HH');
+  const globalCount = Math.max(0, Number(cache.get(globalKey) || 0));
+  if (globalCount >= 80) throw new Error('Ověřování je nyní dočasně vytížené. Zkuste to prosím později.');
+
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const record = {code:code, expires:now + CONFIG.CUSTOMER_ACCESS_CODE_SECONDS * 1000, attempts:0};
+  cache.put('customer-access-code-' + emailHash, JSON.stringify(record), CONFIG.CUSTOMER_ACCESS_CODE_SECONDS);
+  rate.count = Number(rate.count || 0) + 1;
+  rate.lastSent = now;
+  cache.put(rateKey, JSON.stringify(rate), 3600);
+  cache.put(globalKey, String(globalCount + 1), 3700);
+
+  MailApp.sendEmail({
+    to:email,
+    subject:'Ověřovací kód – ' + CONFIG.BRAND_NAME,
+    body:[
+      'Dobrý den,',
+      '',
+      'Váš jednorázový kód pro zobrazení věrnostního stavu a historie objednávek je:',
+      '',
+      code,
+      '',
+      'Kód platí 10 minut. Pokud jste o něj nežádali, tento e-mail ignorujte.',
+      '',
+      'S přáním krásného dne',
+      CONFIG.BRAND_NAME
+    ].join('\n'),
+    htmlBody:`<p>Dobrý den,</p><p>Váš jednorázový kód pro zobrazení věrnostního stavu a historie objednávek je:</p><p style="font-size:30px;font-weight:800;letter-spacing:6px">${code}</p><p>Kód platí 10 minut. Pokud jste o něj nežádali, tento e-mail ignorujte.</p><p>S přáním krásného dne<br><strong>${CONFIG.BRAND_NAME}</strong></p>`,
+    name:CONFIG.BRAND_NAME,
+    replyTo:CONFIG.NOTIFICATION_EMAIL
+  });
+
+  return htmlResponse_(true, 'Ověřovací kód byl odeslán na zadaný e-mail.', '', {
+    kind:'customerAccessRequested',
+    requestId:cleanText_(payload && payload.requestId, 100),
+    emailHint:customerAccessEmailHint_(email),
+    expiresIn:CONFIG.CUSTOMER_ACCESS_CODE_SECONDS
+  });
+}
+
+function customerAccessSessionEmail_(sessionToken) {
+  const token = cleanText_(sessionToken, 200).replace(/[^a-zA-Z0-9_-]/g, '');
+  if (token.length < 30) throw new Error('Přihlášení vypršelo. Nechte si poslat nový kód.');
+  const cache = CacheService.getScriptCache();
+  const raw = cache.get('customer-access-session-' + customerAccessHash_(token));
+  if (!raw) throw new Error('Přihlášení vypršelo. Nechte si poslat nový kód.');
+  let session = null;
+  try { session = JSON.parse(raw); } catch (_) {}
+  const email = normalizeLoyaltyEmail_(session && session.email);
+  if (!email || Number(session.expires || 0) <= Date.now()) {
+    throw new Error('Přihlášení vypršelo. Nechte si poslat nový kód.');
+  }
+  return email;
+}
+
+function publicCustomerOrder_(order) {
+  const items = (order && order.items || []).map(item => ({
+    name:cleanText_(item && item.name || 'Produkt', 120),
+    qty:Math.max(0, Number(item && item.qty || 0)),
+    price:Math.max(0, Number(item && item.price || 0)),
+    lineTotal:Math.max(0, Number(item && item.qty || 0) * Number(item && item.price || 0))
+  }));
+  const subtotal = Math.max(0, Number(order && order.subtotal || items.reduce((sum, item) => sum + item.lineTotal, 0)));
+  const discount = Math.max(0, Number(order && order.loyaltyDiscount || 0));
+  return {
+    id:String(order && order.id || ''),
+    orderNumber:String(order && order.orderNumber || order && order.id || ''),
+    created:String(order && order.created || ''),
+    pickup:String(order && order.pickup || ''),
+    preorderPickup:String(order && order.preorderPickup || ''),
+    status:String(order && order.status || 'Nová'),
+    splitOrder:Boolean(order && order.splitOrder),
+    regularStatus:String(order && order.regularStatus || order && order.status || 'Nová'),
+    preorderStatus:String(order && order.preorderStatus || 'Nová'),
+    items:items,
+    subtotal:subtotal,
+    loyaltyDiscount:discount,
+    total:Math.max(0, Number(order && order.total != null ? order.total : subtotal - discount)),
+    loyaltyEggsCounted:Math.max(0, Math.floor(Number(order && order.loyaltyEggsCounted || 0))),
+    loyaltyRewardState:String(order && order.loyaltyRewardState || ''),
+    fulfilledAt:String(order && order.fulfilledAt || ''),
+    regularFulfilledAt:String(order && order.regularFulfilledAt || ''),
+    preorderFulfilledAt:String(order && order.preorderFulfilledAt || '')
+  };
+}
+
+function customerLoyaltyMovements_(customerId) {
+  if (!customerId) return [];
+  const sheet = ensureLoyaltyInfrastructure_().ledger;
+  if (sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues()
+    .filter(row => String(row[2] || '') === String(customerId))
+    .reverse()
+    .slice(0, 200)
+    .map(row => ({
+      at:formatDateTime_(row[1]),
+      orderNumber:String(row[4] || ''),
+      type:restoreSheetText_(row[5] || ''),
+      eggDelta:Number(row[6] || 0),
+      balance:Number(row[7] || 0),
+      note:restoreSheetText_(row[8] || '')
+    }));
+}
+
+function customerAccountSnapshot_(email) {
+  const normalizedEmail = normalizeLoyaltyEmail_(email);
+  const matchingOrders = readOrdersAdminFast_()
+    .filter(order => normalizeLoyaltyEmail_(order.email) === normalizedEmail);
+  let customer = findLoyaltyCustomerByContacts_({email:normalizedEmail});
+  // Starší člen mohl být původně vedený jen podle telefonu. Pokud je jeho
+  // ověřený e-mail uložený u objednávky, použijeme bezpečné propojení přes
+  // věrnostní ID této objednávky a zobrazíme mu i jeho skutečný stav.
+  if (!customer) {
+    const linkedOrder = matchingOrders.find(order => String(order.loyaltyCustomerId || ''));
+    if (linkedOrder) customer = findLoyaltyCustomerById_(linkedOrder.loyaltyCustomerId);
+  }
+  const settings = readLoyaltySettings_();
+  const allRewards = readLoyaltyRewards_();
+  const orderNumbers = {};
+  matchingOrders.forEach(order => { orderNumbers[String(order.id || '')] = String(order.orderNumber || order.id || ''); });
+  const rewards = customer ? allRewards
+    .filter(reward => reward.customerId === customer.id)
+    .sort((a, b) => String(b.earnedAt || '').localeCompare(String(a.earnedAt || '')))
+    .map(reward => ({
+      earnedAt:reward.earnedAt,
+      eggsRequired:reward.eggsRequired,
+      amount:reward.amount,
+      state:reward.state,
+      orderNumber:orderNumbers[String(reward.orderId || '')] || ''
+    })) : [];
+
+  return {
+    emailHint:customerAccessEmailHint_(normalizedEmail),
+    suggestedName:matchingOrders.length ? cleanText_(matchingOrders[0].name, 100) : '',
+    loyalty:publicLoyaltyStatus_(customer, settings, allRewards),
+    rewards:rewards,
+    movements:customerLoyaltyMovements_(customer && customer.id),
+    orders:matchingOrders.slice(0, 200).map(publicCustomerOrder_),
+    orderCount:matchingOrders.length,
+    hasMoreOrders:matchingOrders.length > 200
+  };
+}
+
+function verifyCustomerAccess_(payload) {
+  const email = normalizeLoyaltyEmail_(payload && payload.email);
+  const code = cleanText_(payload && payload.code, 12).replace(/\D/g, '');
+  if (!isValidEmail_(email) || !/^\d{6}$/.test(code)) throw new Error('Zadejte platný e-mail a šestimístný kód.');
+
+  const cache = CacheService.getScriptCache();
+  const codeKey = 'customer-access-code-' + customerAccessHash_(email);
+  const raw = cache.get(codeKey);
+  if (!raw) throw new Error('Kód vypršel nebo není platný. Nechte si poslat nový.');
+  let record = null;
+  try { record = JSON.parse(raw); } catch (_) {}
+  if (!record || Number(record.expires || 0) <= Date.now()) {
+    cache.remove(codeKey);
+    throw new Error('Kód vypršel. Nechte si poslat nový.');
+  }
+  if (Number(record.attempts || 0) >= 5) {
+    cache.remove(codeKey);
+    throw new Error('Kód byl zadán příliš mnohokrát. Nechte si poslat nový.');
+  }
+  if (String(record.code || '') !== code) {
+    record.attempts = Number(record.attempts || 0) + 1;
+    const remaining = Math.max(30, Math.floor((Number(record.expires) - Date.now()) / 1000));
+    cache.put(codeKey, JSON.stringify(record), remaining);
+    throw new Error('Zadaný kód není správný.');
+  }
+
+  cache.remove(codeKey);
+  const sessionToken = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  const session = {email:email, expires:Date.now() + CONFIG.CUSTOMER_ACCESS_SESSION_SECONDS * 1000};
+  cache.put('customer-access-session-' + customerAccessHash_(sessionToken), JSON.stringify(session), CONFIG.CUSTOMER_ACCESS_SESSION_SECONDS);
+  return htmlResponse_(true, 'E-mail byl bezpečně ověřen.', '', {
+    kind:'customerAccessVerified',
+    requestId:cleanText_(payload && payload.requestId, 100),
+    sessionToken:sessionToken,
+    expiresIn:CONFIG.CUSTOMER_ACCESS_SESSION_SECONDS,
+    account:customerAccountSnapshot_(email)
+  });
+}
+
+function customerAccountData_(payload) {
+  const email = customerAccessSessionEmail_(payload && payload.sessionToken);
+  return htmlResponse_(true, 'Zákaznický účet byl načten.', '', {
+    kind:'customerAccountData',
+    requestId:cleanText_(payload && payload.requestId, 100),
+    account:customerAccountSnapshot_(email)
+  });
+}
+
+function joinCustomerAccountLoyalty_(payload) {
+  const email = customerAccessSessionEmail_(payload && payload.sessionToken);
+  const settings = readLoyaltySettings_();
+  if (!settings.enabled) throw new Error('Věrnostní program je nyní vypnutý.');
+  const contacts = {email:email, phone:normalizeLoyaltyPhone_(payload && payload.phone)};
+  validateLoyaltyContacts_(contacts);
+  const name = cleanText_(payload && payload.name, 100);
+  if (name.length < 2) throw new Error('Vyplňte jméno a příjmení.');
+  let customer = findLoyaltyCustomerByContacts_({email:email});
+  const phoneOwner = contacts.phone ? findLoyaltyCustomerByContacts_({phone:contacts.phone}) : null;
+  if (phoneOwner && (!customer || phoneOwner.id !== customer.id)) {
+    throw new Error('Tento telefon je už spojený s jiným věrnostním účtem. Pro bezpečné propojení nás prosím kontaktujte.');
+  }
+  const created = !customer;
+  if (!customer) customer = createLoyaltyCustomer_(name, contacts);
+  else {
+    if (!customer.active) { customer.active = true; saveLoyaltyCustomer_(customer); }
+    customer = updateLoyaltyCustomerIdentity_(customer, name, contacts);
+  }
+  return htmlResponse_(true, created ? 'Byli jste zařazeni do věrnostního programu.' : 'Váš věrnostní účet byl aktualizován.', '', {
+    kind:'customerAccountJoined',
+    requestId:cleanText_(payload && payload.requestId, 100),
+    account:customerAccountSnapshot_(email)
   });
 }
 

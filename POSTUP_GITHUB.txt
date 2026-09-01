@@ -1,66 +1,71 @@
-PODPROSEČSKÉ DOMÁCÍ PRODUKTY – AKTUALIZACE V3.4.0
-FOTOALBUM + SKUTEČNÝ KALENDÁŘ VYZVEDNUTÍ
+PODPROSEČSKÉ DOMÁCÍ PRODUKTY – AKTUALIZACE V3.5.0
+PŘEHLEDNÉ STRÁNKY + ZABEZPEČENÝ ZÁKAZNICKÝ ÚČET
 
-RYCHLÁ AKTUALIZACE Z V3.3.2
-- Na zákaznické stránce přibývá veřejné fotoalbum s velkým náhledem,
-  popisky a přepínáním fotografií.
-- V administraci je nová záložka Fotoalbum. Fotografie lze nahrát přímo
-  z telefonu nebo počítače, upravit název a popisek, skrýt, seřadit nebo smazat.
-- Lze vybrat a postupně nahrát více fotografií najednou.
-- Album si při prvním nahrání samo založí list Fotoalbum v Google Tabulce
-  a samostatnou složku Podprosecske_fotoalbum na Google Disku.
-- Záložka Kalendář nyní zobrazuje skutečný měsíční kalendář pondělí–neděle.
-  U každého dne jsou jména zákazníků, stav objednávky a počet vajec.
-- Kliknutí na zákazníka v kalendáři otevře příslušnou objednávku k úpravě.
-- Pod kalendářem zůstává rychlý seznam nejbližších vyzvednutí.
-- Tato verze vyžaduje aktualizaci Code.gs a nové nasazení stávající
-  webové aplikace Apps Script. Adresa /exec zůstává stejná.
-- Na GitHub nahrajte celý obsah tohoto balíčku.
-
-OPRAVA Z V3.3.2, KTERÁ ZŮSTÁVÁ ZACHOVANÁ
-- Opravuje stav, kdy se objednávka uložila, ale telefon nedostal včas
-  potvrzení, stránka ukázala chybu a košík zůstal naplněný.
-- Stránka nyní uloženou objednávku ověří podle jedinečného ID přímo
-  v tabulce. Po potvrzení zobrazí úspěch a košík automaticky vyprázdní.
-- Stejné ID zároveň brání vytvoření dvojité objednávky při opakování.
-
-ZMĚNA Z V3.3.0, KTERÁ ZŮSTÁVÁ ZACHOVANÁ
-- Stávajícímu členovi se po rozpoznání telefonu nebo e-mailu už nezobrazuje
-  volba pro opětovné zapojení. Místo ní vidí potvrzení členství a svůj stav.
-- Nový zákazník nadále vidí jednorázovou možnost zapojení.
-
-Následující část zůstává jako úplný postup pro instalaci na starší verzi.
-
-Program začíná 27. 8. 2026. Nákupy vyzvednuté před tímto datem se
-nezapočítají ani při pozdější úpravě staré objednávky.
-
-VÝCHOZÍ PRAVIDLO
-- 100 skutečně vyzvednutých vajec = sleva 20 Kč.
-- Počet vajec i výši slevy lze kdykoliv změnit v administraci.
-- Přebytečná vejce se převádějí do další odměny.
-- V jedné objednávce se použije nejvýše jedna připravená sleva.
-- Sleva se uplatní jen na objednávku obsahující vejce a jen pokud je
-  hodnota objednaných vajec alespoň ve výši slevy.
-- Při zrušení objednávky se rezervovaná sleva automaticky vrátí.
-
-CO JE NOVÉ PRO ZÁKAZNÍKA
-- Jednoduché zapojení bez hesla: jméno a telefon nebo e-mail.
-- Kontrola stavu podle telefonu nebo e-mailu.
-- Přehled, kolik vajec má započteno a kolik zbývá do další slevy.
-- Připravená sleva se u další objednávky vajec odečte automaticky.
-- Před odesláním objednávky se zobrazí upozornění i snížená cena.
-- Uplatněná sleva je uvedena také v potvrzovacím e-mailu.
-
-CO JE NOVÉ V ADMINISTRACI
-- Záložka „Věrnostní slevy“.
-- Zapnutí nebo pozastavení programu.
-- Nastavení počtu vajec potřebných pro odměnu a výše slevy.
-- Seznam zákazníků, jejich průběh, připravené a použité slevy.
-- Vyhledávání zákazníků, ruční oprava počtu vajec a pozastavení zákazníka.
-- Vejce se připíší až při označení objednávky jako „Vyzvednuto“.
+Tento balíček už obsahuje také všechny změny z verzí V3.3.2 a V3.4.0.
+Tyto starší balíčky proto nemusíte nahrávat samostatně.
 
 ======================================================================
-1. NEJDŘÍVE AKTUALIZUJTE GOOGLE APPS SCRIPT
+CO JE NOVÉ
+======================================================================
+
+- Hlavní stránka je jednodušší: obsahuje především nabídku a objednávku.
+- Fotoalbum je na samostatné stránce /fotoalbum/.
+- Kontakt, místo vyzvednutí a mapa jsou na stránce /kontakt/.
+- Věrnostní program a předchozí objednávky jsou na stránce /vernost/.
+- Všechny stránky mají společné jednoduché menu.
+- Registrace do věrnostního programu už není zaškrtávací volbou v košíku.
+- V košíku je neutrální odkaz „Otevřít věrnostní účet“. Jakmile systém
+  rozpozná stávajícího člena podle telefonu nebo e-mailu, celý odkaz skryje
+  a zobrazí jeho stav a případnou automatickou slevu.
+
+ZABEZPEČENÝ ZÁKAZNICKÝ ÚČET
+
+- Zákazník zadá e-mail použitý v objednávce.
+- Na tento e-mail obdrží jednorázový šestimístný kód platný 10 minut.
+- Po ověření uvidí pouze objednávky se svým přesně shodným e-mailem.
+- Přihlášení platí 6 hodin a je uložené jen v aktuální relaci prohlížeče.
+- Počet pokusů a odesílání kódů jsou omezené proti zneužití.
+- Registrace nového člena probíhá až po ověření jeho e-mailu.
+
+CO ZÁKAZNÍK VE SVÉM ÚČTU UVIDÍ
+
+- datum a číslo objednávky,
+- termín vyzvednutí a stav objednávky,
+- původní objednané položky, množství a uložené jednotkové ceny,
+- původní cenu, věrnostní slevu a skutečnou konečnou částku,
+- počet vajec započítaných z jednotlivých objednávek,
+- připravené, rezervované a použité odměny,
+- historii přičtení nebo opravy vajec ve věrnostním programu.
+
+Pozdější změna ceny produktu v nabídce nemění cenu ve staré objednávce.
+Historie používá údaje uložené přímo při vytvoření konkrétní objednávky.
+Starší objednávka se zobrazí jen tehdy, pokud v ní byl uložen e-mail.
+
+======================================================================
+ZACHOVANÉ FUNKCE Z V3.4.0
+======================================================================
+
+- V administraci zůstává záložka Fotoalbum.
+- Fotografie lze nahrávat přímo z telefonu nebo počítače, pojmenovat,
+  opatřit popiskem, skrýt, seřadit a smazat.
+- Lze vybrat více fotografií najednou.
+- Album si samo založí list Fotoalbum a složku na Google Disku.
+- Kalendář v administraci je skutečný měsíční kalendář pondělí–neděle.
+- U jednotlivých dnů jsou zákazníci, stav objednávky a počet vajec.
+- Kliknutí na zákazníka otevře příslušnou objednávku.
+- Rozdělená objednávka se zobrazí u obou termínů vyzvednutí.
+
+======================================================================
+ZACHOVANÁ OPRAVA Z V3.3.2
+======================================================================
+
+- Pokud se objednávka uloží, ale telefon nedostane včas odpověď, stránka
+  ověří uložení podle jedinečného ID přímo v tabulce.
+- Po potvrzení zobrazí úspěch a automaticky vyprázdní košík.
+- Stejné ID zabrání vytvoření druhé objednávky při opakovaném odeslání.
+
+======================================================================
+1. AKTUALIZACE GOOGLE APPS SCRIPTU
 ======================================================================
 
 1. Otevřete Apps Script napojený na provozní Google Tabulku.
@@ -69,46 +74,36 @@ CO JE NOVÉ V ADMINISTRACI
 3. Celý obsah stávajícího souboru Code_V2_6_ADDON.gs nahraďte souborem
    /Code_V2_6_ADDON.gs z tohoto balíčku.
 4. Projekt uložte.
-5. Jen pokud jste věrnostní program dosud nikdy nezprovoznili, vyberte
-   setupLoyaltyProgramV330 a spusťte ji právě jednou. Při prvním spuštění
-   potvrďte požadovaná oprávnění. Při aktualizaci z V3.3.2 tento krok
-   neopakujte.
-6. Po úspěchu se zobrazí zpráva, že program začíná 27. 8. 2026 a výchozí
-   pravidlo je 100 vajec = sleva 20 Kč.
-7. Zvolte Nasadit > Spravovat nasazení, otevřete stávající webovou aplikaci,
-   vyberte Nová verze a potvrďte Nasadit.
+5. Protože poprvé přidáváte fotoalbum, vyberte v horním seznamu funkci
+   povolitGaleriiObrazku, spusťte ji jednou a potvrďte přístup ke Google
+   Disku. Funkce pouze připraví úložiště obrázků.
+6. Zvolte Nasadit > Spravovat nasazení.
+7. Otevřete stávající webovou aplikaci, vyberte „Nová verze“ a potvrďte
+   Nasadit. Použijte stávající nasazení, aby adresa končící /exec zůstala
+   stejná.
 
-Použijte stávající nasazení, aby zůstala stejná koncová adresa /exec.
-Není potřeba znovu spouštět celou funkci setup().
+DŮLEŽITÉ
 
-Funkce setupLoyaltyProgramV330 automaticky založí tyto nové listy:
-- Věrnostní zákazníci
-- Věrnostní odměny
-- Věrnostní pohyby
-
-Zároveň doplní věrnostní nastavení a nové sloupce na konec listu Objednávky.
-Dosavadní objednávky a ostatní data zůstanou zachované.
+- Nespouštějte znovu celou funkci setup().
+- Pokud už věrnostní program funguje, nespouštějte znovu ani
+  setupLoyaltyProgramV330.
+- Jednorázové e-mailové kódy a zákaznické relace nevyžadují žádné další
+  nastavování ani nový list v tabulce.
 
 ======================================================================
-2. POTOM NAHRAJTE WEB NA GITHUB
+2. NAHRÁNÍ WEBU NA GITHUB
 ======================================================================
 
-Obsah tohoto balíčku nahrajte do KOŘENE stávajícího repozitáře a potvrďte
-nahrazení souborů. Zachovejte adresáře /admin a /assets.
+1. Rozbalte tento ZIP.
+2. Obsah balíčku nahrajte do KOŘENE stávajícího GitHub repozitáře.
+3. Potvrďte nahrazení souborů se stejnými názvy.
+4. Zachovejte nové adresáře /fotoalbum, /vernost a /kontakt.
+5. Zachovejte také stávající adresáře /admin a /assets.
+6. Nemažte ostatní původní soubory repozitáře, zejména obrázky, ikony,
+   manifesty a visit-tracker.js. Tento aktualizační balíček je pouze doplňuje
+   a nahrazuje změněné soubory.
 
-Nahrazují se tyto soubory:
-
-  /Code.gs
-  /Code_V2_6_ADDON.gs
-  /index.html
-  /admin/index.html
-  /assets/customer.js
-  /assets/admin.js
-  /assets/admin-enhancements.js
-  /assets/config.js
-  /assets/style.css
-
-Soubor /assets/config.js ponechává stávající adresu Apps Scriptu.
+Soubor /assets/config.js už obsahuje Vaši současnou adresu Apps Scriptu.
 
 ======================================================================
 3. KONTROLA PO NASAZENÍ
@@ -116,22 +111,25 @@ Soubor /assets/config.js ponechává stávající adresu Apps Scriptu.
 
 1. Vyčkejte na dokončení GitHub Pages deploymentu.
 2. Zákaznickou stránku i administraci úplně zavřete a znovu otevřete.
-   Případně proveďte tvrdé obnovení stránky.
-3. Na zákaznické stránce ověřte část „Věrnostní sleva na vajíčka“.
-4. V administraci otevřete záložku „Věrnostní slevy“ a nastavte požadované
-   pravidlo. Výchozí hodnota je 100 vajec a 20 Kč.
-5. Zkušebního zákazníka lze založit na zákaznické stránce. V administraci
-   lze jeho počet vajec upravit ručně a ověřit zobrazení připravené slevy.
-6. V administraci otevřete záložku „Fotoalbum“ a nahrajte zkušební fotografii.
-   Při prvním použití se potřebné úložiště založí automaticky.
-7. Ověřte, že se fotografie zobrazila na zákaznické stránce. Veřejná cache
-   se po změně alba vymaže automaticky; případně stránku jednou obnovte.
-8. V záložce „Kalendář“ ověřte aktuální měsíc a kliknutím na jméno otevřete
-   zkušební objednávku.
+3. Na hlavní stránce vytvořte zkušební objednávku a ověřte, že se po
+   potvrzení vyprázdní košík.
+4. Na stránce /vernost/ si nechte poslat kód na e-mail uložený u objednávky.
+5. Ověřte, že historie ukazuje správné položky, cenu, slevu a celkem.
+6. V administraci otevřete Fotoalbum a nahrajte zkušební fotografii.
+7. Ověřte fotografii na samostatné stránce /fotoalbum/.
+8. V administraci otevřete Kalendář, zvolte aktuální měsíc a kliknutím
+   na objednávku ověřte její otevření.
+9. Zadejte v nové objednávce kontakt existujícího člena. Odkaz na věrnostní
+   účet se skryje a zobrazí se stav člena a případná sleva.
 
-DŮLEŽITÉ
-- Staré vyzvednuté nákupy se automaticky nedovážejí.
-- U starší, ale dosud nevyzvednuté objednávky se vejce započítají jen tehdy,
-  když ji zákazník skutečně převezme 27. 8. 2026 nebo později a je zapojený.
-- Sleva se nikdy neodečítá ručně z ceny produktu; systém ji drží jako
-  samostatnou odměnu a odečte ji od celkové ceny příslušné objednávky.
+======================================================================
+VĚRNOSTNÍ PRAVIDLO
+======================================================================
+
+- Výchozí pravidlo je 100 skutečně vyzvednutých vajec = sleva 20 Kč.
+- Počet vajec i výši slevy lze kdykoliv změnit v administraci.
+- Přebytečná vejce se převádějí do další odměny.
+- Sleva se použije automaticky u další objednávky obsahující vajíčka.
+- V jedné objednávce se použije nejvýše jedna připravená sleva.
+- Při zrušení objednávky se rezervovaná sleva automaticky vrátí.
+- Vejce se započítají až při označení objednávky jako „Vyzvednuto“.

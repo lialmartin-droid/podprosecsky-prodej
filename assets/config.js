@@ -1,9 +1,12 @@
+window.PDP_CONFIG_VERSION = "3.5.0";
 window.PDP_CONFIG = {
   APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxX0zM4gURHiBdJfzn1Vux3y7WqgN_gP1DE9m26_e8bHQYynUOl2LZbkpmoGQJbhbZdvw/exec"
 };
 
 (() => {
   const isAdmin = Boolean(document.getElementById("adminApp"));
+  const configScriptUrl = document.currentScript && document.currentScript.src || "";
+  const publicAssetsBase = configScriptUrl ? new URL(".", configScriptUrl).href : "assets/";
 
   if (isAdmin) {
     // Admin rozšíření se načte až po admin.js, aby byly dostupné jeho funkce.
@@ -37,7 +40,7 @@ window.PDP_CONFIG = {
   const loadVisitTracker = () => {
     if (document.querySelector('script[data-pdp-visit-tracker]')) return;
     const tracker = document.createElement("script");
-    tracker.src = "assets/visit-tracker.js?v=270-20260814";
+    tracker.src = `${publicAssetsBase}visit-tracker.js?v=270-20260814`;
     tracker.dataset.pdpVisitTracker = "1";
     document.body.appendChild(tracker);
   };
