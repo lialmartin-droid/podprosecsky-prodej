@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V3.3.0
+ * Podprosečské domácí produkty — sdílený backend V3.4.0
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -10,6 +10,7 @@ const CONFIG = Object.freeze({
   WATCHLIST_SHEET: 'Hlídací pes',
   VISITS_SHEET: 'Návštěvnost',
   NOTIFICATION_QUEUE_SHEET: 'E-mail fronta',
+  ALBUM_SHEET: 'Fotoalbum',
   LOYALTY_CUSTOMERS_SHEET: 'Věrnostní zákazníci',
   LOYALTY_REWARDS_SHEET: 'Věrnostní odměny',
   LOYALTY_LEDGER_SHEET: 'Věrnostní pohyby',
@@ -30,6 +31,8 @@ const CONFIG = Object.freeze({
   ORDER_COLUMN_COUNT: 33,
   MAX_IMAGE_BYTES: 1600000,
   PRODUCT_IMAGES_FOLDER: 'Podprosecske_produkty_obrazky',
+  ALBUM_IMAGES_FOLDER: 'Podprosecske_fotoalbum',
+  MAX_ALBUM_PHOTOS: 80,
   PUBLIC_CACHE_SECONDS: 60,
   PUBLIC_CATALOG_CACHE_SECONDS: 21600,
   VISIT_STATS_CACHE_SECONDS: 60
@@ -42,6 +45,7 @@ function setup() {
   const watchlist = getOrCreateSheet_(CONFIG.WATCHLIST_SHEET);
   const visits = getOrCreateSheet_(CONFIG.VISITS_SHEET);
   const notificationQueue = getOrCreateSheet_(CONFIG.NOTIFICATION_QUEUE_SHEET);
+  const album = getOrCreateSheet_(CONFIG.ALBUM_SHEET);
   const loyaltyCustomers = getOrCreateSheet_(CONFIG.LOYALTY_CUSTOMERS_SHEET);
   const loyaltyRewards = getOrCreateSheet_(CONFIG.LOYALTY_REWARDS_SHEET);
   const loyaltyLedger = getOrCreateSheet_(CONFIG.LOYALTY_LEDGER_SHEET);
@@ -53,6 +57,7 @@ function setup() {
   formatWatchlistSheet_(watchlist);
   formatVisitsSheet_(visits);
   formatOrderNotificationQueueSheet_(notificationQueue);
+  formatAlbumSheet_(album);
   formatLoyaltyCustomersSheet_(loyaltyCustomers);
   formatLoyaltyRewardsSheet_(loyaltyRewards);
   formatLoyaltyLedgerSheet_(loyaltyLedger);
@@ -148,7 +153,7 @@ function reservationMapFromOrders_(orders, preorderMap) {
 }
 
 function publicPayloadCacheKey_() {
-  return 'public-payload-v311';
+  return 'public-payload-v340';
 }
 
 function publicCatalogCacheKey_() {
@@ -498,7 +503,7 @@ function buildPublicPayload_() {
     const cached = cache.get(publicPayloadCacheKey_());
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (parsed && parsed.ok && parsed.version === '3.3.0' && Array.isArray(parsed.products)) return parsed;
+      if (parsed && parsed.ok && parsed.version === '3.4.0' && Array.isArray(parsed.products)) return parsed;
     }
   } catch (error) {
     console.error('Načtení veřejné cache selhalo.', error);
@@ -510,10 +515,11 @@ function buildPublicPayload_() {
   const availability = buildEggAvailabilityFromIndexFast_(eggSettings, reservationIndex);
   const payload = {
     ok: true,
-    version: '3.3.0',
+    version: '3.4.0',
     products: publicProductsWithAvailabilityFast_(catalog.products, reservationIndex, availability),
     availability: availability,
     settings: publicBusinessSettingsFromMapFast_(catalog.settingsMap),
+    album: publicAlbumPhotos_(),
     generatedAt: new Date().toISOString()
   };
 
@@ -553,12 +559,13 @@ function buildAdminPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.3.0',
+    version: '3.4.0',
     products: readProductsFast_(reservations, availability, catalog.products),
     orders: orders,
     eggSettings: availability.settings,
     eggAvailability: availability,
     businessSettings: publicBusinessSettingsFromMapFast_(catalog.settingsMap || {}),
+    album: readAlbumPhotos_(true),
     generatedAt: new Date().toISOString()
   };
 }
@@ -572,7 +579,7 @@ function buildAdminPlanningPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.3.0',
+    version: '3.4.0',
     products: readProductsFast_(reservations, availability, catalog.products),
     eggSettings: availability.settings,
     eggAvailability: availability,
@@ -630,6 +637,10 @@ function doGet(e) {
       return jsonpResponse_(e, trackVisitFromRequest_(e));
     }
 
+    if (action === 'orderReceipt') {
+      return jsonpResponse_(e, orderReceiptResponse_(e && e.parameter && e.parameter.requestId || ''));
+    }
+
     if (action === 'adminData') {
       requireToken_(e.parameter.token || '');
       return jsonpResponse_(e, buildAdminPayload_());
@@ -643,7 +654,7 @@ function doGet(e) {
     return jsonpResponse_(e, {
       ok: true,
       service: CONFIG.BRAND_NAME,
-      version: '3.3.0',
+      version: '3.4.0',
       time: new Date().toISOString()
     });
   } catch (error) {
@@ -682,10 +693,15 @@ function doPost(e) {
     if (action === 'uploadProductImage') return uploadProductImage_(payload);
     if (action === 'listProductImages') return listProductImages_();
     if (action === 'deleteProductImage') return deleteProductImage_(payload);
+    if (action === 'uploadAlbumPhoto') return uploadAlbumPhoto_(payload);
+    if (action === 'getAlbumData') return getAlbumData_();
 
     // Krátké mutace tabulky serializujeme, ale zámek se nedrží přes veřejné objednávky.
     if (action === 'saveProduct') return withMutationLock_(() => saveProduct_(payload), 10000);
     if (action === 'deleteProduct') return withMutationLock_(() => deleteProduct_(payload), 10000);
+    if (action === 'saveAlbumPhoto') return withMutationLock_(() => saveAlbumPhoto_(payload), 10000);
+    if (action === 'saveAlbumOrder') return withMutationLock_(() => saveAlbumOrder_(payload), 10000);
+    if (action === 'deleteAlbumPhoto') return withMutationLock_(() => deleteAlbumPhoto_(payload), 10000);
     if (action === 'saveOrder') return saveOrder_(payload, true);
     if (action === 'deleteOrder') return withMutationLock_(() => deleteOrder_(payload), 10000);
     if (action === 'manualOrder') return createOrder_(payload, true);
@@ -913,8 +929,11 @@ function calculateVisitStatsFromVisits_(suppliedVisits) {
  * klikněte na Spustit a potvrďte přístup ke Google Disku.
  */
 function povolitGaleriiObrazku() {
-  const folder = getProductImagesFolder_();
-  Logger.log('Galerie je připravena: ' + folder.getName());
+  const productFolder = getProductImagesFolder_();
+  const albumFolder = getAlbumImagesFolder_();
+  const albumSheet = getOrCreateSheet_(CONFIG.ALBUM_SHEET);
+  formatAlbumSheet_(albumSheet);
+  Logger.log('Galerie jsou připravené: ' + productFolder.getName() + ', ' + albumFolder.getName());
 }
 
 function getProductImagesFolder_() {
@@ -999,6 +1018,183 @@ function publicDriveImageUrl_(fileId) {
   return 'https://lh3.googleusercontent.com/d/' + encodeURIComponent(fileId) + '=w1600';
 }
 
+function getAlbumImagesFolder_() {
+  const folders = DriveApp.getFoldersByName(CONFIG.ALBUM_IMAGES_FOLDER);
+  if (folders.hasNext()) return folders.next();
+
+  const folder = DriveApp.createFolder(CONFIG.ALBUM_IMAGES_FOLDER);
+  folder.setDescription('Veřejné fotoalbum Podprosečských domácích produktů.');
+  return folder;
+}
+
+function formatAlbumSheet_(sheet) {
+  const headers = ['ID / soubor', 'Název', 'Popisek', 'Adresa obrázku', 'Viditelná', 'Pořadí', 'Vytvořeno', 'Aktualizováno', 'Název souboru'];
+  ensureHeaders_(sheet, headers);
+}
+
+function albumPhotoFromRow_(row) {
+  const created = row[6] instanceof Date && !isNaN(row[6]) ? row[6].toISOString() : String(row[6] || '');
+  const updated = row[7] instanceof Date && !isNaN(row[7]) ? row[7].toISOString() : String(row[7] || '');
+  return {
+    id:String(row[0] || ''),
+    fileId:String(row[0] || ''),
+    title:restoreSheetText_(row[1] || ''),
+    caption:restoreSheetText_(row[2] || ''),
+    image:restoreSheetText_(row[3] || ''),
+    visible:toBool_(row[4]),
+    sortOrder:Number(row[5] || 0),
+    created:created,
+    updated:updated,
+    fileName:restoreSheetText_(row[8] || '')
+  };
+}
+
+function readAlbumPhotos_(includeHidden) {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = spreadsheet && spreadsheet.getSheetByName(CONFIG.ALBUM_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  const photos = sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues()
+    .map(albumPhotoFromRow_)
+    .filter(photo => photo.id && photo.image)
+    .filter(photo => includeHidden || photo.visible);
+
+  photos.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0) || String(a.created).localeCompare(String(b.created)));
+  return photos.slice(0, CONFIG.MAX_ALBUM_PHOTOS);
+}
+
+function publicAlbumPhotos_() {
+  return readAlbumPhotos_(false).map(photo => ({
+    id:photo.id,
+    title:photo.title,
+    caption:photo.caption,
+    image:photo.image
+  }));
+}
+
+function getAlbumData_() {
+  const sheet = getOrCreateSheet_(CONFIG.ALBUM_SHEET);
+  formatAlbumSheet_(sheet);
+  return htmlResponse_(true, '', '', { album:readAlbumPhotos_(true) });
+}
+
+function uploadAlbumPhoto_(payload) {
+  const existing = readAlbumPhotos_(true);
+  if (existing.length >= CONFIG.MAX_ALBUM_PHOTOS) {
+    throw new Error('Fotoalbum může obsahovat nejvýše ' + CONFIG.MAX_ALBUM_PHOTOS + ' fotografií. Nejprve některou smažte.');
+  }
+
+  const dataUrl = String(payload && payload.dataUrl || '');
+  const originalName = cleanText_(payload && payload.fileName || 'fotografie.jpg', 120);
+  const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) throw new Error('Vyberte obrázek JPG, PNG nebo WEBP.');
+
+  const mimeType = match[1];
+  const bytes = Utilities.base64Decode(match[2]);
+  if (!bytes.length) throw new Error('Fotografie je prázdná.');
+  if (bytes.length > CONFIG.MAX_IMAGE_BYTES) {
+    throw new Error('Fotografie je po zmenšení stále příliš velká. Zvolte menší fotografii.');
+  }
+
+  const extension = mimeType === 'image/png' ? 'png' : (mimeType === 'image/webp' ? 'webp' : 'jpg');
+  const baseName = originalName
+    .replace(/\.[^.]+$/, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+    .slice(0, 55) || 'fotografie';
+  const stamp = Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyyMMdd-HHmmss');
+  const fileName = 'album-' + baseName + '-' + stamp + '.' + extension;
+  const file = getAlbumImagesFolder_().createFile(Utilities.newBlob(bytes, mimeType, fileName));
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  const title = cleanText_(payload && payload.title || originalName.replace(/\.[^.]+$/, ''), 100) || 'Fotografie';
+  const caption = cleanText_(payload && payload.caption || '', 350);
+  const nextSort = existing.reduce((maximum, photo) => Math.max(maximum, Number(photo.sortOrder || 0)), 0) + 10;
+  const now = new Date();
+  const image = publicDriveImageUrl_(file.getId());
+  const sheet = getOrCreateSheet_(CONFIG.ALBUM_SHEET);
+  formatAlbumSheet_(sheet);
+  sheet.appendRow([
+    file.getId(), safeSheetText_(title), safeSheetText_(caption), safeSheetText_(image),
+    true, nextSort, now, now, safeSheetText_(fileName)
+  ]);
+  invalidatePublicPayloadCache_();
+
+  const photo = {
+    id:file.getId(), fileId:file.getId(), title:title, caption:caption, image:image,
+    visible:true, sortOrder:nextSort, created:now.toISOString(), updated:now.toISOString(), fileName:fileName
+  };
+  return htmlResponse_(true, 'Fotografie byla přidána do alba.', file.getId(), { photo:photo, album:readAlbumPhotos_(true) });
+}
+
+function findAlbumPhotoRow_(sheet, id) {
+  if (!id || sheet.getLastRow() < 2) return 0;
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  for (let index = 0; index < values.length; index++) {
+    if (String(values[index][0] || '') === String(id)) return index + 2;
+  }
+  return 0;
+}
+
+function saveAlbumPhoto_(payload) {
+  const source = payload && payload.photo || payload || {};
+  const id = cleanText_(source.id || source.fileId || '', 200);
+  if (!id) throw new Error('Chybí identifikátor fotografie.');
+
+  const sheet = getOrCreateSheet_(CONFIG.ALBUM_SHEET);
+  formatAlbumSheet_(sheet);
+  const rowNumber = findAlbumPhotoRow_(sheet, id);
+  if (!rowNumber) throw new Error('Fotografie už v albu není.');
+  const row = sheet.getRange(rowNumber, 1, 1, 9).getValues()[0];
+  const current = albumPhotoFromRow_(row);
+  const title = cleanText_(source.title, 100) || 'Fotografie';
+  const caption = cleanText_(source.caption, 350);
+  const visible = source.visible === undefined ? current.visible : toBool_(source.visible);
+  const sortOrder = Number.isFinite(Number(source.sortOrder)) ? Number(source.sortOrder) : current.sortOrder;
+
+  sheet.getRange(rowNumber, 2, 1, 7).setValues([[
+    safeSheetText_(title), safeSheetText_(caption), safeSheetText_(current.image), visible,
+    sortOrder, row[6] || new Date(), new Date()
+  ]]);
+  invalidatePublicPayloadCache_();
+  return htmlResponse_(true, 'Fotografie byla uložena.', id, { album:readAlbumPhotos_(true) });
+}
+
+function saveAlbumOrder_(payload) {
+  const requestedIds = Array.isArray(payload && payload.ids) ? payload.ids.map(value => cleanText_(value, 200)).filter(Boolean) : [];
+  const sheet = getOrCreateSheet_(CONFIG.ALBUM_SHEET);
+  formatAlbumSheet_(sheet);
+  if (sheet.getLastRow() < 2) return htmlResponse_(true, 'Pořadí je uložené.', '', { album:[] });
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues();
+  const knownIds = values.map(row => String(row[0] || '')).filter(Boolean);
+  const orderedIds = requestedIds.filter((id, index) => knownIds.includes(id) && requestedIds.indexOf(id) === index);
+  knownIds.forEach(id => { if (!orderedIds.includes(id)) orderedIds.push(id); });
+  const rank = {};
+  orderedIds.forEach((id, index) => { rank[id] = (index + 1) * 10; });
+  sheet.getRange(2, 6, values.length, 1).setValues(values.map(row => [rank[String(row[0] || '')] || 9990]));
+  invalidatePublicPayloadCache_();
+  return htmlResponse_(true, 'Pořadí fotografií je uložené.', '', { album:readAlbumPhotos_(true) });
+}
+
+function deleteAlbumPhoto_(payload) {
+  const id = cleanText_(payload && (payload.id || payload.fileId) || '', 200);
+  if (!id) throw new Error('Chybí identifikátor fotografie.');
+  const sheet = getOrCreateSheet_(CONFIG.ALBUM_SHEET);
+  formatAlbumSheet_(sheet);
+  const rowNumber = findAlbumPhotoRow_(sheet, id);
+  if (!rowNumber) throw new Error('Fotografie už v albu není.');
+
+  sheet.deleteRow(rowNumber);
+  try { DriveApp.getFileById(id).setTrashed(true); }
+  catch (error) { console.error('Fotografii se nepodařilo přesunout do koše Disku.', error); }
+  invalidatePublicPayloadCache_();
+  return htmlResponse_(true, 'Fotografie byla smazána z alba.', id, { album:readAlbumPhotos_(true) });
+}
+
 
 function login_(payload) {
   const password = cleanText_(payload.password, 200);
@@ -1048,6 +1244,24 @@ function findOrderByRequestId_(sheet, requestId) {
     if (String(values[i][26] || '') === id) return orderFromSheetRow_(values[i]);
   }
   return null;
+}
+
+function orderReceiptResponse_(requestId) {
+  const id = cleanText_(requestId || '', 100)
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 100);
+  if (!id) return { ok:true, kind:'orderReceipt', found:false };
+
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = spreadsheet && spreadsheet.getSheetByName(CONFIG.ORDERS_SHEET);
+  const order = sheet ? findOrderByRequestId_(sheet, id) : null;
+  return {
+    ok:true,
+    kind:'orderReceipt',
+    found:Boolean(order),
+    orderNumber:order ? String(order.orderNumber || '') : '',
+    loyalty:order ? publicLoyaltyOrderResult_(order) : undefined
+  };
 }
 
 function createOrder_(payload, manual) {

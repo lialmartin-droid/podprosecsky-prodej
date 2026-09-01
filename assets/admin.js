@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "3.3.0";
-console.info("Podprosečské produkty – admin.js V3.3.0 – věrnostní slevy na vejce");
+window.PDP_ADMIN_VERSION = "3.4.0";
+console.info("Podprosečské produkty – admin.js V3.4.0 – fotoalbum a měsíční kalendář");
 
 let products = [];
 let orders = [];
@@ -9,6 +9,7 @@ let eggPlanningRefreshPending = false;
 let eggPlanningMessage = "";
 let eggPlanningRequestId = 0;
 let businessSettings = {};
+let albumPhotos = [];
 let visitStats = null;
 let token = sessionStorage.getItem("pdp-admin-token") || "";
 let requestTimer = null;
@@ -17,8 +18,9 @@ let postCooldown = false;
 const postQueue = [];
 let adminDataRequestId = 0;
 let adminOrderRenderLimit = 30;
+let calendarMonthKey = currentPragueDateKey().slice(0, 7);
 const renderedAdminTabs = new Set();
-const ADMIN_CACHE_KEY = "pdp-admin-data-v2";
+const ADMIN_CACHE_KEY = "pdp-admin-data-v3-album";
 const ADMIN_VISIT_EXCLUDE_KEY = "pdp-admin-exclude-visits";
 const ADMIN_VISIT_EXCLUDE_PREF_KEY = "pdp-admin-exclude-pref-v1";
 const ADMIN_VISIT_EXCLUDE_COOKIE = "pdp_admin_exclude_visits";
@@ -162,8 +164,8 @@ function loadImage(dataUrl) {
 }
 
 async function prepareImageForUpload(file) {
-  if (!file || !/^image\/(jpeg|png|webp)$/.test(file.type)) {
-    throw new Error("Vyberte obrázek JPG, PNG nebo WEBP.");
+  if (!file || !/^image\//.test(file.type)) {
+    throw new Error("Vyberte fotografii nebo obrázek.");
   }
 
   const source = await readFileAsDataUrl(file);
@@ -191,7 +193,7 @@ async function prepareImageForUpload(file) {
 
   return {
     dataUrl,
-    fileName: String(file.name || "produkt.jpg").replace(/\.[^.]+$/, "") + ".jpg"
+    fileName: String(file.name || "fotografie.jpg").replace(/\.[^.]+$/, "") + ".jpg"
   };
 }
 
@@ -472,6 +474,7 @@ function saveAdminCache(data) {
       eggSettings: data.eggSettings || null,
       eggAvailability: data.eggAvailability || null,
       businessSettings: data.businessSettings || {},
+      album: data.album || [],
       visitStats: data.visitStats || null
     }));
   } catch (error) {
@@ -519,6 +522,7 @@ function applyAdminData(data, saveCache = true) {
   eggPlanningRefreshPending = false;
   eggPlanningMessage = "";
   if (has("businessSettings")) businessSettings = data.businessSettings || {};
+  if (has("album")) albumPhotos = Array.isArray(data.album) ? data.album : [];
   // Návštěvnost se od V3.2 načítá až po otevření její záložky.
   // Při aktualizaci hlavních dat proto zachováme případný již načtený souhrn.
   if (has("visitStats")) visitStats = data.visitStats || null;
@@ -1167,6 +1171,7 @@ function currentAdminState() {
     eggSettings,
     eggAvailability,
     businessSettings,
+    album: albumPhotos,
     visitStats
   };
 }
@@ -1298,14 +1303,95 @@ function saveOrder(order, button = null, options = {}) {
   });
 }
 
-function renderCalendar() {
+function addCalendarMonths(monthKey, amount) {
+  const [year, month] = String(monthKey || "").split("-").map(Number);
+  const date = new Date(Date.UTC(year || new Date().getUTCFullYear(), (month || 1) - 1 + Number(amount || 0), 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function calendarEventClass(status) {
+  return {
+    "Nová":"new",
+    "Připravuji":"preparing",
+    "Připraveno":"ready",
+    "Vyzvednuto":"done"
+  }[String(status || "Nová")] || "new";
+}
+
+function openOrderFromCalendar(orderId) {
+  const order = orders.find(item => String(item.id) === String(orderId));
+  if (!order) return;
+  $("#searchOrders").value = order.name || "";
+  $("#statusFilter").value = "";
+  $("#archiveFilter").value = "all";
+  adminOrderRenderLimit = Math.max(30, orders.length);
+  document.querySelector('[data-tab="ordersTab"]')?.click();
+  const editButton = document.querySelector(dataSelector("edit-order", order.id));
+  if (editButton) {
+    editButton.click();
+    editButton.closest("article")?.scrollIntoView({behavior:"smooth", block:"start"});
+  }
+}
+
+function renderCalendarMonth(entries) {
+  const grid = $("#calendarMonthGrid");
+  const title = $("#calendarMonthTitle");
+  if (!grid || !title) return;
+
+  const [year, month] = calendarMonthKey.split("-").map(Number);
+  const first = new Date(Date.UTC(year, month - 1, 1));
+  const monthTitle = new Intl.DateTimeFormat("cs-CZ", {month:"long", year:"numeric", timeZone:"UTC"}).format(first);
+  title.textContent = monthTitle.charAt(0).toUpperCase() + monthTitle.slice(1);
+
   const groups = {};
-  orders.flatMap(calendarEntriesForOrder).forEach(entry => {
+  entries.filter(entry => /^\d{4}-\d{2}-\d{2}$/.test(String(entry.date || ""))).forEach(entry => {
+    (groups[entry.date] ??= []).push(entry);
+  });
+  Object.values(groups).forEach(group => group.sort((a, b) => String(a.order.name || "").localeCompare(String(b.order.name || ""), "cs")));
+
+  const weekdayNames = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
+  const offset = (first.getUTCDay() + 6) % 7;
+  const start = new Date(Date.UTC(year, month - 1, 1 - offset));
+  const today = currentPragueDateKey();
+  const cells = [];
+
+  for (let index = 0; index < 42; index++) {
+    const date = new Date(start.getTime() + index * 86400000);
+    const dateKey = date.toISOString().slice(0, 10);
+    const dayEntries = groups[dateKey] || [];
+    const outside = date.getUTCMonth() !== month - 1;
+    const weekend = date.getUTCDay() === 0 || date.getUTCDay() === 6;
+    const eggs = dayEntries.reduce((sum, entry) => sum + (entry.items || [])
+      .filter(item => String(item.productId) === "2")
+      .reduce((itemSum, item) => itemSum + Math.max(0, Number(item.qty || 0)), 0), 0);
+    const visibleEntries = dayEntries.slice(0, 4);
+    cells.push(`<div class="admin-calendar-day ${outside ? "outside" : ""} ${weekend ? "weekend" : ""} ${dateKey === today ? "today" : ""}">
+      <div class="admin-calendar-date"><time datetime="${dateKey}">${date.getUTCDate()}</time>${eggs ? `<span title="Objednaná vejce">🥚 ${eggs}</span>` : ""}</div>
+      <div class="admin-calendar-events">${visibleEntries.map(entry => {
+        const items = (entry.items || []).map(item => `${Number(item.qty || 0)}× ${item.name}`).join(", ");
+        return `<button class="admin-calendar-event ${calendarEventClass(entry.status)}" type="button" data-calendar-open-order="${esc(entry.order.id)}" title="${esc(`${entry.order.name}: ${items}`)}"><strong>${esc(entry.order.name)}</strong><span>${entry.partLabel ? `${esc(entry.partLabel)} · ` : ""}${esc(entry.status)}</span></button>`;
+      }).join("")}${dayEntries.length > visibleEntries.length ? `<span class="admin-calendar-more">+${dayEntries.length - visibleEntries.length} další</span>` : ""}</div>
+    </div>`);
+  }
+
+  grid.innerHTML = weekdayNames.map(name => `<div class="admin-calendar-weekday">${name}</div>`).join("") + cells.join("");
+  grid.querySelectorAll("[data-calendar-open-order]").forEach(button => {
+    button.onclick = () => openOrderFromCalendar(button.dataset.calendarOpenOrder);
+  });
+}
+
+function renderUpcomingPickups(entries) {
+  const today = currentPragueDateKey();
+  const groups = {};
+  entries.forEach(entry => {
     const key = entry.date || "without";
+    if (key !== "without" && key < today) return;
     (groups[key] ??= []).push(entry);
   });
+  const keys = Object.keys(groups)
+    .sort((a, b) => a === "without" ? 1 : b === "without" ? -1 : a.localeCompare(b))
+    .slice(0, 14);
 
-  const keys = Object.keys(groups).sort((a, b) => a === "without" ? 1 : b === "without" ? -1 : a.localeCompare(b));
   $("#calendarList").innerHTML = keys.map(key => {
     const groupOrders = new Set(groups[key].map(entry => String(entry.order.id))).size;
     const groupEggs = groups[key].reduce((sum, entry) => sum + (entry.items || [])
@@ -1316,9 +1402,18 @@ function renderCalendar() {
         <h3>${key === "without" ? "Bez termínu" : localDate(key)}</h3>
         <div class="badges"><span class="badge blue">${groupOrders} objednávek</span>${groupEggs ? `<span class="badge green">🥚 ${groupEggs} ks</span>` : ""}</div>
       </div>
-      ${groups[key].map(entry => `<div class="calendar-entry"><div><strong>${esc(entry.order.name)}${entry.partLabel ? ` · ${esc(entry.partLabel)}` : ""}</strong><div class="meta">${(entry.items || []).map(item => `${Number(item.qty || 0)}× ${esc(item.name)}`).join("<br>")}</div></div><div><strong>${money(entry.total)}</strong><div class="meta">${esc(entry.status)}</div></div></div>`).join("")}
+      ${groups[key].map(entry => `<button class="calendar-entry calendar-entry-button" type="button" data-calendar-open-order="${esc(entry.order.id)}"><div><strong>${esc(entry.order.name)}${entry.partLabel ? ` · ${esc(entry.partLabel)}` : ""}</strong><div class="meta">${(entry.items || []).map(item => `${Number(item.qty || 0)}× ${esc(item.name)}`).join("<br>")}</div></div><div><strong>${money(entry.total)}</strong><div class="meta">${esc(entry.status)}</div></div></button>`).join("")}
     </article>`;
-  }).join("") || '<div class="empty">Kalendář je prázdný.</div>';
+  }).join("") || '<div class="empty">Žádné nadcházející vyzvednutí.</div>';
+  $("#calendarList").querySelectorAll("[data-calendar-open-order]").forEach(button => {
+    button.onclick = () => openOrderFromCalendar(button.dataset.calendarOpenOrder);
+  });
+}
+
+function renderCalendar() {
+  const entries = orders.flatMap(calendarEntriesForOrder);
+  renderCalendarMonth(entries);
+  renderUpcomingPickups(entries);
 }
 
 function productBadges(product) {
@@ -1580,6 +1675,151 @@ function renderInsights() {
   }
 }
 
+function setAlbumAdminStatus(message, isError = false) {
+  const element = $("#albumAdminStatus");
+  if (!element) return;
+  element.textContent = message || "";
+  element.classList.toggle("error", Boolean(isError));
+}
+
+function applyAlbumResponse(data) {
+  if (Array.isArray(data?.album)) albumPhotos = data.album;
+  markAdminTabsDirty("albumTab");
+  if (activeAdminTabId() === "albumTab") renderAdminTab("albumTab", true);
+  saveAdminCache(currentAdminState());
+}
+
+function postAsync(action, payload) {
+  return new Promise(resolve => post(action, payload, resolve));
+}
+
+async function uploadAlbumFiles(files) {
+  const list = Array.from(files || []);
+  if (!list.length) return;
+  const button = $("#addAlbumPhotos");
+  const originalText = button?.textContent || "Přidat fotografie";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Nahrávám…";
+  }
+
+  let uploaded = 0;
+  try {
+    for (let index = 0; index < list.length; index++) {
+      const file = list[index];
+      setAlbumAdminStatus(`Připravuji fotografii ${index + 1} z ${list.length}…`);
+      const prepared = await prepareImageForUpload(file);
+      const title = String(file.name || "Fotografie").replace(/\.[^.]+$/, "");
+      setAlbumAdminStatus(`Nahrávám fotografii ${index + 1} z ${list.length}…`);
+      const result = await postAsync("uploadAlbumPhoto", {...prepared, title, caption:""});
+      if (!result?.ok) throw new Error(result?.message || "Fotografii se nepodařilo nahrát.");
+      uploaded++;
+      if (Array.isArray(result.album)) albumPhotos = result.album;
+      else if (result.photo) albumPhotos.push(result.photo);
+      markAdminTabsDirty("albumTab");
+      renderAdminTab("albumTab", true);
+    }
+    saveAdminCache(currentAdminState());
+    setAlbumAdminStatus(uploaded === 1 ? "Fotografie byla přidána do alba." : `${uploaded} fotografií bylo přidáno do alba.`);
+  } catch (error) {
+    setAlbumAdminStatus(`${uploaded ? `Nahráno ${uploaded}. ` : ""}${error.message || "Nahrávání se nepodařilo."}`, true);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
+function renderAlbumAdmin() {
+  const root = $("#albumAdminList");
+  if (!root) return;
+  if (!albumPhotos.length) {
+    root.innerHTML = '<div class="empty">Fotoalbum je zatím prázdné. Tlačítkem „Přidat fotografie“ můžete vybrat i více snímků najednou.</div>';
+    return;
+  }
+
+  root.innerHTML = albumPhotos.map((photo, index) => `
+    <article class="album-admin-card">
+      <img src="${esc(photo.image)}" alt="${esc(photo.title || "Fotografie")}" loading="lazy">
+      <div class="album-admin-fields">
+        <label><span>Název</span><input data-album-title="${esc(photo.id)}" maxlength="100" value="${esc(photo.title || "")}"></label>
+        <label><span>Popisek</span><textarea data-album-caption="${esc(photo.id)}" maxlength="350" rows="3" placeholder="Krátký příběh k fotografii">${esc(photo.caption || "")}</textarea></label>
+        <label class="album-visible-toggle"><input data-album-visible="${esc(photo.id)}" type="checkbox" ${photo.visible ? "checked" : ""}> Zobrazit zákazníkům</label>
+        <div class="album-admin-actions">
+          <button class="secondary-button" type="button" data-album-move-up="${esc(photo.id)}" ${index === 0 ? "disabled" : ""} aria-label="Posunout fotografii výš">↑ Výš</button>
+          <button class="secondary-button" type="button" data-album-move-down="${esc(photo.id)}" ${index === albumPhotos.length - 1 ? "disabled" : ""} aria-label="Posunout fotografii níž">↓ Níž</button>
+          <button class="primary-small" type="button" data-album-save="${esc(photo.id)}">Uložit</button>
+          <button class="danger-button" type="button" data-album-delete="${esc(photo.id)}">Smazat</button>
+        </div>
+      </div>
+    </article>`).join("");
+
+  root.querySelectorAll("[data-album-save]").forEach(button => {
+    button.onclick = () => {
+      const id = button.dataset.albumSave;
+      const current = albumPhotos.find(photo => String(photo.id) === String(id));
+      if (!current) return;
+      const photo = {
+        ...current,
+        title: document.querySelector(dataSelector("album-title", id))?.value.trim() || "Fotografie",
+        caption: document.querySelector(dataSelector("album-caption", id))?.value.trim() || "",
+        visible: Boolean(document.querySelector(dataSelector("album-visible", id))?.checked)
+      };
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Ukládám…";
+      post("saveAlbumPhoto", {photo}, data => {
+        button.disabled = false;
+        button.textContent = originalText;
+        if (!data.ok) return setAlbumAdminStatus(data.message || "Fotografii se nepodařilo uložit.", true);
+        applyAlbumResponse(data);
+        setAlbumAdminStatus(data.message || "Fotografie byla uložena.");
+      });
+    };
+  });
+
+  const movePhoto = (id, offset) => {
+    const from = albumPhotos.findIndex(photo => String(photo.id) === String(id));
+    const to = from + offset;
+    if (from < 0 || to < 0 || to >= albumPhotos.length) return;
+    const previous = albumPhotos.slice();
+    [albumPhotos[from], albumPhotos[to]] = [albumPhotos[to], albumPhotos[from]];
+    markAdminTabsDirty("albumTab");
+    renderAdminTab("albumTab", true);
+    setAlbumAdminStatus("Ukládám pořadí…");
+    post("saveAlbumOrder", {ids:albumPhotos.map(photo => photo.id)}, data => {
+      if (!data.ok) {
+        albumPhotos = previous;
+        markAdminTabsDirty("albumTab");
+        renderAdminTab("albumTab", true);
+        setAlbumAdminStatus(data.message || "Pořadí se nepodařilo uložit.", true);
+        return;
+      }
+      applyAlbumResponse(data);
+      setAlbumAdminStatus(data.message || "Pořadí je uložené.");
+    });
+  };
+  root.querySelectorAll("[data-album-move-up]").forEach(button => button.onclick = () => movePhoto(button.dataset.albumMoveUp, -1));
+  root.querySelectorAll("[data-album-move-down]").forEach(button => button.onclick = () => movePhoto(button.dataset.albumMoveDown, 1));
+
+  root.querySelectorAll("[data-album-delete]").forEach(button => {
+    button.onclick = () => {
+      const id = button.dataset.albumDelete;
+      if (!confirm("Opravdu smazat tuto fotografii z alba?")) return;
+      button.disabled = true;
+      post("deleteAlbumPhoto", {id}, data => {
+        if (!data.ok) {
+          button.disabled = false;
+          return setAlbumAdminStatus(data.message || "Fotografii se nepodařilo smazat.", true);
+        }
+        applyAlbumResponse(data);
+        setAlbumAdminStatus(data.message || "Fotografie byla smazána.");
+      });
+    };
+  });
+}
+
 function renderBusinessSettings() {
   const s = businessSettings || {};
   $("#bannerEnabled").checked = Boolean(s.bannerEnabled);
@@ -1615,6 +1855,7 @@ function renderAdminTab(panelId, force = false) {
   else if (id === "calendarTab") renderCalendar();
   else if (id === "eggsTab") renderEggSettings();
   else if (id === "productsTab") renderProducts();
+  else if (id === "albumTab") renderAlbumAdmin();
   else if (id === "insightsTab") renderInsights();
   else if (id === "settingsTab") renderBusinessSettings();
   else return;
@@ -1641,6 +1882,33 @@ document.querySelectorAll(".tab").forEach(tab => {
     renderAdminTab(tab.dataset.tab);
   };
 });
+
+$("#calendarPreviousMonth")?.addEventListener("click", () => {
+  calendarMonthKey = addCalendarMonths(calendarMonthKey, -1);
+  markAdminTabsDirty("calendarTab");
+  renderAdminTab("calendarTab", true);
+});
+$("#calendarNextMonth")?.addEventListener("click", () => {
+  calendarMonthKey = addCalendarMonths(calendarMonthKey, 1);
+  markAdminTabsDirty("calendarTab");
+  renderAdminTab("calendarTab", true);
+});
+$("#calendarCurrentMonth")?.addEventListener("click", () => {
+  calendarMonthKey = currentPragueDateKey().slice(0, 7);
+  markAdminTabsDirty("calendarTab");
+  renderAdminTab("calendarTab", true);
+});
+
+const addAlbumPhotosButton = $("#addAlbumPhotos");
+const albumPhotoFilesInput = $("#albumPhotoFiles");
+if (addAlbumPhotosButton && albumPhotoFilesInput) {
+  addAlbumPhotosButton.onclick = () => albumPhotoFilesInput.click();
+  albumPhotoFilesInput.onchange = () => {
+    const files = Array.from(albumPhotoFilesInput.files || []);
+    albumPhotoFilesInput.value = "";
+    uploadAlbumFiles(files);
+  };
+}
 
 let orderFilterTimer = 0;
 $("#searchOrders").addEventListener("input", () => {

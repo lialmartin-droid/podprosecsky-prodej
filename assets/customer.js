@@ -1,5 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "3.3.1";
-console.info("Podprosečské produkty – customer.js V3.3.1 – člen už znovu nepotvrzuje členství");
+window.PDP_CUSTOMER_VERSION = "3.4.0";
+console.info("Podprosečské produkty – customer.js V3.4.0 – veřejné fotoalbum");
 
 // Karty produktů se při první návštěvě vykreslí okamžitě z bezpečného náhledu.
 // Sklad a objednávání se odemknou až po potvrzení živých dat z Google Tabulky.
@@ -10,6 +10,8 @@ let productsLoadFailed = false;
 let eggAvailability = null;
 let availabilityBlocked = false;
 let businessSettings = {};
+let albumPhotos = [];
+let activeAlbumPhotoIndex = -1;
 let autoPickupDate = "";
 let loyaltyOrderState = null;
 let loyaltyOptInAutoChecked = false;
@@ -41,6 +43,10 @@ let submissionPending = false;
 let submissionFinished = false;
 let currentOrderRequestId = "";
 let submitTimeout = null;
+let orderReceiptPollTimer = null;
+let orderReceiptRequestTimer = null;
+let orderReceiptPollStartedAt = 0;
+let orderReceiptCallbackName = "";
 let watchPending = null;
 
 function backendUrl() {
@@ -270,6 +276,17 @@ function normalizeProducts(input) {
   }));
 }
 
+function normalizeAlbumPhotos(input) {
+  return (Array.isArray(input) ? input : [])
+    .map((photo, index) => ({
+      id:String(photo?.id || `photo-${index}`),
+      title:String(photo?.title || "Fotografie").trim(),
+      caption:String(photo?.caption || "").trim(),
+      image:String(photo?.image || "").trim()
+    }))
+    .filter(photo => photo.image);
+}
+
 // Bezpečný první náhled současné veřejné nabídky. Díky němu zákazník uvidí
 // produkty a jejich fotografie okamžitě i při úplně první návštěvě. Sklad,
 // kapacity a objednávací tlačítka zůstávají zamčené, dokud server nepotvrdí
@@ -349,7 +366,7 @@ const FIRST_PAINT_PRODUCTS = [
 
 let productsRequestInFlight = false;
 let productsRequestCounter = 0;
-const PRODUCTS_CACHE_KEY = "pdp-products-cache-v7-first-paint";
+const PRODUCTS_CACHE_KEY = "pdp-products-cache-v8-album";
 const PRODUCTS_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 
 function saveProductsCache(data) {
@@ -377,6 +394,7 @@ function loadProductsCache() {
     // ani starý plán termínů. Ty musí vždy potvrdit živý server.
     eggAvailability = null;
     businessSettings = cached.data.settings || {};
+    albumPhotos = normalizeAlbumPhotos(cached.data.album);
     productsLoaded = true;
     productsVerified = false;
     productsLoadFailed = false;
@@ -395,6 +413,7 @@ function loadFirstPaintOffer() {
   products = normalizeProducts(FIRST_PAINT_PRODUCTS);
   eggAvailability = null;
   businessSettings = {};
+  albumPhotos = [];
   productsLoaded = true;
   productsVerified = false;
   productsLoadFailed = false;
@@ -745,6 +764,7 @@ function loadProducts(background = false) {
     products = normalizeProducts(data.products);
     eggAvailability = data.availability || null;
     businessSettings = data.settings || {};
+    albumPhotos = normalizeAlbumPhotos(data.album);
     saveProductsCache(data);
     productsLoaded = true;
     productsVerified = true;
@@ -1291,10 +1311,147 @@ function renderSummary(forceNearestPickup = false) {
   updatePickupAvailability(forceNearestPickup);
 }
 
+function albumThumbnailUrl(url) {
+  return String(url || "").replace(/=w\d+$/, "=w700");
+}
+
+function closePhotoLightbox() {
+  const modal = document.getElementById("photoLightbox");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  document.body.classList.remove("photo-lightbox-open");
+  activeAlbumPhotoIndex = -1;
+}
+
+function showPhotoLightbox(index) {
+  if (!albumPhotos.length) return;
+  const normalizedIndex = (Number(index) + albumPhotos.length) % albumPhotos.length;
+  const photo = albumPhotos[normalizedIndex];
+  const modal = document.getElementById("photoLightbox");
+  const image = document.getElementById("photoLightboxImage");
+  const title = document.getElementById("photoLightboxTitle");
+  const caption = document.getElementById("photoLightboxCaption");
+  if (!modal || !image || !title || !caption) return;
+
+  activeAlbumPhotoIndex = normalizedIndex;
+  image.src = photo.image;
+  image.alt = photo.title || "Fotografie z Pod Prosečí";
+  title.textContent = photo.title || "Fotografie z Pod Prosečí";
+  caption.textContent = photo.caption || "";
+  caption.classList.toggle("hidden", !photo.caption);
+  modal.classList.remove("hidden");
+  document.body.classList.add("photo-lightbox-open");
+  const single = albumPhotos.length < 2;
+  document.getElementById("photoLightboxPrevious")?.classList.toggle("hidden", single);
+  document.getElementById("photoLightboxNext")?.classList.toggle("hidden", single);
+}
+
+function renderPhotoAlbum() {
+  const section = document.getElementById("fotoalbum");
+  const grid = document.getElementById("photoAlbumGrid");
+  if (!section || !grid) return;
+  if (!albumPhotos.length) {
+    section.classList.add("hidden");
+    grid.innerHTML = "";
+    closePhotoLightbox();
+    return;
+  }
+
+  section.classList.remove("hidden");
+  grid.innerHTML = albumPhotos.map((photo, index) => `
+    <button class="photo-album-card" type="button" data-album-photo-index="${index}" aria-label="Otevřít fotografii ${esc(photo.title || String(index + 1))}">
+      <img src="${esc(albumThumbnailUrl(photo.image))}" alt="${esc(photo.title || "Fotografie z Pod Prosečí")}" loading="lazy" decoding="async">
+      ${(photo.title || photo.caption) ? `<span><strong>${esc(photo.title || "Fotografie")}</strong>${photo.caption ? `<small>${esc(photo.caption)}</small>` : ""}</span>` : ""}
+    </button>`).join("");
+  grid.querySelectorAll("[data-album-photo-index]").forEach(button => {
+    button.onclick = () => showPhotoLightbox(Number(button.dataset.albumPhotoIndex));
+  });
+}
+
 function renderAll() {
   renderLoyaltyRule();
   renderProducts();
   renderSummary();
+  renderPhotoAlbum();
+}
+
+function orderSuccessMessage(data) {
+  const appliedDiscount = Math.max(0, Number(data?.loyalty?.discountApplied || 0));
+  return appliedDiscount > 0
+    ? `Objednávka byla odeslána. Věrnostní sleva ${appliedDiscount} Kč byla automaticky započítána.`
+    : "Objednávka byla odeslána. Brzy se vám ozveme.";
+}
+
+function cleanupOrderReceiptRequest() {
+  clearTimeout(orderReceiptRequestTimer);
+  orderReceiptRequestTimer = null;
+  if (!orderReceiptCallbackName) return;
+
+  const callbackName = orderReceiptCallbackName;
+  orderReceiptCallbackName = "";
+  const script = document.getElementById(`jsonp-${callbackName}`);
+  if (script) script.remove();
+  try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+}
+
+function stopOrderReceiptPolling() {
+  clearTimeout(orderReceiptPollTimer);
+  orderReceiptPollTimer = null;
+  cleanupOrderReceiptRequest();
+  orderReceiptPollStartedAt = 0;
+}
+
+function orderReceiptVerificationTimedOut() {
+  stopOrderReceiptPolling();
+  if (!submissionPending || submissionFinished) return;
+  submissionPending = false;
+  submitButton.disabled = availabilityBlocked || !productsVerified;
+  submitButton.textContent = "Odeslat objednávku";
+  feedbackEl.textContent = "Potvrzení trvá nezvykle dlouho. Objednávka může být už uložená; při opakování ji systém podle stejného ID nevytvoří podruhé.";
+}
+
+function scheduleOrderReceiptCheck(delay) {
+  clearTimeout(orderReceiptPollTimer);
+  if (!submissionPending || submissionFinished || !currentOrderRequestId) return;
+  orderReceiptPollTimer = setTimeout(checkOrderReceipt, Math.max(0, Number(delay || 0)));
+}
+
+function checkOrderReceipt() {
+  if (!submissionPending || submissionFinished || !currentOrderRequestId) return;
+  if (Date.now() - orderReceiptPollStartedAt >= 75000) {
+    orderReceiptVerificationTimedOut();
+    return;
+  }
+
+  cleanupOrderReceiptRequest();
+  const callbackName = `PDP_ORDER_RECEIPT_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  orderReceiptCallbackName = callbackName;
+
+  const completeAttempt = data => {
+    if (orderReceiptCallbackName !== callbackName) return;
+    cleanupOrderReceiptRequest();
+    if (data && data.ok && data.found) {
+      finish(true, orderSuccessMessage(data));
+      return;
+    }
+    scheduleOrderReceiptCheck(3000);
+  };
+
+  window[callbackName] = completeAttempt;
+  const query = new URLSearchParams({
+    action: "orderReceipt",
+    requestId: currentOrderRequestId,
+    callback: callbackName,
+    t: String(Date.now())
+  });
+  appendJsonp(`${backendUrl()}?${query.toString()}`, callbackName, () => completeAttempt(null));
+  orderReceiptRequestTimer = setTimeout(() => completeAttempt(null), 10000);
+}
+
+function startOrderReceiptPolling() {
+  stopOrderReceiptPolling();
+  orderReceiptPollStartedAt = Date.now();
+  scheduleOrderReceiptCheck(7000);
 }
 
 function finish(success, message) {
@@ -1303,6 +1460,7 @@ function finish(success, message) {
   submissionFinished = true;
   submissionPending = false;
   clearTimeout(submitTimeout);
+  stopOrderReceiptPolling();
   submitButton.textContent = "Odeslat objednávku";
   feedbackEl.textContent = message;
 
@@ -1361,11 +1519,7 @@ window.addEventListener("message", event => {
     watchPending = null;
     return;
   }
-  const appliedDiscount = Math.max(0, Number(data.loyalty?.discountApplied || 0));
-  const successMessage = appliedDiscount > 0
-    ? `Objednávka byla odeslána. Věrnostní sleva ${appliedDiscount} Kč byla automaticky započítána.`
-    : "Objednávka byla odeslána. Brzy se vám ozveme.";
-  finish(Boolean(data.ok), data.ok ? successMessage : (data.message || "Objednávku se nepodařilo odeslat."));
+  finish(Boolean(data.ok), data.ok ? orderSuccessMessage(data) : (data.message || "Objednávku se nepodařilo odeslat."));
 });
 
 function orderRequestId() {
@@ -1449,14 +1603,13 @@ submitButton.addEventListener("click", () => {
   submitButton.textContent = "Odesílám…";
   feedbackEl.textContent = "Odesílám objednávku a ověřuji dostupnost…";
   form.submit();
+  startOrderReceiptPolling();
 
   clearTimeout(submitTimeout);
   submitTimeout = setTimeout(() => {
     if (submissionPending && !submissionFinished) {
-      submissionPending = false;
-      submitButton.disabled = availabilityBlocked || !productsVerified;
-      submitButton.textContent = "Odeslat objednávku";
-      feedbackEl.textContent = "Nepodařilo se potvrdit odeslání. Před opakováním zkontrolujte e-mail nebo tabulku.";
+      submitButton.textContent = "Ověřuji objednávku…";
+      feedbackEl.textContent = "Objednávka byla odeslána. Ještě ověřujeme její uložení…";
     }
   }, 25000);
 });
@@ -1498,6 +1651,19 @@ document.getElementById("loyaltyLookupContact")?.addEventListener("keydown", eve
 });
 document.getElementById("loyaltyJoinName")?.addEventListener("keydown", event => {
   if (event.key === "Enter") joinPublicLoyalty();
+});
+
+document.getElementById("photoLightboxClose")?.addEventListener("click", closePhotoLightbox);
+document.getElementById("photoLightboxPrevious")?.addEventListener("click", () => showPhotoLightbox(activeAlbumPhotoIndex - 1));
+document.getElementById("photoLightboxNext")?.addEventListener("click", () => showPhotoLightbox(activeAlbumPhotoIndex + 1));
+document.getElementById("photoLightbox")?.addEventListener("click", event => {
+  if (event.target === event.currentTarget) closePhotoLightbox();
+});
+document.addEventListener("keydown", event => {
+  if (activeAlbumPhotoIndex < 0) return;
+  if (event.key === "Escape") closePhotoLightbox();
+  if (event.key === "ArrowLeft") showPhotoLightbox(activeAlbumPhotoIndex - 1);
+  if (event.key === "ArrowRight") showPhotoLightbox(activeAlbumPhotoIndex + 1);
 });
 
 const cachedOfferShown = loadProductsCache();

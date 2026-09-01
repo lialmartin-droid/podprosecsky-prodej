@@ -17,11 +17,11 @@
   <link rel="dns-prefetch" href="//script.google.com">
   <link rel="dns-prefetch" href="//script.googleusercontent.com">
   <link rel="preload" href="../assets/config.js?v=320-20260819" as="script">
-  <link rel="preload" href="../assets/admin.js?v=330-20260827" as="script">
-  <link rel="preload" href="../assets/admin-enhancements.js?v=330-20260827" as="script">
-  <link rel="stylesheet" href="../assets/style.css?v=330-20260827-loyalty">
+  <link rel="preload" href="../assets/admin.js?v=340-20260901" as="script">
+  <link rel="preload" href="../assets/admin-enhancements.js?v=340-20260901" as="script">
+  <link rel="stylesheet" href="../assets/style.css?v=340-20260901-album-calendar">
 </head>
-<body data-pdp-admin-version="3.3.0">
+<body data-pdp-admin-version="3.4.0">
 <section id="adminLogin" class="login-screen hidden">
   <div class="login-card">
     <div style="font-size:46px">🌼🐝🐔</div>
@@ -68,6 +68,7 @@
       <button class="tab" data-tab="calendarTab">Kalendář</button>
       <button class="tab" data-tab="eggsTab">Vejce</button>
       <button class="tab" data-tab="productsTab">Produkty</button>
+      <button class="tab" data-tab="albumTab">Fotoalbum</button>
       <button class="tab" data-tab="insightsTab">Statistiky</button>
       <button class="tab" data-tab="settingsTab">Nastavení webu</button>
     </nav>
@@ -121,8 +122,16 @@
 
     <section id="calendarTab" class="tab-panel">
       <div class="section-head">
-        <div><div class="eyebrow">Podle termínu</div><h2>Kalendář objednávek</h2></div>
+        <div><div class="eyebrow">Termíny vyzvednutí</div><h2>Kalendář objednávek</h2></div>
       </div>
+      <div class="admin-calendar-toolbar">
+        <button id="calendarPreviousMonth" class="secondary-button" type="button" aria-label="Předchozí měsíc">←</button>
+        <h3 id="calendarMonthTitle">—</h3>
+        <button id="calendarNextMonth" class="secondary-button" type="button" aria-label="Následující měsíc">→</button>
+        <button id="calendarCurrentMonth" class="secondary-button" type="button">Dnešní měsíc</button>
+      </div>
+      <div class="admin-calendar-scroll"><div id="calendarMonthGrid" class="admin-calendar-grid"></div></div>
+      <div class="section-head compact-head"><div><div class="eyebrow">Rychlý přehled</div><h2>Nejbližší vyzvednutí</h2></div></div>
       <div id="calendarList" class="stack"></div>
     </section>
 
@@ -202,6 +211,19 @@
       <div id="productsList" class="stack"></div>
     </section>
 
+    <section id="albumTab" class="tab-panel">
+      <div class="section-head">
+        <div><div class="eyebrow">Fotografie pro zákazníky</div><h2>Správa fotoalba</h2></div>
+        <div>
+          <button id="addAlbumPhotos" class="primary-small" type="button">Přidat fotografie</button>
+          <input id="albumPhotoFiles" type="file" accept="image/*" multiple hidden>
+        </div>
+      </div>
+      <p class="settings-note">Fotografie se po nahrání zobrazí na zákaznické stránce. U každé můžete upravit název a popisek, skrýt ji nebo změnit pořadí šipkami.</p>
+      <p id="albumAdminStatus" class="feedback" aria-live="polite"></p>
+      <div id="albumAdminList" class="album-admin-list"></div>
+    </section>
+
 
     <section id="insightsTab" class="tab-panel">
       <div class="section-head"><div><div class="eyebrow">Souhrny</div><h2>Statistiky prodeje a návštěvnosti</h2></div></div>
@@ -259,7 +281,7 @@
   <input id="adminPayload" name="payload" type="hidden">
 </form>
 <script src="../assets/config.js?v=320-20260819"></script>
-<script src="../assets/admin.js?v=330-20260827"></script>
-<script src="../assets/admin-enhancements.js?v=330-20260827" data-pdp-admin-enhancements="1"></script>
+<script src="../assets/admin.js?v=340-20260901"></script>
+<script src="../assets/admin-enhancements.js?v=340-20260901" data-pdp-admin-enhancements="1"></script>
 </body>
 </html>
