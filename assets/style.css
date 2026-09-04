@@ -105,7 +105,7 @@ footer{text-align:center;padding:24px;background:#f7f3ec;color:var(--muted);font
 }
 
 .login-screen{min-height:100vh;display:grid;place-items:center;padding:22px;background:linear-gradient(180deg,#fff8df,#fff)}
-.login-screen.hidden{display:none}.login-card{width:min(100%,430px);padding:28px;border:1px solid var(--line);border-radius:24px;background:#fff;box-shadow:0 18px 50px rgba(91,67,31,.12)}.login-card input{width:100%;border:1px solid #d7cec2;border-radius:12px;padding:14px;background:#fff;color:#000;font-size:17px}.site-shell.hidden{display:none}
+.login-screen.hidden{display:none}.login-card{width:min(100%,430px);padding:28px;border:1px solid var(--line);border-radius:24px;background:#fff;box-shadow:0 18px 50px rgba(91,67,31,.12)}.admin-login-brand{display:flex;align-items:center;justify-content:center;gap:14px;margin:0 0 20px;padding-bottom:18px;border-bottom:1px solid var(--line)}.admin-login-brand img{display:block;width:64px;height:64px;border:1px solid rgba(76,59,36,.12);border-radius:16px;object-fit:cover;box-shadow:0 5px 15px rgba(64,57,42,.14)}.admin-login-brand strong{color:#4d341e;font-family:"Merienda",cursive;font-size:24px;line-height:1.2}.login-card input{width:100%;border:1px solid #d7cec2;border-radius:12px;padding:14px;background:#fff;color:#000;font-size:17px}.site-shell.hidden{display:none}
 
 /* V12 – plánování dostupnosti vajec */
 .availability-box{margin:12px 0 4px;padding:13px 14px;border-radius:14px;background:#edf5e9;color:#45633c;font-size:14px;line-height:1.5;font-weight:700}
