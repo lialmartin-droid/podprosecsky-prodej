@@ -1,0 +1,24 @@
+MALÁ AKTUALIZACE V3.5.4 – REGISTRACE VE VĚRNOSTNÍM ÚČTU
+
+Nahrajte celý obsah tohoto balíčku do kořene stávajícího GitHub repozitáře
+a potvrďte nahrazení stejnojmenných souborů.
+
+Mění se:
+
+  /index.html
+  /vernost/index.html
+  /assets/account.js
+  /assets/customer.js
+  /assets/style.css
+
+Co je nové:
+
+- Registrace je viditelná přímo v záložce Věrnost a objednávky.
+- Zákazník si vybere Chci se zapojit nebo Už jsem člen.
+- Při registraci vyplní jméno, e-mail a volitelně telefon.
+- Členství se založí po potvrzení šestimístného kódu z e-mailu.
+- U objednávky už není viditelný odkaz ani blok věrnostního programu.
+- Získaná sleva se podle telefonu nebo e-mailu dál automaticky ověří a odečte.
+
+Ostatní soubory nemažte. Google Apps Script není potřeba znovu nasazovat.
+Po nahrání stránku úplně zavřete a znovu otevřete, aby se načetla nová verze.

@@ -14,9 +14,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap&subset=latin-ext" rel="stylesheet">
-  <link rel="stylesheet" href="../assets/style.css?v=352-20260901-public-polish">
+  <link rel="stylesheet" href="../assets/style.css?v=354-20260904-loyalty-registration">
 </head>
-<body data-pdp-page-version="3.5.2">
+<body data-pdp-page-version="3.5.4">
 <div class="site-shell v2-shell subpage-shell">
   <nav class="public-site-nav" aria-label="Hlavní navigace">
     <a class="site-brand" href="../"><img class="site-brand-app-icon" src="../assets/icons/customer-icon-180.png?v=293-20260817" width="36" height="36" alt=""><strong>Pod Prosečí</strong></a>
@@ -36,18 +36,32 @@
 
   <main class="content subpage-content account-page-content">
     <section id="accountLogin" class="account-auth-card">
-      <div class="account-auth-icon" aria-hidden="true">🔐</div>
-      <h2>Bezpečné přihlášení bez hesla</h2>
-      <p>Na e-mail používaný při objednávce Vám pošleme jednorázový šestimístný kód.</p>
-      <div id="accountEmailStep">
-        <label class="line-field"><span>E-mail z objednávky</span><input id="accountEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="jan.novak@email.cz"></label>
-        <button id="sendAccountCode" class="primary-button" type="button">Poslat ověřovací kód</button>
+      <div class="account-auth-icon" aria-hidden="true">🥚❤</div>
+      <h2>Věrnostní program</h2>
+      <p>Zaregistrujte se, nebo se přihlaste a zkontrolujte svůj stav, slevy a předchozí objednávky.</p>
+      <div class="account-mode-switch" role="tablist" aria-label="Registrace nebo přihlášení">
+        <button id="showAccountRegister" class="active" type="button" role="tab" aria-selected="true" aria-controls="accountRegisterStep">Chci se zapojit</button>
+        <button id="showAccountLogin" type="button" role="tab" aria-selected="false" aria-controls="accountEmailStep">Už jsem člen</button>
+      </div>
+      <div id="accountRegisterStep" role="tabpanel">
+        <div class="account-register-fields">
+          <label class="line-field"><span>Jméno a příjmení</span><input id="accountRegisterName" type="text" autocomplete="name" placeholder="Jan Novák"></label>
+          <label class="line-field"><span>E-mail</span><input id="accountRegisterEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="jan.novak@email.cz"></label>
+          <label class="line-field"><span>Telefon <small>(nepovinný)</small></span><input id="accountRegisterPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="777 123 456"></label>
+        </div>
+        <button id="sendRegistrationCode" class="primary-button" type="button">Zaregistrovat se</button>
+        <p class="account-register-note">Na e-mail pošleme šestimístný kód. Po jeho potvrzení se členství rovnou založí.</p>
+      </div>
+      <div id="accountEmailStep" class="hidden" role="tabpanel">
+        <label class="line-field"><span>E-mail věrnostního účtu</span><input id="accountEmail" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="jan.novak@email.cz"></label>
+        <button id="sendAccountCode" class="primary-button" type="button">Poslat přihlašovací kód</button>
       </div>
       <div id="accountCodeStep" class="hidden">
+        <h3 id="accountCodeHeading">Potvrďte svůj e-mail</h3>
         <p id="accountCodeSentTo" class="account-code-hint"></p>
         <label class="line-field"><span>Šestimístný kód</span><input id="accountCode" class="account-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="000000"></label>
-        <button id="verifyAccountCode" class="primary-button" type="button">Ověřit a zobrazit účet</button>
-        <div class="account-auth-actions"><button id="changeAccountEmail" class="text-button" type="button">Změnit e-mail</button><button id="resendAccountCode" class="text-button" type="button">Poslat nový kód</button></div>
+        <button id="verifyAccountCode" class="primary-button" type="button">Potvrdit kód</button>
+        <div class="account-auth-actions"><button id="changeAccountEmail" class="text-button" type="button">Změnit údaje</button><button id="resendAccountCode" class="text-button" type="button">Poslat nový kód</button></div>
       </div>
       <p id="accountAuthMessage" class="feedback" aria-live="polite"></p>
       <p class="privacy-note">Kód platí 10 minut. E-mail používáme pouze k ověření Vašeho účtu, potvrzení objednávek a informacím o vyzvednutí. Žádné reklamní zprávy neposíláme.</p>
@@ -92,6 +106,6 @@
 <iframe name="customerAccountFrame" id="customerAccountFrame" hidden></iframe>
 <form id="customerAccountForm" method="post" target="customerAccountFrame" hidden><input id="customerAccountAction" name="action" type="hidden"><input id="customerAccountPayload" name="payload" type="hidden"></form>
 <script src="../assets/config.js?v=350-20260901"></script>
-<script src="../assets/account.js?v=350-20260901"></script>
+<script src="../assets/account.js?v=354-20260904"></script>
 </body>
 </html>

@@ -1,8 +1,10 @@
-window.PDP_ACCOUNT_VERSION = "3.5.0";
+window.PDP_ACCOUNT_VERSION = "3.5.4";
 
 const ACCOUNT_SESSION_KEY = "pdp-customer-account-session-v1";
 const accountState = {
   email:"",
+  authMode:"register",
+  registration:null,
   sessionToken:sessionStorage.getItem(ACCOUNT_SESSION_KEY) || "",
   activeRequest:null,
   requestTimeout:null,
@@ -180,24 +182,61 @@ function renderCustomerAccount(account) {
   renderCustomerMovements(account);
 }
 
-async function sendAccountCode() {
-  const email = String(accountQuery("#accountEmail").value || "").trim().toLowerCase();
+function switchAccountMode(mode) {
+  accountState.authMode = mode === "login" ? "login" : "register";
+  accountQuery("#accountRegisterStep").classList.toggle("hidden", accountState.authMode !== "register");
+  accountQuery("#accountEmailStep").classList.toggle("hidden", accountState.authMode !== "login");
+  accountQuery("#accountCodeStep").classList.add("hidden");
+  const registerButton = accountQuery("#showAccountRegister");
+  const loginButton = accountQuery("#showAccountLogin");
+  registerButton.classList.toggle("active", accountState.authMode === "register");
+  loginButton.classList.toggle("active", accountState.authMode === "login");
+  registerButton.setAttribute("aria-selected", String(accountState.authMode === "register"));
+  loginButton.setAttribute("aria-selected", String(accountState.authMode === "login"));
+  setAccountAuthMessage("");
+}
+
+async function sendAccountCode(mode = accountState.authMode) {
+  const registering = mode === "register";
+  const emailInput = accountQuery(registering ? "#accountRegisterEmail" : "#accountEmail");
+  const email = String(emailInput.value || "").trim().toLowerCase();
+  let name = "";
+  let phone = "";
+  if (registering) {
+    name = String(accountQuery("#accountRegisterName").value || "").trim();
+    phone = String(accountQuery("#accountRegisterPhone").value || "").trim();
+    if (name.length < 2) {
+      setAccountAuthMessage("Vyplňte jméno a příjmení.", true);
+      accountQuery("#accountRegisterName").focus();
+      return;
+    }
+    if (phone && phone.replace(/\D/g, "").length < 9) {
+      setAccountAuthMessage("Vyplňte platné telefonní číslo, nebo nechte telefon prázdný.", true);
+      accountQuery("#accountRegisterPhone").focus();
+      return;
+    }
+  }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
     setAccountAuthMessage("Zadejte platnou e-mailovou adresu.", true);
-    accountQuery("#accountEmail").focus();
+    emailInput.focus();
     return;
   }
-  const button = accountQuery("#sendAccountCode");
+  accountState.authMode = registering ? "register" : "login";
+  accountState.registration = registering ? {name, phone} : null;
+  const button = accountQuery(registering ? "#sendRegistrationCode" : "#sendAccountCode");
+  const idleText = registering ? "Zaregistrovat se" : "Poslat přihlašovací kód";
   button.disabled = true;
   button.textContent = "Odesílám kód…";
   setAccountAuthMessage("Odesílám bezpečnostní kód…");
   const result = await accountPost("requestCustomerAccess", {email});
   button.disabled = false;
-  button.textContent = "Poslat ověřovací kód";
+  button.textContent = idleText;
   if (!result.ok) return setAccountAuthMessage(result.message || "Kód se nepodařilo odeslat.", true);
   accountState.email = email;
+  accountQuery("#accountRegisterStep").classList.add("hidden");
   accountQuery("#accountEmailStep").classList.add("hidden");
   accountQuery("#accountCodeStep").classList.remove("hidden");
+  accountQuery("#accountCodeHeading").textContent = registering ? "Potvrďte registraci" : "Potvrďte přihlášení";
   accountQuery("#accountCodeSentTo").textContent = `Kód jsme poslali na ${result.emailHint || "zadaný e-mail"}.`;
   accountQuery("#accountCode").value = "";
   accountQuery("#accountCode").focus();
@@ -210,13 +249,37 @@ async function verifyAccountCode() {
   const button = accountQuery("#verifyAccountCode");
   button.disabled = true;
   button.textContent = "Ověřuji…";
-  setAccountAuthMessage("Ověřuji kód a načítám Vaše objednávky…");
+  setAccountAuthMessage(accountState.authMode === "register" ? "Ověřuji e-mail a zakládám členství…" : "Ověřuji kód a načítám Vaše objednávky…");
   const result = await accountPost("verifyCustomerAccess", {email:accountState.email, code});
-  button.disabled = false;
-  button.textContent = "Ověřit a zobrazit účet";
-  if (!result.ok || !result.sessionToken || !result.account) return setAccountAuthMessage(result.message || "Kód se nepodařilo ověřit.", true);
+  if (!result.ok || !result.sessionToken || !result.account) {
+    button.disabled = false;
+    button.textContent = "Potvrdit kód";
+    return setAccountAuthMessage(result.message || "Kód se nepodařilo ověřit.", true);
+  }
   accountState.sessionToken = result.sessionToken;
   sessionStorage.setItem(ACCOUNT_SESSION_KEY, result.sessionToken);
+  if (accountState.authMode === "register" && !result.account?.loyalty?.enrolled) {
+    button.textContent = "Zakládám členství…";
+    const registration = accountState.registration || {};
+    const joined = await accountPost("joinCustomerAccountLoyalty", {
+      sessionToken:accountState.sessionToken,
+      name:registration.name || "",
+      phone:registration.phone || ""
+    });
+    button.disabled = false;
+    button.textContent = "Potvrdit kód";
+    if (!joined.ok || !joined.account) {
+      renderCustomerAccount(result.account);
+      accountQuery("#accountJoinName").value = registration.name || result.account.suggestedName || "";
+      accountQuery("#accountJoinPhone").value = registration.phone || "";
+      setAccountJoinMessage(joined.message || "E-mail je ověřený. Dokončete prosím registraci níže.", true);
+      return;
+    }
+    renderCustomerAccount(joined.account);
+    return;
+  }
+  button.disabled = false;
+  button.textContent = "Potvrdit kód";
   renderCustomerAccount(result.account);
 }
 
@@ -268,15 +331,18 @@ function loadAccountLoyaltyRule() {
   document.head.appendChild(script);
 }
 
-accountQuery("#sendAccountCode").onclick = sendAccountCode;
+accountQuery("#showAccountRegister").onclick = () => switchAccountMode("register");
+accountQuery("#showAccountLogin").onclick = () => switchAccountMode("login");
+accountQuery("#sendRegistrationCode").onclick = () => sendAccountCode("register");
+accountQuery("#sendAccountCode").onclick = () => sendAccountCode("login");
 accountQuery("#verifyAccountCode").onclick = verifyAccountCode;
-accountQuery("#resendAccountCode").onclick = sendAccountCode;
+accountQuery("#resendAccountCode").onclick = () => sendAccountCode(accountState.authMode);
 accountQuery("#changeAccountEmail").onclick = () => {
   accountState.email = "";
   accountQuery("#accountCodeStep").classList.add("hidden");
-  accountQuery("#accountEmailStep").classList.remove("hidden");
+  accountQuery(accountState.authMode === "register" ? "#accountRegisterStep" : "#accountEmailStep").classList.remove("hidden");
   setAccountAuthMessage("");
-  accountQuery("#accountEmail").focus();
+  accountQuery(accountState.authMode === "register" ? "#accountRegisterEmail" : "#accountEmail").focus();
 };
 accountQuery("#logoutCustomerAccount").onclick = () => {
   sessionStorage.removeItem(ACCOUNT_SESSION_KEY);
@@ -284,9 +350,13 @@ accountQuery("#logoutCustomerAccount").onclick = () => {
   window.location.reload();
 };
 accountQuery("#joinFromCustomerAccount").onclick = joinCustomerLoyalty;
-accountQuery("#accountEmail").addEventListener("keydown", event => { if (event.key === "Enter") sendAccountCode(); });
+accountQuery("#accountEmail").addEventListener("keydown", event => { if (event.key === "Enter") sendAccountCode("login"); });
+accountQuery("#accountRegisterName").addEventListener("keydown", event => { if (event.key === "Enter") sendAccountCode("register"); });
+accountQuery("#accountRegisterEmail").addEventListener("keydown", event => { if (event.key === "Enter") sendAccountCode("register"); });
+accountQuery("#accountRegisterPhone").addEventListener("keydown", event => { if (event.key === "Enter") sendAccountCode("register"); });
 accountQuery("#accountCode").addEventListener("input", event => { event.target.value = event.target.value.replace(/\D/g, "").slice(0, 6); });
 accountQuery("#accountCode").addEventListener("keydown", event => { if (event.key === "Enter") verifyAccountCode(); });
 
 loadAccountLoyaltyRule();
+switchAccountMode("register");
 loadCustomerAccountSession();

@@ -1,5 +1,5 @@
-window.PDP_CUSTOMER_VERSION = "3.5.0";
-console.info("Podprosečské produkty – customer.js V3.5.0 – zjednodušená hlavní stránka");
+window.PDP_CUSTOMER_VERSION = "3.5.4";
+console.info("Podprosečské produkty – customer.js V3.5.4 – věrnost pouze v zákaznickém účtu");
 
 // Karty produktů se při první návštěvě vykreslí okamžitě z bezpečného náhledu.
 // Sklad a objednávání se odemknou až po potvrzení živých dat z Google Tabulky.
@@ -617,12 +617,12 @@ function lookupOrderLoyalty() {
       renderSummary();
       return;
     }
-    loyaltyOrderStatusEl.textContent = "Ověřuji Váš věrnostní stav…";
+    if (loyaltyOrderStatusEl) loyaltyOrderStatusEl.textContent = "Ověřuji Váš věrnostní stav…";
     enqueueLoyaltyRequest("loyaltyStatus", { contact }, "order", data => {
       if (orderLoyaltyContact() !== contact) return;
       if (!data.ok) {
         loyaltyOrderState = null;
-        loyaltyOrderStatusEl.textContent = data.message || "Věrnostní stav se nepodařilo ověřit.";
+        if (loyaltyOrderStatusEl) loyaltyOrderStatusEl.textContent = data.message || "Věrnostní stav se nepodařilo ověřit.";
       } else {
         loyaltyOrderState = data.loyalty || null;
         if (loyaltyOrderState?.enrolled) rememberLoyaltyContact(contact);
