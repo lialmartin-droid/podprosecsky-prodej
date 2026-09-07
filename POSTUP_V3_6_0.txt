@@ -1,0 +1,31 @@
+AKTUALIZACE V3.6.0 – PŘIŘAZENÍ OBJEDNÁVEK ZÁKAZNÍKŮM
+
+CO SE MĚNÍ
+- Zákazníci se ve statistikách spojují primárně podle e-mailu, potom podle telefonu a až nakonec podle jména.
+- Když stejný člověk jednou napíše „Josef Černý“ a podruhé „tata“, objednávky se při stejném e-mailu započítají jednomu zákazníkovi.
+- Ve statistikách se jako hlavní jméno vybere nejčastěji používané celé jméno. Další použitá jména se zobrazí jako aliasy.
+- V administraci v záložce Zákazníci lze ručně označit starší objednávky a přiřadit je ke konkrétnímu e-mailu.
+- Původní jméno, položky, ceny i datum objednávky zůstávají beze změny. Do historie objednávky se uloží informace o ručním přiřazení.
+- Věrnostní vajíčka ze starších objednávek se při ručním přiřazení zpětně nepřičítají.
+
+SOUBORY PRO GITHUB
+Nahrajte a přepište tyto soubory:
+- /admin/index.html
+- /assets/admin.js
+- /assets/style.css
+
+GOOGLE APPS SCRIPT
+1. Otevřete Apps Script používaný aplikací.
+2. Nahraďte celý obsah souboru Code.gs souborem /Code.gs z tohoto balíčku.
+3. Změny uložte.
+4. Zvolte Nasadit > Spravovat nasazení.
+5. U aktivního nasazení klikněte na tužku, vyberte Nová verze a klikněte na Nasadit.
+6. Adresa končící /exec zůstává stejná. Soubor config.js není potřeba měnit.
+
+JAK PŘIŘADIT STARŠÍ OBJEDNÁVKY
+1. Přihlaste se do administrace.
+2. Otevřete záložku Zákazníci.
+3. V části „Přiřadit starší objednávky zákazníkovi“ vyhledejte objednávky podle jména, telefonu, e-mailu nebo čísla objednávky.
+4. Označte požadované objednávky.
+5. Zadejte e-mail zákazníka a klikněte na „Přiřadit vybrané“.
+

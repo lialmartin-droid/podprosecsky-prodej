@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "3.5.0";
-console.info("Podprosečské produkty – admin.js V3.5.0 – fotoalbum, kalendář a zákaznický účet");
+window.PDP_ADMIN_VERSION = "3.6.0";
+console.info("Podprosečské produkty – admin.js V3.6.0 – přiřazení objednávek zákazníkům");
 
 let products = [];
 let orders = [];
@@ -20,6 +20,7 @@ let adminDataRequestId = 0;
 let adminOrderRenderLimit = 30;
 let calendarMonthKey = currentPragueDateKey().slice(0, 7);
 const renderedAdminTabs = new Set();
+const customerAssignmentSelection = new Set();
 const ADMIN_CACHE_KEY = "pdp-admin-data-v3-album";
 const ADMIN_VISIT_EXCLUDE_KEY = "pdp-admin-exclude-visits";
 const ADMIN_VISIT_EXCLUDE_PREF_KEY = "pdp-admin-exclude-pref-v1";
@@ -918,6 +919,48 @@ function fulfilledRevenueEntries() {
   return orders.flatMap(orderRevenueEntries);
 }
 
+function normalizedCustomerEmail(value) {
+  return String(value || "").trim().toLocaleLowerCase("cs-CZ");
+}
+
+function normalizedCustomerPhone(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function normalizedCustomerName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("cs-CZ");
+}
+
+function orderCustomerKey(order) {
+  const email = normalizedCustomerEmail(order?.email);
+  if (email) return `email:${email}`;
+  const phone = normalizedCustomerPhone(order?.phone);
+  if (phone) return `phone:${phone}`;
+  return `name:${normalizedCustomerName(order?.name) || String(order?.id || "")}`;
+}
+
+function preferredCustomerName(nameCounts) {
+  const candidates = Array.from((nameCounts || new Map()).values());
+  candidates.sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    const aFull = /\s/.test(a.name) ? 1 : 0;
+    const bFull = /\s/.test(b.name) ? 1 : 0;
+    if (bFull !== aFull) return bFull - aFull;
+    return b.name.length - a.name.length;
+  });
+  return candidates[0]?.name || "Zákazník";
+}
+
+function rememberCustomerName(nameCounts, value) {
+  const name = String(value || "").trim().replace(/\s+/g, " ");
+  if (!name) return;
+  const key = normalizedCustomerName(name);
+  const current = nameCounts.get(key) || {name, count:0};
+  current.count++;
+  if (name.length > current.name.length) current.name = name;
+  nameCounts.set(key, current);
+}
+
 function renderStats() {
   $("#statNew").textContent = orders.filter(order => order.status === "Nová").length;
   $("#statOverdue").textContent = orders.filter(order => overdueOrderParts(order).length > 0).length;
@@ -942,7 +985,7 @@ function renderStats() {
   $("#statMonthRevenue").textContent = money(monthEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0));
   $("#statMonthOrders").textContent = new Set(monthEntries.map(entry => entry.orderId)).size;
   $("#statPreorders").textContent = orders.filter(order => activeReservation(order) && (order.items || []).some(item => products.find(p => String(p.id) === String(item.productId))?.preorder)).length;
-  $("#statCustomers").textContent = new Set(orders.filter(order => order.status !== "Zrušeno").map(order => (order.email || order.phone || order.name).toLowerCase())).size;
+  $("#statCustomers").textContent = new Set(orders.filter(order => order.status !== "Zrušeno").map(orderCustomerKey)).size;
 }
 
 function filteredOrders() {
@@ -1636,14 +1679,19 @@ function renderInsights() {
   const customers = {};
   valid.forEach(entry => {
     const order = entry.order;
-    const key = (order.email || order.phone || order.name).toLowerCase();
-    const row = customers[key] || { name: order.name, orders: new Set(), total: 0 };
+    const key = orderCustomerKey(order);
+    const row = customers[key] || { names:new Map(), orders:new Set(), total:0, email:normalizedCustomerEmail(order.email) };
+    if (!row.orders.has(order.id)) rememberCustomerName(row.names, order.name);
     row.orders.add(order.id);
     row.total += Number(entry.amount || 0);
     customers[key] = row;
   });
   const topCustomers = Object.values(customers).sort((a,b) => b.total-a.total).slice(0,10);
-  $("#topCustomers").innerHTML = topCustomers.map((c,i) => `<div class="rank-row"><span>${i+1}. ${esc(c.name)} <small>${c.orders.size} obj.</small></span><strong>${money(c.total)}</strong></div>`).join("") || '<div class="empty">Zatím bez dat.</div>';
+  $("#topCustomers").innerHTML = topCustomers.map((c,i) => {
+    const name = preferredCustomerName(c.names);
+    const aliases = Array.from(c.names.values()).map(item => item.name).filter(item => normalizedCustomerName(item) !== normalizedCustomerName(name));
+    return `<div class="rank-row"><span>${i+1}. ${esc(name)} <small>${c.orders.size} obj.${aliases.length ? ` · také: ${esc(aliases.slice(0, 3).join(", "))}` : ""}${c.email ? ` · ${esc(c.email)}` : ""}</small></span><strong>${money(c.total)}</strong></div>`;
+  }).join("") || '<div class="empty">Zatím bez dat.</div>';
 
   const months = {};
   valid.forEach(entry => {
@@ -1673,6 +1721,102 @@ function renderInsights() {
     const maxVisits = Math.max(1, ...dailyVisits.map(item => Number(item.visits || 0)));
     $("#visitTimeline").innerHTML = dailyVisits.map(item => `<div class="bar-row"><span>${esc(localDate(item.day))}</span><div class="bar-track"><i style="width:${Math.round((Number(item.visits || 0) / maxVisits) * 100)}%"></i></div><strong>${Number(item.visits || 0)} <small>${Number(item.unique || 0)} unik.</small></strong></div>`).join("") || '<div class="empty">Zatím bez dat.</div>';
   }
+  renderCustomerAssignment();
+}
+
+function customerAssignmentVisibleOrders() {
+  const query = String($("#customerAssignmentSearch")?.value || "").trim().toLocaleLowerCase("cs-CZ");
+  const onlyMissing = Boolean($("#customerAssignmentOnlyMissing")?.checked);
+  return orders.filter(order => {
+    if (onlyMissing && normalizedCustomerEmail(order.email)) return false;
+    if (!query) return true;
+    return [
+      order.name,
+      order.phone,
+      order.email,
+      order.orderNumber,
+      order.id
+    ].some(value => String(value || "").toLocaleLowerCase("cs-CZ").includes(query));
+  }).slice(0, 200);
+}
+
+function updateCustomerAssignmentSelectionUi() {
+  const count = customerAssignmentSelection.size;
+  const countElement = $("#customerAssignmentCount");
+  const button = $("#assignCustomerOrdersEmail");
+  if (countElement) countElement.textContent = `${count} vybráno`;
+  if (button) button.disabled = count === 0;
+}
+
+function renderCustomerAssignment() {
+  const root = $("#customerAssignmentOrders");
+  if (!root) return;
+
+  const emailList = $("#customerAssignmentEmails");
+  if (emailList) {
+    const emails = Array.from(new Set(orders.map(order => normalizedCustomerEmail(order.email)).filter(Boolean))).sort();
+    emailList.innerHTML = emails.map(email => `<option value="${esc(email)}"></option>`).join("");
+  }
+
+  const visible = customerAssignmentVisibleOrders();
+  root.innerHTML = visible.length ? visible.map(order => {
+    const selected = customerAssignmentSelection.has(String(order.id));
+    const contact = [
+      order.phone || "bez telefonu",
+      order.email || "bez e-mailu"
+    ].join(" · ");
+    return `<label class="customer-assignment-order ${selected ? "selected" : ""}">
+      <input type="checkbox" data-customer-assignment-order="${esc(order.id)}" ${selected ? "checked" : ""}>
+      <span><strong>${esc(order.name || "Bez jména")}</strong><small>${esc(order.orderNumber || order.id)} · ${esc(order.created || "")} · ${esc(contact)}</small></span>
+      <b>${money(order.total)}</b>
+    </label>`;
+  }).join("") : '<div class="empty">Tomuto filtru neodpovídají žádné objednávky.</div>';
+
+  root.querySelectorAll("[data-customer-assignment-order]").forEach(input => {
+    input.addEventListener("change", () => {
+      const id = String(input.dataset.customerAssignmentOrder || "");
+      if (input.checked) customerAssignmentSelection.add(id);
+      else customerAssignmentSelection.delete(id);
+      input.closest(".customer-assignment-order")?.classList.toggle("selected", input.checked);
+      updateCustomerAssignmentSelectionUi();
+    });
+  });
+  updateCustomerAssignmentSelectionUi();
+}
+
+function assignSelectedOrdersToEmail() {
+  const email = normalizedCustomerEmail($("#customerAssignmentEmail")?.value);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    const message = $("#customerAssignmentMessage");
+    if (message) message.textContent = "Zadejte platný e-mail zákazníka.";
+    $("#customerAssignmentEmail")?.focus();
+    return;
+  }
+  const ids = Array.from(customerAssignmentSelection).filter(id => orders.some(order => String(order.id) === id));
+  if (!ids.length) return;
+  if (!confirm(`Přiřadit ${ids.length} vybraných objednávek k e-mailu ${email}? Původní jména a ceny zůstanou zachované.`)) return;
+
+  const button = $("#assignCustomerOrdersEmail");
+  const message = $("#customerAssignmentMessage");
+  button.disabled = true;
+  button.textContent = "Přiřazuji…";
+  if (message) message.textContent = "Ukládám přiřazení objednávek…";
+  post("assignOrdersToCustomerEmail", {orderIds:ids, email}, data => {
+    button.disabled = false;
+    button.textContent = "Přiřadit vybrané";
+    if (!data.ok) {
+      if (message) message.textContent = data.message || "Objednávky se nepodařilo přiřadit.";
+      return;
+    }
+    if (Array.isArray(data.orders)) orders = data.orders;
+    customerAssignmentSelection.clear();
+    markAdminTabsDirty("ordersTab", "insightsTab");
+    renderStats();
+    renderInsights();
+    saveAdminCache(currentAdminState());
+    const updatedMessage = $("#customerAssignmentMessage");
+    if (updatedMessage) updatedMessage.textContent = data.message || "Objednávky byly přiřazené.";
+  });
 }
 
 function setAlbumAdminStatus(message, isError = false) {
@@ -2100,6 +2244,17 @@ $("#saveBusinessSettings").onclick = () => {
   });
 };
 
+$("#customerAssignmentSearch")?.addEventListener("input", renderCustomerAssignment);
+$("#customerAssignmentOnlyMissing")?.addEventListener("change", renderCustomerAssignment);
+$("#selectVisibleCustomerOrders")?.addEventListener("click", () => {
+  customerAssignmentVisibleOrders().forEach(order => customerAssignmentSelection.add(String(order.id)));
+  renderCustomerAssignment();
+});
+$("#clearCustomerOrders")?.addEventListener("click", () => {
+  customerAssignmentSelection.clear();
+  renderCustomerAssignment();
+});
+$("#assignCustomerOrdersEmail")?.addEventListener("click", assignSelectedOrdersToEmail);
 
 const excludeMyVisits = $("#excludeMyVisits");
 if (excludeMyVisits) {

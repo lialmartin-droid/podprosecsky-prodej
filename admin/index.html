@@ -20,11 +20,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@600;700&display=swap&subset=latin-ext" rel="stylesheet">
   <link rel="preload" href="../assets/config.js?v=350-20260901" as="script">
-  <link rel="preload" href="../assets/admin.js?v=350-20260901" as="script">
+  <link rel="preload" href="../assets/admin.js?v=360-20260907" as="script">
   <link rel="preload" href="../assets/admin-enhancements.js?v=350-20260901" as="script">
-  <link rel="stylesheet" href="../assets/style.css?v=355-20260904-admin-login-brand">
+  <link rel="stylesheet" href="../assets/style.css?v=360-20260907-customer-assignment">
 </head>
-<body data-pdp-admin-version="3.5.5">
+<body data-pdp-admin-version="3.6.0">
 <section id="adminLogin" class="login-screen hidden">
   <div class="login-card">
     <div class="admin-login-brand">
@@ -249,6 +249,26 @@
         <article class="card"><h3>Nejprodávanější produkty</h3><div id="topProducts"></div></article>
         <article class="card"><h3>TOP zákazníci</h3><div id="topCustomers"></div></article>
       </div>
+      <article class="card customer-assignment-card">
+        <div class="section-head compact-head">
+          <div><div class="eyebrow">Ruční propojení</div><h2>Přiřadit starší objednávky zákazníkovi</h2></div>
+          <strong id="customerAssignmentCount">0 vybráno</strong>
+        </div>
+        <p class="customer-assignment-help">Vyberte starší objednávky a přiřaďte jim e-mail zákazníka. Původní jméno, položky, ceny i datum objednávky zůstanou beze změny.</p>
+        <div class="customer-assignment-controls">
+          <label><span>Hledat objednávky</span><input id="customerAssignmentSearch" placeholder="Jméno, telefon, e-mail nebo číslo objednávky"></label>
+          <label><span>Přiřadit k e-mailu</span><input id="customerAssignmentEmail" type="email" inputmode="email" list="customerAssignmentEmails" placeholder="zakaznik@email.cz"><datalist id="customerAssignmentEmails"></datalist></label>
+          <label class="customer-assignment-toggle"><input id="customerAssignmentOnlyMissing" type="checkbox" checked> Zobrazit jen objednávky bez e-mailu</label>
+        </div>
+        <div class="actions customer-assignment-actions">
+          <button id="selectVisibleCustomerOrders" class="secondary-button" type="button">Vybrat zobrazené</button>
+          <button id="clearCustomerOrders" class="secondary-button" type="button">Zrušit výběr</button>
+          <button id="assignCustomerOrdersEmail" class="primary-small" type="button">Přiřadit vybrané</button>
+        </div>
+        <p id="customerAssignmentMessage" class="feedback" aria-live="polite"></p>
+        <div id="customerAssignmentOrders" class="customer-assignment-list"></div>
+        <p class="customer-assignment-note">Přiřazení spojí statistiky a historii objednávek podle e-mailu. Věrnostní vajíčka ze starších nákupů se zpětně nepřičítají.</p>
+      </article>
       <article class="card"><h3>Návštěvy za posledních 14 dní</h3><div id="visitTimeline" class="bar-list"></div></article>
       <article class="card"><h3>Měsíční tržby</h3><div id="monthlyRevenue" class="bar-list"></div></article>
     </section>
@@ -287,7 +307,7 @@
   <input id="adminPayload" name="payload" type="hidden">
 </form>
 <script src="../assets/config.js?v=350-20260901"></script>
-<script src="../assets/admin.js?v=350-20260901"></script>
+<script src="../assets/admin.js?v=360-20260907"></script>
 <script src="../assets/admin-enhancements.js?v=350-20260901" data-pdp-admin-enhancements="1"></script>
 </body>
 </html>

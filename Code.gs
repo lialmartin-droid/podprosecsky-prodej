@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V3.5.0
+ * Podprosečské domácí produkty — sdílený backend V3.6.0
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -560,7 +560,7 @@ function buildAdminPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.5.0',
+    version: '3.6.0',
     products: readProductsFast_(reservations, availability, catalog.products),
     orders: orders,
     eggSettings: availability.settings,
@@ -580,7 +580,7 @@ function buildAdminPlanningPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.5.0',
+    version: '3.6.0',
     products: readProductsFast_(reservations, availability, catalog.products),
     eggSettings: availability.settings,
     eggAvailability: availability,
@@ -593,6 +593,59 @@ function readOrdersAdminFast_() {
     .filter(row => row[0] !== '')
     .map(orderFromSheetRow_)
     .reverse();
+}
+
+function assignOrdersToCustomerEmail_(payload) {
+  const email = normalizeLoyaltyEmail_(payload && payload.email);
+  if (!isValidEmail_(email)) throw new Error('Zadejte platný e-mail zákazníka.');
+
+  const requestedIds = Array.isArray(payload && payload.orderIds)
+    ? payload.orderIds.map(id => cleanText_(id, 100)).filter(Boolean)
+    : [];
+  const ids = Array.from(new Set(requestedIds)).slice(0, 200);
+  if (!ids.length) throw new Error('Vyberte alespoň jednu objednávku.');
+
+  const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
+  formatOrdersSheet_(sheet);
+  if (sheet.getLastRow() < 2) throw new Error('Nejsou uložené žádné objednávky.');
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, CONFIG.ORDER_COLUMN_COUNT).getValues();
+  const wanted = new Set(ids);
+  const now = new Date().toISOString();
+  let changed = 0;
+
+  values.forEach(row => {
+    const id = String(row[0] || '');
+    if (!wanted.has(id)) return;
+    const previousEmail = normalizeLoyaltyEmail_(row[11]);
+    if (previousEmail === email) return;
+    row[11] = safeSheetText_(email);
+    const timeline = parseJsonArray_(row[22]);
+    timeline.push({
+      type:'customer',
+      at:now,
+      text:'Objednávka přiřazena k zákazníkovi podle e-mailu: ' + email
+    });
+    row[22] = JSON.stringify(timeline);
+    changed++;
+  });
+
+  if (!changed) {
+    return htmlResponse_(true, 'Vybrané objednávky už jsou přiřazené k tomuto e-mailu.', '', {
+      kind:'customerOrdersAssigned',
+      assignedCount:0,
+      orders:readOrdersAdminFast_()
+    });
+  }
+
+  sheet.getRange(2, 1, values.length, CONFIG.ORDER_COLUMN_COUNT).setValues(values);
+  return htmlResponse_(true, changed === 1
+    ? 'Objednávka byla přiřazena k zákazníkovi.'
+    : changed + ' objednávek bylo přiřazeno k zákazníkovi.', '', {
+    kind:'customerOrdersAssigned',
+    assignedCount:changed,
+    orders:readOrdersAdminFast_()
+  });
 }
 
 function readProductsFast_(reservationMap, eggAvailability, suppliedProducts) {
@@ -728,6 +781,7 @@ function doPost(e) {
     if (action === 'saveLoyaltySettings') return withMutationLock_(() => saveLoyaltySettings_(payload), 20000);
     if (action === 'adjustLoyaltyCustomer') return withMutationLock_(() => adjustLoyaltyCustomer_(payload), 20000);
     if (action === 'setLoyaltyCustomerActive') return withMutationLock_(() => setLoyaltyCustomerActive_(payload), 15000);
+    if (action === 'assignOrdersToCustomerEmail') return withMutationLock_(() => assignOrdersToCustomerEmail_(payload), 20000);
 
     // Volitelné rozšíření V2.6+ (sklad obalů a přesné návštěvy).
     const extensionResult = typeof handleV26Action_ === 'function' ? handleV26Action_(action, payload) : null;
