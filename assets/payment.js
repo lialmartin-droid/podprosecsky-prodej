@@ -30,6 +30,19 @@ window.showOrderPayment = function(payment) {
   }
   if (!payment.spd) return;
   try {
+    if (payment.qrDataUrl && /^data:image\/gif;base64,[A-Za-z0-9+/=]+$/.test(payment.qrDataUrl)) {
+      const image = document.createElement('img');
+      image.src = payment.qrDataUrl;
+      image.alt = 'QR platba za objednávku';
+      image.style.cssText = 'display:block;width:280px;max-width:100%;height:auto;margin:16px auto;background:white';
+      const download = document.createElement('a');
+      download.href = image.src;
+      download.download = 'platba-' + payment.vs + '.gif';
+      download.textContent = 'Uložit QR kód';
+      download.className = 'secondary-button';
+      root.append(image, download);
+      return;
+    }
     const qr = qrcode(0, 'M');
     qr.addData(payment.spd, 'Alphanumeric');
     qr.make();

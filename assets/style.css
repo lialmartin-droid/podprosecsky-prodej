@@ -46,6 +46,15 @@ h2{margin:5px 0 0;color:var(--brown);font-size:29px}
 .secondary-button{padding:12px 14px;background:#f4f0ea;color:var(--ink)}
 .danger-button{padding:12px 14px;background:#f9e7e5;color:var(--red)}
 .feedback{text-align:center;color:var(--muted);font-size:13px;min-height:20px}
+.payment-choice{min-width:0;margin:18px 0 0;padding:0;border:0}
+.payment-choice legend{padding:0;margin-bottom:10px;font-size:16px;font-weight:800;color:var(--ink)}
+.payment-choice-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.payment-choice-option{position:relative;display:block;cursor:pointer;min-width:0}
+.payment-choice-option input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.payment-choice-option span{display:flex;align-items:center;justify-content:center;gap:8px;box-sizing:border-box;min-height:66px;height:100%;padding:14px 10px;border:2px solid #c9c4b8;border-radius:14px;background:#fff;color:#37453b;text-align:center;font-size:16px;font-weight:800;line-height:1.35;transition:background .15s,border-color .15s,color .15s}
+.payment-choice-option input:checked+span{background:#315d3a;border-color:#315d3a;color:#fff}
+.payment-choice-option input:checked+span:before{content:'✓';flex:0 0 auto;font-size:18px}
+.payment-choice-option input:focus-visible+span{outline:3px solid #bb7800;outline-offset:3px}
 .about-section{margin-top:34px;padding-top:26px;border-top:1px solid var(--line)}
 .about-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
 .about-grid article{background:#faf7f1;border-radius:18px;padding:16px}

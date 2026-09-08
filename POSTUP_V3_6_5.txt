@@ -1,0 +1,24 @@
+PODPROSEČSKÉ DOMÁCÍ PRODUKTY – V3.6.5 – VOLBA PLATBY
+
+Způsob platby je před poznámkou. Dvě velká tlačítka:
+Při vyzvednutí / QR platba převodem. Vybraná volba má zelené pozadí
+a fajfku. Zvolit lze vždy jen jednu možnost, i klávesnicí.
+Výchozí volbou zůstává platba při vyzvednutí.
+
+POKUD UŽ MÁTE NASAZENOU V3.6.4
+Stačí na GitHubu nahradit index.html, assets/customer.js a assets/style.css.
+Code.gs je beze změny a není třeba znovu nasazovat Apps Script.
+Obnovte stránku po dokončení aktualizace.
+
+POKUD JSTE V3.6.4 JEŠTĚ NENAHRÁLI
+Balíček obsahuje také všechny opravy z V3.6.4, včetně QR na stránce
+a v e-mailu s přílohou a vypnutých datumových kontrol u neaktivního banneru
+a blokace. Obsahuje i QR a testovací objednávky z předchozích verzí.
+Nahrajte index.html, admin/ a assets/ do odpovídajících umístění na GitHubu.
+Ostatní původní soubory nemažte. V Apps Scriptu nahraďte Code.gs,
+uložte a přes Spravovat nasazení upravte stávající nasazení na Novou verzi.
+URL webové aplikace zachovejte. Code_V2_6_ADDON.gs ponechte beze změny.
+setup() ani inicializaci skladu nebo věrnosti znovu nespouštějte.
+
+Podrobnosti o QR a testovacích objednávkách jsou v POSTUP_V3_6_4.txt.
+Tato aktualizace je určena pro již používanou aplikaci.

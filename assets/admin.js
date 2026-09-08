@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "3.6.3";
-console.info("Podprosečské produkty – admin.js V3.6.3 – QR platby");
+window.PDP_ADMIN_VERSION = "3.6.4";
+console.info("Podprosečské produkty – admin.js V3.6.4 – QR platby");
 
 let products = [];
 let orders = [];
@@ -2246,6 +2246,9 @@ $("#saveEggSettings").onclick = () => {
 
 
 $("#saveBusinessSettings").onclick = () => {
+  if ($("#bannerEnabled").checked && $("#bannerFrom").value && $("#bannerTo").value && $("#bannerFrom").value > $("#bannerTo").value) {
+    return alert("Konec zobrazení banneru nesmí být před jeho začátkem.");
+  }
   if ($("#ordersPaused").checked) {
     if (!$("#pauseFrom").value || !$("#pauseTo").value) return alert("Vyplňte začátek i konec blokace vyzvednutí.");
     if ($("#pauseFrom").value > $("#pauseTo").value) return alert("Konec blokace nesmí být před jejím začátkem.");

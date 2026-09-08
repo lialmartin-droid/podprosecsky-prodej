@@ -1,0 +1,58 @@
+PODPROSEČSKÉ DOMÁCÍ PRODUKTY – V3.6.4
+QR NA STRÁNCE A V E-MAILU + NEAKTIVNÍ BANNER A BLOKACE
+
+Stačí tato aktualizace. Obsahuje také QR platby, testovací objednávky
+a přiřazování objednávek k e-mailu z předchozích aktualizací V3.6.0–V3.6.3.
+Určeno pro stávající web. Není to samostatný kompletní web.
+
+NASAZENÍ
+1. Rozbalte ZIP. Nahrajte index.html a složky admin/ a assets/ do stejných
+   umístění na GitHubu. Potvrďte nahrazení. Ostatní původní soubory nemažte.
+2. V Google Apps Scriptu nahraďte celý obsah existujícího Code.gs novým Code.gs.
+   Generátor QR je přímo uvnitř, žádný další soubor .gs nepřidávejte.
+   Původní Code_V2_6_ADDON.gs ponechte beze změny.
+3. Uložte. Nasadit > Spravovat nasazení > upravit stávající webovou aplikaci
+   > Nová verze > Nasadit. Zachovejte stávající URL webové aplikace.
+4. setup() ani nastavení skladu a věrnosti znovu nespouštějte.
+5. Po dokončení aktualizace obnovte hlavní stránku i administraci.
+
+QR PLATBA
+- Po objednání s QR platbou se ze serveru vrací hotový QR obrázek.
+  Stránka na platební kartu automaticky posune a nabídne uložení obrázku.
+- Obsluha platební karty je přímo v zákaznickém skriptu, aby nezávisela
+  na načtení samostatného payment.js. Lokální generátor zůstává jako záloha.
+- Poslední platební karta se uchová při obnovení stejné záložky v prohlížeči.
+  Jde o kopii údajů při objednání, nikoli o živé ověření přijetí peněz.
+- Potvrzovací e-mail nově obsahuje QR jako vložený obrázek a také jako přílohu
+  GIF. Pokud poštovní aplikace obrázek skryje, lze otevřít či uložit přílohu.
+- QR obsahuje serverem potvrzenou částku, účet, variabilní symbol a zprávu.
+  Generuje se přímo v aplikaci bez externí obrazové služby.
+- QR se neposílá u platby při vyzvednutí, nulové částky nebo již zaplacené
+  objednávky. Oprava zpětně nezmění dříve doručené e-maily.
+
+TESTOVACÍ OBJEDNÁVKY
+Do jména nové objednávky napište test. Použijte svůj e-mail a telefon.
+Vznikne TEST-001 atd. bez posunutí běžné řady PP a bez započítání tržeb,
+statistik, rezervací, skladu produktů či obalů a věrnostních odměn.
+Typ zůstává zachovaný i po přejmenování a vyzvednutí. Starší PP objednávky
+se zpětně nepřevádějí ani nepřečíslují.
+U testu lze vyzkoušet QR a v administraci simulovat přijetí platby s e-mailem.
+QR používá skutečný účet 987466/5500. V bance jen ověřte údaje;
+samotný převod nepotvrzujte. Simulace v administraci nevyžaduje posílání peněz.
+E-maily se opravdu odesílají. Automatické připomínky testů jsou vypnuté.
+Testy nejsou součástí běžné historie zákazníka ani kalendáře a neuplatňují slevy.
+
+BANNER A BLOKACE VYZVEDNUTÍ
+Pokud je banner vypnutý, jeho datumy se nekontrolují a nebrání uložení.
+Totéž platí pro vypnutou dovolenou / blokaci vyzvednutí.
+Vyplněné hodnoty zůstávají uložené pro pozdější použití.
+Po zapnutí blokace musí být vyplněn začátek i konec ve správném pořadí.
+U zapnutého banneru se kontroluje pořadí dat, pokud jsou obě vyplněna.
+Banner a blokace se kontrolují odděleně.
+
+OVĚŘENÍ
+Lokálně ověřen QR obrázek v odpovědi serveru, vložení do e-mailu a přílohy,
+vykreslení bez klientského generátoru, simulace platby, opakované kliknutí,
+opakování po chybě e-mailu, oddělení testů a vypnuté/neplatné datumové rozsahy.
+Odeslání přes skutečný Google Apps Script a zobrazení v poštovní aplikaci
+je potřeba ověřit po nasazení novou testovací objednávkou.
