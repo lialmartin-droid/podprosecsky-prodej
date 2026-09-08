@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/customer-icon-32.png?v=293-20260817">
   <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/customer-icon-180.png?v=293-20260817">
   <link rel="preload" as="image" href="assets/images/products/vajicka-real.webp" fetchpriority="high">
-  <link rel="preload" as="script" href="assets/customer.js?v=365">
+  <link rel="preload" as="script" href="assets/customer.js?v=366">
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <link rel="dns-prefetch" href="//script.google.com">
@@ -64,6 +64,7 @@
     </section>
 
     <section class="order-section" id="objednavka">
+      <div id="paymentReceipt" class="card hidden" aria-live="polite"></div>
       <div class="section-head"><div><div class="eyebrow">Vaše objednávka</div><h2>Souhrn a dokončení</h2></div></div>
       <div id="summary" class="muted">Nejdřív načítáme aktuální nabídku.</div>
       <div class="total-row"><span>Celkem</span><span id="totalPrice">0 Kč</span></div>
@@ -86,7 +87,6 @@
         <label class="line-field"><span>Poznámka</span><textarea id="customerNote" rows="3" placeholder="Například vyzvednutí odpoledne"></textarea></label>
       </div>
       <button id="submitOrder" class="primary-button" type="button" disabled>Odeslat objednávku</button>
-      <div id="paymentReceipt" class="card hidden" aria-live="polite"></div>
       <p id="feedback" class="feedback" aria-live="polite"></p>
     </section>
 
@@ -104,8 +104,8 @@
 <form id="backendOrderForm" method="post" target="orderSubmitFrame" hidden><input name="action" type="hidden" value="createOrder"><input id="backendPayload" name="payload" type="hidden"></form>
 <iframe name="loyaltySubmitFrame" id="loyaltySubmitFrame" hidden></iframe>
 <form id="loyaltyBackendForm" method="post" target="loyaltySubmitFrame" hidden><input id="loyaltyAction" name="action" type="hidden" value="loyaltyStatus"><input id="loyaltyPayload" name="payload" type="hidden"></form>
-<script src="assets/config.js?v=365"></script>
-<script src="assets/qrcode.js?v=365"></script>
-<script src="assets/customer.js?v=365"></script>
+<script src="assets/config.js?v=366"></script>
+<script src="assets/qrcode.js?v=366"></script>
+<script src="assets/customer.js?v=366"></script>
 </body>
 </html>
