@@ -2,6 +2,11 @@ window.showOrderPayment = function(payment) {
   const root = document.getElementById('paymentReceipt');
   if (!root) return;
   root.replaceChildren();
+  if (payment?.orderNumber) {
+    const number = document.createElement('p');
+    number.textContent = 'Objednávka ' + payment.orderNumber;
+    root.append(number);
+  }
   if (payment?.isTest) {
     root.classList.remove('hidden');
     const notice = document.createElement('p');
@@ -71,7 +76,7 @@ window.showOrderPayment = function(payment) {
 };
 
 
-window.PDP_CUSTOMER_VERSION = "3.5.4";
+window.PDP_CUSTOMER_VERSION = "3.6.6";
 console.info("Podprosečské produkty – customer.js V3.5.4 – věrnost pouze v zákaznickém účtu");
 
 // Karty produktů se při první návštěvě vykreslí okamžitě z bezpečného náhledu.
@@ -1520,6 +1525,69 @@ function startOrderReceiptPolling() {
   scheduleOrderReceiptCheck(7000);
 }
 
+let paymentRecoveryGeneration = 0;
+function rememberPaymentRequest(requestId, qr) {
+  try { sessionStorage.setItem('pdp-payment-request-v366', JSON.stringify({requestId, qr, at:Date.now()})); } catch (_) {}
+}
+
+function pendingPaymentRequest() {
+  try {
+    const item = JSON.parse(sessionStorage.getItem('pdp-payment-request-v366') || 'null');
+    return item && /^[a-zA-Z0-9_-]{1,100}$/.test(item.requestId) && Date.now() - item.at < 7200000 ? item : null;
+  } catch (_) { return null; }
+}
+
+function refreshPaymentReceipt(requestId) {
+  const generation = ++paymentRecoveryGeneration;
+  const root = document.getElementById('paymentReceipt');
+  if (!root) return;
+  root.classList.remove('hidden');
+  root.replaceChildren();
+  const status = document.createElement('p');
+  status.textContent = 'Načítám QR a platební údaje k objednávce…';
+  root.append(status);
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'secondary-button';
+  retry.textContent = 'Načíst QR znovu';
+  retry.disabled = true;
+  retry.onclick = () => refreshPaymentReceipt(requestId);
+  root.append(retry);
+  let attempts = 0;
+  const attempt = () => {
+    if (generation !== paymentRecoveryGeneration) return;
+    attempts++;
+    const callback = `PDP_PAYMENT_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    let settled = false, timeout;
+    const done = data => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      document.getElementById(`jsonp-${callback}`)?.remove();
+      try { delete window[callback]; } catch (_) {}
+      if (generation !== paymentRecoveryGeneration) return;
+      if (data?.ok && data.found && data.payment) {
+        if (submissionPending && !submissionFinished) finish(true, orderSuccessMessage(data), data);
+        const payment = {...data.payment, orderNumber:data.orderNumber};
+        window.showOrderPayment(payment);
+        try { sessionStorage.setItem('pdp-last-payment-v364', JSON.stringify(payment)); } catch (_) {}
+        retry.disabled = false;
+        root.append(retry);
+        if (payment.method === 'qr') root.scrollIntoView({behavior:'smooth', block:'start'});
+        return;
+      }
+      if (attempts < 4) { setTimeout(attempt, 2000); return; }
+      status.textContent = 'Platební údaje se zatím nepodařilo načíst. Objednávku neposílejte znovu. Zkuste načíst QR tlačítkem nebo použijte QR z potvrzovacího e-mailu.';
+      retry.disabled = false;
+    };
+    window[callback] = done;
+    timeout = setTimeout(() => done(null), 10000);
+    const query = new URLSearchParams({action:'orderReceipt', requestId, callback, t:String(Date.now())});
+    appendJsonp(`${backendUrl()}?${query}`, callback, () => done(null));
+  };
+  attempt();
+}
+
 function finish(success, message, data) {
   if (submissionFinished) return;
 
@@ -1531,12 +1599,24 @@ function finish(success, message, data) {
   feedbackEl.textContent = message;
 
   if (success) {
-    window.showOrderPayment(data?.payment);
+    const requestId = currentOrderRequestId;
+    const selectedQr = document.querySelector('input[name="paymentMethod"]:checked')?.value === 'qr';
+    if (requestId) rememberPaymentRequest(requestId, selectedQr);
+    window.showOrderPayment(data?.payment ? {...data.payment, orderNumber:data.orderNumber} : null);
     if (data?.payment) {
-      try { sessionStorage.setItem('pdp-last-payment-v364', JSON.stringify(data.payment)); } catch (_) {}
+      try { sessionStorage.setItem('pdp-last-payment-v364', JSON.stringify({...data.payment, orderNumber:data.orderNumber})); } catch (_) {}
       if (data.payment.method === 'qr') {
+        const reload = document.createElement('button');
+        reload.type = 'button';
+        reload.className = 'secondary-button';
+        reload.textContent = 'Načíst QR znovu';
+        reload.onclick = () => refreshPaymentReceipt(requestId);
+        document.getElementById('paymentReceipt')?.append(reload);
         setTimeout(() => document.getElementById('paymentReceipt')?.scrollIntoView({behavior:'smooth', block:'center'}), 250);
       }
+    }
+    if (requestId && selectedQr && (!data?.payment || (data.payment.method === 'qr' && !data.payment.paid && data.payment.amount > 0 && !data.payment.qrDataUrl))) {
+      refreshPaymentReceipt(requestId);
     }
     currentOrderRequestId = "";
     Object.keys(cart).forEach(key => delete cart[key]);
@@ -1672,6 +1752,8 @@ submitButton.addEventListener("click", () => {
   });
 
   submissionPending = true;
+  paymentRecoveryGeneration++;
+  rememberPaymentRequest(currentOrderRequestId, document.querySelector('input[name="paymentMethod"]:checked')?.value === 'qr');
   document.getElementById("paymentReceipt")?.classList.add("hidden");
   submissionFinished = false;
   submitButton.disabled = true;
@@ -1777,3 +1859,13 @@ try {
   const savedPayment = JSON.parse(sessionStorage.getItem('pdp-last-payment-v364') || 'null');
   if (savedPayment) window.showOrderPayment(savedPayment);
 } catch (_) {}
+const resumablePayment = pendingPaymentRequest();
+if (resumablePayment?.qr) refreshPaymentReceipt(resumablePayment.requestId);
+document.addEventListener('visibilitychange', () => {
+  const pending = pendingPaymentRequest();
+  if (!document.hidden && pending?.qr && !submissionPending) refreshPaymentReceipt(pending.requestId);
+});
+window.addEventListener('pageshow', event => {
+  const pending = pendingPaymentRequest();
+  if (event.persisted && pending?.qr && !submissionPending) refreshPaymentReceipt(pending.requestId);
+});
