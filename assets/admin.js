@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "3.6.0";
-console.info("Podprosečské produkty – admin.js V3.6.0 – přiřazení objednávek zákazníkům");
+window.PDP_ADMIN_VERSION = "3.6.3";
+console.info("Podprosečské produkty – admin.js V3.6.3 – QR platby");
 
 let products = [];
 let orders = [];
@@ -332,6 +332,7 @@ function openPickupStatus(status) {
 }
 
 function overdueOrderParts(order) {
+  if (isTestOrder(order)) return [];
   const today = currentPragueDateKey();
   const result = [];
   if (!order) return result;
@@ -731,6 +732,7 @@ function archived(order) {
 }
 
 function activeReservation(order) {
+  if (isTestOrder(order)) return false;
   return !archived(order);
 }
 
@@ -752,6 +754,7 @@ function orderItemStatus(order, item) {
 }
 
 function productQtyByStatus(order, productId, statusFilter) {
+  if (isTestOrder(order)) return 0;
   return (order?.items || [])
     .filter(item => String(item.productId) === String(productId))
     .filter(item => typeof statusFilter !== "function" || statusFilter(orderItemStatus(order, item)))
@@ -759,6 +762,7 @@ function productQtyByStatus(order, productId, statusFilter) {
 }
 
 function calendarEntriesForOrder(order) {
+  if (isTestOrder(order)) return [];
   if (!order) return [];
   if (!order.splitOrder) {
     if (String(order.status || "Nová") === "Zrušeno") return [];
@@ -879,8 +883,12 @@ function orderItemBadges(order) {
     .join("");
 }
 
+function isTestOrder(order) {
+  return Boolean(order && (order.isTest === true || /^TEST-\d+$/i.test(String(order.orderNumber || ''))));
+}
+
 function orderRevenueEntries(order) {
-  if (!order) return [];
+  if (!order || isTestOrder(order)) return [];
 
   if (!order.splitOrder) {
     return order.fulfilledAt
@@ -962,7 +970,7 @@ function rememberCustomerName(nameCounts, value) {
 }
 
 function renderStats() {
-  $("#statNew").textContent = orders.filter(order => order.status === "Nová").length;
+  $("#statNew").textContent = orders.filter(order => !isTestOrder(order) && order.status === "Nová").length;
   $("#statOverdue").textContent = orders.filter(order => overdueOrderParts(order).length > 0).length;
   $("#statRevenue").textContent = money(
     fulfilledRevenueEntries().reduce((sum, entry) => sum + Number(entry.amount || 0), 0)
@@ -985,7 +993,7 @@ function renderStats() {
   $("#statMonthRevenue").textContent = money(monthEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0));
   $("#statMonthOrders").textContent = new Set(monthEntries.map(entry => entry.orderId)).size;
   $("#statPreorders").textContent = orders.filter(order => activeReservation(order) && (order.items || []).some(item => products.find(p => String(p.id) === String(item.productId))?.preorder)).length;
-  $("#statCustomers").textContent = new Set(orders.filter(order => order.status !== "Zrušeno").map(orderCustomerKey)).size;
+  $("#statCustomers").textContent = new Set(orders.filter(order => !isTestOrder(order) && order.status !== "Zrušeno").map(orderCustomerKey)).size;
 }
 
 function filteredOrders() {
@@ -1043,6 +1051,24 @@ function emailSubjectForOrder(order) {
   return subjects.slice(0, -1).join(", ") + " a " + subjects[subjects.length - 1];
 }
 
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-bank-payment]');
+  if (!button || button.disabled) return;
+  const order = orders.find(o => String(o.id) === button.dataset.bankPayment);
+  if (!order) return;
+  if (!confirm(order.payment?.paid ? 'Znovu odeslat potvrzení přijetí platby?' : isTestOrder(order) ? `Nasimulovat přijetí ${money(order.total)} u ${order.orderNumber}? Na zadaný e-mail odešleme testovací potvrzení. Peníze neposílejte.` : `Potvrzujete přijetí ${money(order.total)} převodem za objednávku ${order.orderNumber}? Zákazníkovi odešleme e-mail.`)) return;
+  button.disabled = true;
+  post('markBankPayment', {id:order.id, expectedTotal:order.total}, data => {
+    button.disabled = false;
+    if (data.ok && Array.isArray(data.orders)) {
+      orders = data.orders;
+      saveAdminCache(currentAdminState());
+      renderOrders();
+    }
+    alert(data.message || 'Platbu se nepodařilo potvrdit.');
+  });
+});
+
 function renderOrders() {
   const filtered = filteredOrders();
   const list = filtered.slice(0, adminOrderRenderLimit);
@@ -1054,10 +1080,13 @@ function renderOrders() {
       <div class="card-head">
         <div>
           <h3>${esc(order.name)} <span class="badge gray">${esc(order.orderNumber || order.id)}</span></h3>
+          ${isTestOrder(order) ? '<div class="meta">TEST · nezapočítává se do tržeb, statistik, skladu ani věrnosti. Neplatit.</div>' : ''}
           <div class="meta">${esc(order.created)} · ${order.contactMethod === "E-mail" ? "✉️ E-mail" : "📱 SMS"} · ${esc(order.phone || "bez telefonu")}${order.email ? ` · ${esc(order.email)}` : ""}</div>
           <div class="badges">
             <span class="badge blue">${esc(localDate(order.pickup))}</span>
             ${orderItemBadges(order)}
+            <span class="badge ${order.payment?.paid ? 'green' : 'orange'}">${isTestOrder(order) ? (order.payment?.paid ? 'TEST – platba nasimulována' : order.payment?.method === 'qr' ? 'TEST – QR platba' : 'TEST – platba při vyzvednutí') : order.payment?.paid ? 'Zaplaceno převodem' : order.payment?.method === 'qr' ? 'Čeká na platbu převodem' : 'Platba při vyzvednutí'}</span>
+            ${order.payment?.paid && Number(order.payment.paidAmount) !== Number(order.total) ? '<span class="badge red">Cena se liší od přijaté platby – zkontrolujte rozdíl</span>' : ''}
             ${order.loyaltyCustomerId ? '<span class="badge green">❤ Věrnostní zákazník</span>' : ""}
             ${Number(order.loyaltyDiscount || 0) > 0 ? `<span class="badge orange">Sleva −${money(order.loyaltyDiscount)}</span>` : ""}
             ${archived(order) ? '<span class="badge gray">Archiv</span>' : ""}
@@ -1074,6 +1103,7 @@ function renderOrders() {
         <div class="actions">
           ${overdueOrderParts(order).length ? `<button class="reminder-button" data-remind-order="${esc(order.id)}">Připomenout</button>` : ""}
           <button class="secondary-button" data-edit-order="${esc(order.id)}">Upravit</button>
+          ${order.status !== 'Zrušeno' && (!order.payment?.paid || !order.payment?.emailSent) ? `<button class="secondary-button" data-bank-payment="${esc(order.id)}">${order.payment?.paid ? 'Odeslat potvrzení platby znovu' : isTestOrder(order) ? 'TEST – simulovat zaplacení převodem' : 'Zaplaceno převodem'}</button>` : ''}
           <button class="danger-button" data-delete-order="${esc(order.id)}">Smazat</button>
         </div>
       </div>

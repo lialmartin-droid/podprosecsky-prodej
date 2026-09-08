@@ -1,0 +1,56 @@
+PODPROSEČSKÉ DOMÁCÍ PRODUKTY – V3.6.3 – QR PLATBY A TESTOVACÍ OBJEDNÁVKY
+
+TENTO BALÍČEK STAČÍ NAHRÁT JEDNOU.
+Obsahuje QR platby z V3.6.1, samostatné testovací číslování z V3.6.2
+i možnost vyzkoušet QR a potvrzení platby na testovací objednávce.
+Obsahuje rovněž přiřazování starších objednávek podle e-mailu z V3.6.0.
+Starší aktualizace V3.6.0, V3.6.1 a V3.6.2 zvlášť nahrávat nemusíte.
+Je to aktualizace již používané aplikace, nikoli samostatný kompletní web.
+
+NASAZENÍ
+1. Rozbalte ZIP. Nahrajte index.html, složky admin/ a assets/ na GitHub
+   do stejných umístění. Potvrďte nahrazení. Ostatní původní soubory nemažte.
+2. V Google Apps Scriptu nahraďte celý obsah existujícího Code.gs tímto Code.gs.
+   Původní Code_V2_6_ADDON.gs ponechte, není potřeba jej měnit.
+3. Uložte. Nasadit > Spravovat nasazení > upravit stávající webovou aplikaci
+   > Nová verze > Nasadit. Zachovejte stávající URL webové aplikace.
+4. setup() ani inicializace skladu nebo věrnosti znovu nespouštějte.
+5. Obnovte zákaznickou stránku i administraci.
+
+JAK VYZKOUŠET QR
+1. Vytvořte objednávku se jménem test (funguje také Test, TEST a okolní mezery).
+   Použijte vlastní e-mail a telefon. Vyberte QR platbu převodem.
+2. Po odeslání se zobrazí číslo TEST-001 a QR s částkou objednávky.
+   QR lze uložit a načíst bankovní aplikací. Zpráva bude TEST-001,
+   variabilní symbol například 9000000001.
+3. POZOR: QR používá skutečný účet 987466/5500, není to bankovní sandbox.
+   V bankovní aplikaci jen zkontrolujte údaje. Převod nepotvrzujte.
+4. V administraci u testovací objednávky klikněte na
+   TEST – simulovat zaplacení převodem. Není potřeba posílat peníze.
+5. Uloží se testovací stav zaplaceno a odešle se e-mail označený TEST – simulace.
+   Opakované kliknutí neodešle další potvrzení. Při chybě e-mailu jej lze zkusit
+   znovu, stav zaplacení zůstane uložený.
+6. Můžete měnit stavy objednávky a vyzkoušet e-mail Připraveno.
+
+E-mail s přijetím objednávky obsahuje platební údaje. Obrázek QR se stejně
+jako v předchozí QR verzi zobrazuje po objednání na stránce, není v e-mailu.
+Test se skutečně ukládá a e-maily se skutečně odesílají na uvedené kontakty.
+
+CO TEST NEMĚNÍ
+TEST-001, TEST-002 atd. mají samostatné číslování; běžná řada PP se neposune.
+Testy se nepočítají do tržeb, statistik, počtů zákazníků nebo produktů,
+kalendáře a běžné historie zákazníka. Nemění rezervace, sklad ani obaly,
+nepřičítají věrnostní vejce a nespotřebovávají slevy. To platí i po simulaci
+platby a vyzvednutí. Věrnostní slevy se v testu nepoužijí.
+Automatické připomínky vyzvednutí se pro testy neposílají.
+Běžná validace položek, dostupnosti a termínů zůstává aktivní.
+Test zůstane testem i po přejmenování. Smazaný test nevrací čítač.
+Staré objednávky PP se zpětně nepřevádějí ani nepřečíslují.
+
+U běžných objednávek QR, potvrzení platby, tržby, sklad a věrnost fungují
+standardně. Platba převodem se potvrzuje ručně po kontrole účtu.
+
+Lokálně ověřeno se simulovaným Google Apps Script prostředím: QR údaje,
+simulace přijetí platby, opakované kliknutí, opakování po chybě e-mailu,
+oddělení testů od skladu, tržeb a číslování. Živý web nebyl měněn;
+skutečné doručení e-mailů ověřte po nasazení.

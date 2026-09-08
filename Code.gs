@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V3.6.0
+ * Podprosečské domácí produkty — sdílený backend V3.6.3
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -145,6 +145,7 @@ function itemPickupDate_(order, productId, preorderMap) {
 function reservationMapFromOrders_(orders, preorderMap) {
   const map = {};
   (orders || []).forEach(order => {
+    if (isTestOrder_(order)) return;
     (order.items || []).forEach(item => {
       const id = String(item.productId || '');
       if (!id || !isReservingStatus_(itemPartStatus_(order, id, preorderMap))) return;
@@ -314,6 +315,7 @@ function availabilityOrderFromSheetRowFast_(row) {
   const status = String(row[2] || 'Nová');
   const splitOrder = toBool_(row[13]);
   return {
+    orderNumber: String(row[17] || ''),
     id: String(row[0] || ''),
     status: status,
     pickup: formatSheetDate_(row[5]),
@@ -327,6 +329,7 @@ function availabilityOrderFromSheetRowFast_(row) {
 
 function reservationContributionFast_(order, preorderMap) {
   const contribution = { totals: {}, eggsByDate: {} };
+  if (isTestOrder_(order)) return contribution;
   (order && order.items || []).forEach(item => {
     const id = String(item.productId || '');
     const qty = Math.max(0, Math.floor(Number(item.qty) || 0));
@@ -560,7 +563,7 @@ function buildAdminPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.6.0',
+    version: '3.6.3',
     products: readProductsFast_(reservations, availability, catalog.products),
     orders: orders,
     eggSettings: availability.settings,
@@ -580,7 +583,7 @@ function buildAdminPlanningPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.6.0',
+    version: '3.6.3',
     products: readProductsFast_(reservations, availability, catalog.products),
     eggSettings: availability.settings,
     eggAvailability: availability,
@@ -782,8 +785,13 @@ function doPost(e) {
     if (action === 'adjustLoyaltyCustomer') return withMutationLock_(() => adjustLoyaltyCustomer_(payload), 20000);
     if (action === 'setLoyaltyCustomerActive') return withMutationLock_(() => setLoyaltyCustomerActive_(payload), 15000);
     if (action === 'assignOrdersToCustomerEmail') return withMutationLock_(() => assignOrdersToCustomerEmail_(payload), 20000);
+    if (action === 'markBankPayment') return withMutationLock_(() => markBankPayment_(payload), 20000);
 
     // Volitelné rozšíření V2.6+ (sklad obalů a přesné návštěvy).
+    if (['savePackagingSelection', 'consumePackagingForOrder'].includes(action)) {
+      const packagingOrder = readOrdersAdminFast_().find(order => String(order.id) === String(payload.orderId));
+      if (isTestOrder_(packagingOrder)) return htmlResponse_(true, 'TEST: obaly se neodečítají.', payload.orderId, {consumed:{}});
+    }
     const extensionResult = typeof handleV26Action_ === 'function' ? handleV26Action_(action, payload) : null;
     if (extensionResult) return extensionResult;
 
@@ -1314,6 +1322,58 @@ function findOrderByRequestId_(sheet, requestId) {
   return null;
 }
 
+function orderPayment_(order) {
+  if (!order) return null;
+  const isTest = isTestOrder_(order);
+  const entry = (order.timeline || []).filter(e => e.type === 'payment').slice(-1)[0] || {};
+  const total = Math.round(Number(order.total || 0) * 100) / 100;
+  const digits = String(order.orderNumber || '').replace(/\D/g, '');
+  const vs = isTest ? '9' + digits.replace(/^0+/, '').padStart(9, '0') : digits;
+  const paymentMessage = isTest ? String(order.orderNumber || '').toUpperCase() : 'OBJEDNAVKA ' + vs;
+  const method = entry.method || 'pickup';
+  const paid = Boolean(entry.paid);
+  const spd = method === 'qr' && !paid && total > 0 && /^\d{1,10}$/.test(vs)
+    ? 'SPD*1.0*ACC:CZ6055000000000000987466*AM:' + total.toFixed(2) + '*CC:CZK*X-VS:' + vs + '*MSG:' + paymentMessage : '';
+  return {method:method, paid:paid, paidAmount:entry.amount, emailSent:Boolean(entry.emailSent), account:'987466/5500', iban:'CZ6055000000000000987466', amount:total, vs:vs, spd:spd, message:paymentMessage, isTest:isTest};
+}
+
+function markBankPayment_(payload) {
+  const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
+  const rows = sheet.getDataRange().getValues();
+  const index = rows.findIndex((row, i) => i > 0 && String(row[0]) === String(payload.id));
+  if (index < 1) throw new Error('Objednávka nebyla nalezena.');
+  const order = orderFromSheetRow_(rows[index]);
+  const isTest = isTestOrder_(order);
+  if (Number(payload.expectedTotal) !== Number(order.total)) throw new Error('Cena objednávky se mezitím změnila. Obnovte objednávky a zkontrolujte přijatou částku.');
+  if (order.status === 'Zrušeno') throw new Error('Objednávka je zrušená. Přijetí platby zkontrolujte ručně.');
+  const timeline = order.timeline;
+  let entry = timeline.filter(e => e.type === 'payment' && e.paid).slice(-1)[0];
+  if (!entry) {
+    entry = {type:'payment', method:'qr', paid:true, amount:order.total, emailSent:false, at:new Date().toISOString(), text:(isTest ? 'TEST – simulace přijetí platby: ' : 'Zaplaceno převodem: ') + order.total + ' Kč'};
+    timeline.push(entry);
+    sheet.getRange(index + 1, 23).setValue(JSON.stringify(timeline));
+  }
+  let message = isTest ? 'TEST: přijetí platby bylo nasimulováno, bez započítání tržby.' : 'Platba je označena jako přijatá.';
+  if (!entry.emailSent) {
+    if (!isValidEmail_(order.email)) {
+      message += ' Chybí platný e-mail zákazníka; doplňte jej a potvrzení odešlete znovu.';
+    } else {
+      try {
+        MailApp.sendEmail({to:order.email, subject:(isTest ? 'TEST – simulace: ' : '') + 'Platba přijata – objednávka ' + order.orderNumber,
+          body:(isTest ? 'TESTOVACÍ E-MAIL: jde pouze o simulaci přijetí platby. Peníze neposílejte; skutečná platba nebyla ověřena.\n\n' : '') + 'Dobrý den,\n\n' + (isTest ? 'Simulované přijetí platby převodem ve výši ' : 'přijali jsme Vaši platbu převodem ve výši ') + entry.amount + ' Kč za objednávku ' + order.orderNumber + '.\n\nDěkujeme. O připravené objednávce Vás budeme informovat samostatně.\n\n' + CONFIG.BRAND_NAME,
+          name:CONFIG.BRAND_NAME, replyTo:CONFIG.NOTIFICATION_EMAIL});
+        entry.emailSent = true;
+        timeline.push({type:'email', at:new Date().toISOString(), text:'Zákazníkovi odesláno potvrzení přijetí platby'});
+        sheet.getRange(index + 1, 23).setValue(JSON.stringify(timeline));
+        message += ' Potvrzení bylo odesláno zákazníkovi.';
+      } catch (error) {
+        message += ' E-mail se nepodařilo odeslat. Použijte tlačítko Odeslat potvrzení platby znovu.';
+      }
+    }
+  }
+  return htmlResponse_(true, message, order.id, {orders:readOrdersAdminFast_()});
+}
+
 function orderReceiptResponse_(requestId) {
   const id = cleanText_(requestId || '', 100)
     .replace(/[^a-zA-Z0-9_-]/g, '')
@@ -1327,6 +1387,7 @@ function orderReceiptResponse_(requestId) {
     ok:true,
     kind:'orderReceipt',
     found:Boolean(order),
+    payment:order ? orderPayment_(order) : undefined,
     orderNumber:order ? String(order.orderNumber || '') : '',
     loyalty:order ? publicLoyaltyOrderResult_(order) : undefined
   };
@@ -1356,7 +1417,7 @@ function createOrder_(payload, manual) {
     if (requestId) {
       const existing = findOrderByRequestId_(sheet, requestId);
       if (existing) {
-        if (!manual && typeof linkOrderToVisitorV27_ === 'function') {
+        if (!manual && !isTestOrder_(existing) && typeof linkOrderToVisitorV27_ === 'function') {
           try {
             linkOrderToVisitorV27_(payload, existing);
           } catch (visitorError) {
@@ -1367,19 +1428,22 @@ function createOrder_(payload, manual) {
           orderNumber: existing.orderNumber,
           order: manual ? existing : undefined,
           duplicatePrevented: true,
+          payment: orderPayment_(existing),
           loyalty: publicLoyaltyOrderResult_(existing)
         });
       }
     }
 
     order = validateOrder_(payload, manual);
+    order.isTest = String(order.name || '').trim().toLowerCase() === 'test';
     validatePickupRules_(order, '');
     if (!manual) validateBusinessRules_(order);
 
     const stockDeltas = fulfilledStockDeltas_(null, order);
     id = Utilities.getUuid();
     createdAt = new Date();
-    orderNumber = nextOrderNumber_(createdAt);
+    orderNumber = isTestOrder_(order) ? nextTestOrderNumber_() : nextOrderNumber_(createdAt);
+    order.orderNumber = orderNumber;
     const fulfilledAt = !order.splitOrder && isFulfilledStatus_(order.status) ? createdAt : '';
     const regularFulfilledAt = order.splitOrder && isFulfilledStatus_(order.regularStatus) ? createdAt : '';
     const preorderFulfilledAt = order.splitOrder && isFulfilledStatus_(order.preorderStatus) ? createdAt : '';
@@ -1409,6 +1473,9 @@ function createOrder_(payload, manual) {
         order.loyaltyCustomerId || '', order.loyaltyDiscount || 0, order.loyaltyRewardId || '',
         order.loyaltyRewardState || '', order.loyaltyEggsCounted || 0, order.loyaltyOptIn
       ];
+      const initialTimeline = parseJsonArray_(orderRow[22]);
+      initialTimeline.push({type:'payment', at:createdAt.toISOString(), method:payload.paymentMethod === 'qr' ? 'qr' : 'pickup', paid:false, text:payload.paymentMethod === 'qr' ? 'QR platba – čeká na platbu' : 'Platba při vyzvednutí'});
+      orderRow[22] = JSON.stringify(initialTimeline);
       sheet.appendRow(orderRow);
       savedOrder = orderFromSheetRow_(orderRow);
       try {
@@ -1421,7 +1488,7 @@ function createOrder_(payload, manual) {
 
       // Visitor ID posílá zákaznická stránka. Uložíme ho mimo list Objednávky,
       // takže kvůli propojení návštěvnosti neměníme stabilní strukturu objednávek.
-      if (!manual && typeof linkOrderToVisitorV27_ === 'function') {
+      if (!manual && !isTestOrder_(order) && typeof linkOrderToVisitorV27_ === 'function') {
         try {
           linkOrderToVisitorV27_(payload, {
             id:id,
@@ -1478,7 +1545,7 @@ function createOrder_(payload, manual) {
     try {
       MailApp.sendEmail({
         to: order.email,
-        subject: `Potvrzení přijetí objednávky – ${CONFIG.BRAND_NAME}`,
+        subject: `${isTestOrder_(order) ? 'TEST – ' : ''}Potvrzení přijetí objednávky – ${CONFIG.BRAND_NAME}`,
         body: buildCustomerTextEmail_(order, orderNumber),
         htmlBody: buildCustomerHtmlEmail_(order, orderNumber),
         name: CONFIG.BRAND_NAME,
@@ -1490,9 +1557,10 @@ function createOrder_(payload, manual) {
     }
   }
 
-  return htmlResponse_(true, (manual ? 'Objednávka byla uložena.' : 'Objednávka byla přijata.') + emailWarning + loyaltyWarning, id, {
+  return htmlResponse_(true, (isTestOrder_(order) ? 'TEST: zkušební objednávka bez započítání tržby, skladu a věrnosti. Neplaťte ji.' : manual ? 'Objednávka byla uložena.' : 'Objednávka byla přijata.') + emailWarning + loyaltyWarning, id, {
     orderNumber:orderNumber,
     order:manual ? savedOrder : undefined,
+    payment: orderPayment_(savedOrder || order),
     loyalty: publicLoyaltyOrderResult_(savedOrder || order)
   });
 }
@@ -1601,6 +1669,9 @@ function saveOrder_(payload, skipPublicRefresh) {
     if (!row) throw new Error('Objednávka nebyla nalezena.');
 
     const oldOrder = orderFromSheetRow_(values[row - 1]);
+    // Typ je po vytvoření neměnný; přejmenování nesmí změnit sklad ani historii.
+    order.isTest = isTestOrder_(oldOrder);
+    order.orderNumber = oldOrder.orderNumber;
     const oldOrderRow = values[row - 1].slice(0, CONFIG.ORDER_COLUMN_COUNT);
     const created = values[row - 1][1] || new Date();
     const source = values[row - 1][9] || 'Administrace';
@@ -1652,7 +1723,7 @@ function saveOrder_(payload, skipPublicRefresh) {
     // Drahý přepočet dostupnosti proto spouštíme jen tehdy, když se plán opravdu změnil.
     const planningChanged = orderPlanningSignatureV290_(oldOrder) !== orderPlanningSignatureV290_(order);
     if (planningChanged) validatePickupRules_(order, id);
-    const packagingPlan = Object.prototype.hasOwnProperty.call(payload || {}, 'packagingSelection')
+    const packagingPlan = !isTestOrder_(order) && Object.prototype.hasOwnProperty.call(payload || {}, 'packagingSelection')
       ? (typeof preparePackagingOrderUpdateV290_ === 'function'
         ? preparePackagingOrderUpdateV290_(id, Object.assign({}, order, {id:id, orderNumber:orderNumber}), payload.packagingSelection)
         : (() => { throw new Error('Doplněk skladu obalů je zastaralý. Nahrajte také nový Code_V2_6_ADDON.gs.'); })())
@@ -1795,7 +1866,7 @@ function deleteOrder_(payload) {
     const deletedOrder = orderFromSheetRow_(values[i]);
     reverseLoyaltyForDeletedOrder_(deletedOrder);
     deletedOrders.push(deletedOrder);
-    const year = orderNumberYear_(values[i][17], values[i][1]);
+    const year = isTestOrder_(deletedOrder) ? '' : orderNumberYear_(values[i][17], values[i][1]);
     if (year) affectedYears[year] = true;
     sheet.deleteRow(i + 1);
   }
@@ -1928,6 +1999,7 @@ function buildEggAvailability_(excludeOrderId, suppliedOrders, suppliedPreorderM
   const preorderMap = suppliedPreorderMap || productPreorderMap_();
 
   orders.forEach(order => {
+    if (isTestOrder_(order)) return;
     if (excludeOrderId && String(order.id) === String(excludeOrderId)) return;
     const eggStatus = itemPartStatus_(order, CONFIG.EGG_PRODUCT_ID, preorderMap);
     if (!isReservingStatus_(eggStatus)) return;
@@ -2151,6 +2223,7 @@ function orderFromSheetRow_(row) {
     communication: parseJsonArray_(row[20]),
     internalNote: restoreSheetText_(row[21] || ''),
     timeline: timeline,
+    payment: orderPayment_({timeline:timeline, total:Number(row[7] || 0), orderNumber:String(row[17] || '')}),
     fulfilledAt: partFulfilledTimestamp_(row[23], timeline, status, 'Stav dostupné části: Vyzvednuto'),
     regularFulfilledAt: partFulfilledTimestamp_(row[24], timeline, regularStatus, 'Stav dostupné části: Vyzvednuto'),
     preorderFulfilledAt: partFulfilledTimestamp_(row[25], timeline, preorderStatus, 'Stav předobjednané části: Vyzvednuto'),
@@ -3056,7 +3129,7 @@ function customerLoyaltyMovements_(customerId) {
 function customerAccountSnapshot_(email) {
   const normalizedEmail = normalizeLoyaltyEmail_(email);
   const matchingOrders = readOrdersAdminFast_()
-    .filter(order => normalizeLoyaltyEmail_(order.email) === normalizedEmail);
+    .filter(order => !isTestOrder_(order) && normalizeLoyaltyEmail_(order.email) === normalizedEmail);
   let customer = findLoyaltyCustomerByContacts_({email:normalizedEmail});
   // Starší člen mohl být původně vedený jen podle telefonu. Pokud je jeho
   // ověřený e-mail uložený u objednávky, použijeme bezpečné propojení přes
@@ -3239,6 +3312,7 @@ function resolveLoyaltyCustomerForOrder_(payload, order, allowCreate) {
 }
 
 function prepareLoyaltyForOrder_(payload, order, orderId, manual) {
+  if (isTestOrder_(order)) return clearLoyaltyOrderMeta_(order, false);
   const optedIn = toBool_(payload && payload.loyaltyOptIn);
   clearLoyaltyOrderMeta_(order, optedIn);
   const settings = readLoyaltySettings_();
@@ -3262,6 +3336,7 @@ function prepareLoyaltyForOrder_(payload, order, orderId, manual) {
 }
 
 function prepareLoyaltyForUpdatedOrder_(payload, order, oldOrder, orderId) {
+  if (isTestOrder_(order)) { Object.assign(order, clearLoyaltyOrderMeta_(order, false)); return order; }
   preserveLoyaltyOrderMeta_(order, oldOrder);
   const settings = readLoyaltySettings_();
   let customer = oldOrder.loyaltyCustomerId ? findLoyaltyCustomerById_(oldOrder.loyaltyCustomerId) : null;
@@ -3290,6 +3365,7 @@ function prepareLoyaltyForUpdatedOrder_(payload, order, oldOrder, orderId) {
 }
 
 function syncLoyaltyAfterOrderState_(oldOrder, order, ordersSheet, orderRow) {
+  if (isTestOrder_(order)) return clearLoyaltyOrderMeta_(order, false);
   if (!order || !order.loyaltyCustomerId) return order;
   const customer = findLoyaltyCustomerById_(order.loyaltyCustomerId);
   if (!customer) return order;
@@ -3344,6 +3420,7 @@ function syncLoyaltyAfterOrderState_(oldOrder, order, ordersSheet, orderRow) {
 }
 
 function reverseLoyaltyForDeletedOrder_(order) {
+  if (isTestOrder_(order)) return;
   if (!order || !order.loyaltyCustomerId) return;
   if (Number(order.loyaltyEggsCounted || 0) > 0) {
     applyLoyaltyEggDelta_(order.loyaltyCustomerId, -Math.floor(Number(order.loyaltyEggsCounted || 0)), order.id, order.orderNumber, 'Objednávka byla smazána.');
@@ -3495,6 +3572,7 @@ function availableProductStock_(productId, physicalStock) {
 
 function fulfilledProductQuantities_(order, preorderMap) {
   const result = {};
+  if (isTestOrder_(order)) return result;
   const productParts = preorderMap || productPreorderMap_();
   (order && order.items || []).forEach(item => {
     const id = String(item.productId || '');
@@ -3505,6 +3583,7 @@ function fulfilledProductQuantities_(order, preorderMap) {
 }
 
 function orderHasFulfilledPart_(order) {
+  if (isTestOrder_(order)) return false;
   if (!order) return false;
   if (!order.splitOrder) return isFulfilledStatus_(order.status);
   return isFulfilledStatus_(order.regularStatus) || isFulfilledStatus_(order.preorderStatus);
@@ -3772,6 +3851,7 @@ function ensurePickupReminderTrigger_() {
 }
 
 function activePickupPartsForDate_(order, dateKey) {
+  if (isTestOrder_(order)) return [];
   const result = [];
   if (!order || !dateKey) return result;
   if (!order.splitOrder) {
@@ -4317,6 +4397,7 @@ function buildTextEmail_(order, id, createdAt) {
     ...(Number(order.loyaltyDiscount || 0) > 0 ? ['', `Mezisoučet: ${loyaltySubtotal_(order)} Kč`, `Věrnostní sleva na vejce: -${Number(order.loyaltyDiscount)} Kč`] : []),
     '',
     `Celkem: ${order.total} Kč`,
+    paymentInstructions_(order),
     `Poznámka: ${order.note || '—'}`
   ].join('\n');
 }
@@ -4366,6 +4447,27 @@ function syncOrderCounterForYear_(sheet, year, properties) {
   props.setProperty('ORDER_COUNTER_' + normalizedYear, String(highest));
   props.setProperty(orderCounterSyncKey_(normalizedYear), '1');
   return highest;
+}
+
+function isTestOrder_(order) {
+  return Boolean(order && (order.isTest === true || /^TEST-\d+$/i.test(String(order.orderNumber || ''))));
+}
+
+// Voláno pod zámkem createOrder_; čítač se nikdy nevrací po smazání testu.
+function nextTestOrderNumber_() {
+  const props = PropertiesService.getScriptProperties();
+  const key = 'TEST_ORDER_COUNTER_V362';
+  let highest = Number(props.getProperty(key) || 0);
+  if (!props.getProperty(key)) {
+    const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
+    if (sheet.getLastRow() > 1) sheet.getRange(2, 18, sheet.getLastRow() - 1, 1).getDisplayValues().forEach(row => {
+      const match = String(row[0] || '').match(/^TEST-(\d+)$/i);
+      if (match) highest = Math.max(highest, Number(match[1]));
+    });
+  }
+  const next = highest + 1;
+  props.setProperty(key, String(next));
+  return 'TEST-' + String(next).padStart(3, '0');
 }
 
 function nextOrderNumber_(date) {
@@ -4530,6 +4632,7 @@ function buildCustomerTextEmail_(order, id) {
     '',
     `Celkem: ${order.total} Kč`,
     `Termín vyzvednutí: ${formatCustomerPickupDate_(order.pickup)}`,
+    paymentInstructions_(order),
     ...(order.splitOrder ? [`Termín předobjednané části: ${formatCustomerPickupDate_(order.preorderPickup)}`] : []),
     `Způsob kontaktu před vyzvednutím: ${order.contactMethod}`,
     `Číslo objednávky: ${id}`,
@@ -4544,11 +4647,25 @@ function buildCustomerTextEmail_(order, id) {
   ].join('\n');
 }
 
+function paymentInstructions_(order) {
+  const p = orderPayment_(order);
+  if (p.isTest) {
+    const warning = 'TEST – zkušební objednávka bez započítání tržby, skladu a věrnosti. Peníze neposílejte.';
+    if (p.paid) return warning + ' Přijetí platby bylo pouze nasimulováno.';
+    if (p.method !== 'qr') return warning + ' Zvolená platba při vyzvednutí.';
+    return warning + ' Platební údaje k ověření QR: účet ' + p.account + ', částka ' + p.amount.toFixed(2) + ' Kč, variabilní symbol ' + p.vs + ', zpráva ' + p.message + '. QR používá skutečný bankovní účet; v bankovní aplikaci převod nepotvrzujte.';
+  }
+  if (p.method !== 'qr') return 'Platba při vyzvednutí.';
+  if (p.paid) return 'Platba převodem přijata.';
+  if (p.amount <= 0) return 'Není potřeba nic platit.';
+  return 'Platba převodem: účet ' + p.account + ', částka ' + p.amount.toFixed(2) + ' Kč, variabilní symbol ' + p.vs + '. Přijetí platby Vám potvrdíme samostatným e-mailem.';
+}
+
 function buildCustomerHtmlEmail_(order, id) {
   const greeting = firstNameVocative_(order.name);
   const discountRow = Number(order.loyaltyDiscount || 0) > 0 ? `<tr><td style="padding:10px 0;color:#2f7d55"><b>Věrnostní sleva na vejce</b><br><small>Sleva byla automaticky započítána.</small></td><td style="padding:10px 0;text-align:right;font-weight:700;color:#2f7d55">-${Number(order.loyaltyDiscount)} Kč</td></tr>` : '';
   const rows = order.items.map(item => `<tr><td style="padding:9px 0;border-bottom:1px solid #eadfce">${escapeHtml_(item.qty + '× ' + item.name)}</td><td style="padding:9px 0;border-bottom:1px solid #eadfce;text-align:right;font-weight:700">${item.qty * item.price} Kč</td></tr>`).join('') + discountRow;
-  const split = order.splitOrder ? `<p style="padding:16px;background:#eef7ff;border-radius:12px"><b>${escapeHtml_(splitOrderMessage_(order))}</b></p>` : '';
+  const split = '<p>' + escapeHtml_(paymentInstructions_(order)) + '</p>' + (order.splitOrder ? `<p style="padding:16px;background:#eef7ff;border-radius:12px"><b>${escapeHtml_(splitOrderMessage_(order))}</b></p>` : '');
   return `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#2b241f;line-height:1.55"><div style="background:#f3b72e;padding:22px 26px;border-radius:18px 18px 0 0"><h1 style="font-size:24px;margin:0">${escapeHtml_(CONFIG.BRAND_NAME)}</h1></div><div style="padding:26px;border:1px solid #eadfce;border-top:0;border-radius:0 0 18px 18px"><p>Dobrý den${greeting ? ', <b>' + escapeHtml_(greeting) + '</b>' : ''},</p><p style="padding:16px;background:#fff8e5;border-radius:12px"><b>${escapeHtml_(customerWorkMessage_(order))}</b></p>${split}<table style="width:100%;border-collapse:collapse;margin-top:18px">${rows}</table><p style="font-size:22px;text-align:right"><b>Celkem: ${order.total} Kč</b></p><p><b>Termín vyzvednutí:</b> ${escapeHtml_(formatCustomerPickupDate_(order.pickup))}${order.splitOrder ? `<br><b>Termín předobjednané části:</b> ${escapeHtml_(formatCustomerPickupDate_(order.preorderPickup))}` : ''}<br><b>Kontakt před vyzvednutím:</b> ${escapeHtml_(order.contactMethod)}<br><b>Číslo objednávky:</b> ${escapeHtml_(id)}</p><p style="margin-top:28px">Děkujeme za Vaši objednávku.</p><p style="margin-top:24px">S přáním krásného dne<br><b>Martin Dvořák</b><br>${escapeHtml_(CONFIG.BRAND_NAME)}<br><i>Poctivé produkty od našich včel, slepiček a ze zahrádky.</i></p></div></div>`;
 }
 

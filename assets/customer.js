@@ -562,6 +562,7 @@ function eggCartSubtotal() {
 }
 
 function loyaltyPreviewDiscount() {
+  if (String(document.getElementById('customerName')?.value || '').trim().toLowerCase() === 'test') return 0;
   const status = loyaltyOrderState;
   if (!currentLoyaltySettings().enabled || !status || !status.enrolled || !status.active || !status.rewardReady) return 0;
   const discount = Math.max(0, Number(status.discountCzk || 0));
@@ -1423,7 +1424,7 @@ function checkOrderReceipt() {
     if (orderReceiptCallbackName !== callbackName) return;
     cleanupOrderReceiptRequest();
     if (data && data.ok && data.found) {
-      finish(true, orderSuccessMessage(data));
+      finish(true, orderSuccessMessage(data), data);
       return;
     }
     scheduleOrderReceiptCheck(3000);
@@ -1446,7 +1447,7 @@ function startOrderReceiptPolling() {
   scheduleOrderReceiptCheck(7000);
 }
 
-function finish(success, message) {
+function finish(success, message, data) {
   if (submissionFinished) return;
 
   submissionFinished = true;
@@ -1457,6 +1458,7 @@ function finish(success, message) {
   feedbackEl.textContent = message;
 
   if (success) {
+    window.showOrderPayment?.(data?.payment);
     currentOrderRequestId = "";
     Object.keys(cart).forEach(key => delete cart[key]);
     autoPickupDate = "";
@@ -1511,7 +1513,7 @@ window.addEventListener("message", event => {
     watchPending = null;
     return;
   }
-  finish(Boolean(data.ok), data.ok ? orderSuccessMessage(data) : (data.message || "Objednávku se nepodařilo odeslat."));
+  finish(Boolean(data.ok), data.ok ? orderSuccessMessage(data) : (data.message || "Objednávku se nepodařilo odeslat."), data);
 });
 
 function orderRequestId() {
@@ -1580,6 +1582,7 @@ submitButton.addEventListener("click", () => {
   const contactMethod = selectedContactMethod();
   payload.value = JSON.stringify({
     name, phone, email, pickup, note, source: "Web", items,
+    paymentMethod: document.getElementById("paymentMethod")?.value || "pickup",
     contactMethod,
     splitOrder: splitMode === "split",
     preorderPickup: preorderPickup,
@@ -1590,6 +1593,7 @@ submitButton.addEventListener("click", () => {
   });
 
   submissionPending = true;
+  document.getElementById("paymentReceipt")?.classList.add("hidden");
   submissionFinished = false;
   submitButton.disabled = true;
   submitButton.textContent = "Odesílám…";
@@ -1632,6 +1636,7 @@ pickupInput.addEventListener("change", () => {
   input?.addEventListener("input", lookupOrderLoyalty);
   input?.addEventListener("blur", lookupOrderLoyalty);
 });
+document.getElementById('customerName')?.addEventListener('input', () => renderSummary());
 loyaltyOptInEl?.addEventListener("change", () => {
   renderOrderLoyaltyStatus();
   renderSummary();

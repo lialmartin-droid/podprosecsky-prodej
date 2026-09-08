@@ -907,6 +907,7 @@
   }
 
   function orderNeedsPackagingV26(order) {
+    if (typeof isTestOrder === 'function' && isTestOrder(order)) return false;
     if (!order || typeof eggQty !== "function") return false;
     return Number(eggQty(order) || 0) > 0;
   }
