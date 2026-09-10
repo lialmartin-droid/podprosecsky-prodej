@@ -1,0 +1,24 @@
+#feedTab{font-size:16px}
+#feedTab .feed-note{font-size:14px;line-height:1.55;color:var(--muted)}
+#feedTab .feed-toolbar{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin:12px 0}
+#feedTab select{padding:10px 12px;background:white;border:1px solid var(--line);border-radius:12px;font-size:16px;margin-left:8px}
+#feedTab .feed-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+#feedTab .feed-cards article{padding:18px;border:1px solid var(--line);border-radius:18px;min-width:0}
+#feedTab .feed-cards span,#feedTab .feed-cards small{display:block;font-size:14px;line-height:1.4;color:var(--muted)}
+#feedTab .feed-cards strong{display:block;font-size:clamp(22px,4vw,30px);line-height:1.25;margin:10px 0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+#feedTab .feed-result{background:#edf5e9;border-color:#baceb1!important}
+#feedTab .feed-negative{background:#fff0ed;border-color:#e3b7af!important}
+#feedTab .feed-warning{color:#91472f}
+#feedTab summary{font-weight:700;cursor:pointer;padding:6px 0}
+#feedTab details form{margin-top:18px}
+#feedTab .feed-fields{padding:0;margin:0;border:0;min-width:0}
+#feedTab label span{font-size:14px}
+#feedTab .feed-purchase-main{display:flex;justify-content:space-between;align-items:start;gap:14px}
+#feedTab .feed-purchase-main strong{font-size:20px;white-space:nowrap}
+#feedTab .feed-purchase-main h4{margin:0;font-size:17px;overflow-wrap:anywhere}
+#feedTab .feed-purchase-main p{margin:6px 0 0;font-size:14px;line-height:1.45;color:var(--muted)}
+#feedTab .feed-purchase-note{overflow-wrap:anywhere}
+#feedTab button:disabled{opacity:.55;cursor:wait}
+#feedTab input:focus-visible,#feedTab button:focus-visible,#feedTab summary:focus-visible,#feedTab select:focus-visible{outline:3px solid var(--brown);outline-offset:3px}
+#feedStatus{font-size:14px;line-height:1.5}
+@media(max-width:600px){#feedTab .feed-cards{grid-template-columns:1fr}#feedTab .feed-cards article{padding:14px 16px}#feedTab .feed-cards strong{font-size:26px;margin:6px 0}#feedTab .section-head{align-items:center;flex-wrap:wrap}#feedTab .feed-purchase-main{flex-wrap:wrap}}

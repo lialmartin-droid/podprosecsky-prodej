@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V3.6.4
+ * Podprosečské domácí produkty — sdílený backend V3.7.0
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -765,6 +765,10 @@ function doPost(e) {
     if (action === 'deleteProductImage') return deleteProductImage_(payload);
     if (action === 'uploadAlbumPhoto') return uploadAlbumPhoto_(payload);
     if (action === 'getAlbumData') return getAlbumData_();
+    if (action === 'getFeedData') return htmlResponse_(true, '', '', {feedData:feedData_()});
+    if (action === 'saveFeedSettings') return withMutationLock_(() => saveFeedSettings_(payload), 10000);
+    if (action === 'saveFeedPurchase') return withMutationLock_(() => saveFeedPurchase_(payload), 10000);
+    if (action === 'deleteFeedPurchase') return withMutationLock_(() => deleteFeedPurchase_(payload), 10000);
 
     // Krátké mutace tabulky serializujeme, ale zámek se nedrží přes veřejné objednávky.
     if (action === 'saveProduct') return withMutationLock_(() => saveProduct_(payload), 10000);
@@ -7017,3 +7021,140 @@ var pdpQrGenerator = function() {
 }(function () {
     return pdpQrGenerator;
 }));
+
+// V3.7 — evidence krmiva. Čte se až po otevření vlastní záložky.
+function feedNumber_(value, min, max, label, decimals) {
+  if (value == null || String(value).trim() === '') throw new Error(label + ': vyplňte číslo.');
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < min || number > max) throw new Error(label + ': neplatná hodnota.');
+  const scale = Math.pow(10, decimals);
+  return Math.round(number * scale) / scale;
+}
+
+function feedDate_(value) {
+  const key = String(value || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) throw new Error('Zadejte platné datum.');
+  const date = new Date(key + 'T00:00:00Z');
+  if (isNaN(date) || date.toISOString().slice(0, 10) !== key || key < '2000-01-01' || key > todayKey_()) {
+    throw new Error('Datum musí být platné, od roku 2000 a nejpozději dnes.');
+  }
+  return key;
+}
+
+function feedSheet_() {
+  const sheet = getOrCreateSheet_('Krmivo slepic');
+  ensureHeaders_(sheet, ['ID', 'Datum nákupu', 'Krmivo', 'Množství kg', 'Zaplaceno Kč', 'Poznámka', 'Verze', 'Smazáno']);
+  return sheet;
+}
+
+function feedPurchases_(sheet) {
+  const source = sheet || feedSheet_();
+  if (source.getLastRow() < 2) return [];
+  return source.getRange(2, 1, source.getLastRow() - 1, 8).getValues().map((row, i) => ({
+    id:String(row[0] || ''), date:formatSheetDate_(row[1]), name:restoreSheetText_(row[2] || ''),
+    kg:Number(row[3] || 0), cost:Number(row[4] || 0), note:restoreSheetText_(row[5] || ''),
+    revision:String(row[6] || ''), deleted:toBool_(row[7]), row:i + 2
+  })).filter(purchase => purchase.id);
+}
+
+function feedSettings_() {
+  const sheet = getOrCreateSheet_(CONFIG.SETTINGS_SHEET);
+  const raw = readSettingsMap_(sheet).FEED_SETTINGS_V370;
+  if (!raw) return {dailyKg:0, pricePerKg:0, stockKg:0, stockDate:todayKey_(), revision:''};
+  try { return JSON.parse(String(raw)); }
+  catch (_) { throw new Error('Nastavení krmiva nelze přečíst. Zkontrolujte záznam v Nastavení.'); }
+}
+
+function feedEggRevenue_(sourceOrders, today) {
+  const years = {};
+  let missingDateOrders = 0;
+  (sourceOrders || []).forEach(order => {
+    if (isTestOrder_(order)) return;
+    // Vejce patří stejně jako ve věrnostním programu do dostupné části.
+    if (String(order.splitOrder ? order.regularStatus : order.status) !== 'Vyzvednuto') return;
+    const items = (order.items || []).filter(item => String(item.productId) === String(CONFIG.EGG_PRODUCT_ID));
+    if (!items.length) return;
+    const fulfilled = order.splitOrder
+      ? order.regularFulfilledAtKey || order.regularFulfilledAt
+      : order.fulfilledAtKey || order.fulfilledAt;
+    const date = String(fulfilled || order.pickup || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(date + 'T00:00:00Z'))) { missingDateOrders++; return; }
+    if (date > today) return;
+    const year = date.slice(0, 4);
+    const summary = years[year] || (years[year] = {revenue:0, eggs:0, orders:0, estimatedDateOrders:0});
+    const gross = items.reduce((sum, item) => sum + Math.max(0, Number(item.qty) || 0) * Math.max(0, Number(item.price) || 0), 0);
+    const discount = Math.max(0, Number(order.loyaltyDiscount) || 0);
+    summary.revenue += Math.round(Math.max(0, gross - discount) * 100);
+    summary.eggs += items.reduce((sum, item) => sum + Math.max(0, Number(item.qty) || 0), 0);
+    summary.orders++;
+    if (!fulfilled) summary.estimatedDateOrders++;
+  });
+  Object.keys(years).forEach(year => { years[year].revenue /= 100; });
+  return {years:years, missingDateOrders:missingDateOrders};
+}
+
+function feedData_() {
+  const today = todayKey_();
+  return {
+    asOf:today, settings:feedSettings_(),
+    purchases:feedPurchases_().filter(item => !item.deleted).map(item => { delete item.row; return item; }),
+    sales:feedEggRevenue_(readOrdersAdminFast_(), today)
+  };
+}
+
+function saveFeedSettings_(payload) {
+  const current = feedSettings_();
+  if (String(payload.expectedRevision || '') !== current.revision) throw new Error('Nastavení se mezitím změnilo. Obnovte přehled a změnu zopakujte.');
+  const source = payload.settings || {};
+  const settings = {
+    dailyKg:feedNumber_(source.dailyKg, 0.001, 10000, 'Denní spotřeba', 3),
+    pricePerKg:feedNumber_(source.pricePerKg, 0, 100000, 'Cena za kg', 2),
+    stockKg:feedNumber_(source.stockKg, 0, 1000000, 'Zásoba', 3),
+    stockDate:feedDate_(source.stockDate), revision:Utilities.getUuid()
+  };
+  const sheet = getOrCreateSheet_(CONFIG.SETTINGS_SHEET);
+  setSettingsBatch_(sheet, [{key:'FEED_SETTINGS_V370', value:JSON.stringify(settings), text:true, description:'Spotřeba, výchozí zásoba a cena krmiva pro odhad'}]);
+  return htmlResponse_(true, 'Nastavení krmiva uloženo.', '', {feedSettings:settings});
+}
+
+function feedPurchaseId_(value) {
+  const id = String(value || '');
+  if (!/^[a-zA-Z0-9_-]{12,80}$/.test(id)) throw new Error('Neplatné ID nákupu. Obnovte přehled.');
+  return id;
+}
+
+function saveFeedPurchase_(payload) {
+  const source = payload.purchase || {};
+  const item = {
+    id:feedPurchaseId_(source.id), date:feedDate_(source.date),
+    name:cleanText_(source.name || '', 100), kg:feedNumber_(source.kg, 0.001, 1000000, 'Množství', 3),
+    cost:feedNumber_(source.cost, 0, 10000000, 'Zaplaceno', 2), note:cleanText_(source.note || '', 300)
+  };
+  if (!item.name) throw new Error('Vyplňte název krmiva.');
+  const sheet = feedSheet_();
+  const existing = feedPurchases_(sheet).find(purchase => purchase.id === item.id);
+  if (existing && !existing.deleted && ['date','name','kg','cost','note'].every(key => existing[key] === item[key])) {
+    delete existing.row;
+    return htmlResponse_(true, 'Nákup je uložený.', item.id, {feedPurchase:existing});
+  }
+  if (existing && (existing.deleted || existing.revision !== String(payload.expectedRevision || '')) || !existing && payload.expectedRevision) {
+    throw new Error('Nákup se mezitím změnil nebo byl smazán. Obnovte přehled a změnu zopakujte.');
+  }
+  item.revision = Utilities.getUuid();
+  item.deleted = false;
+  const row = existing ? existing.row : sheet.getLastRow() + 1;
+  sheet.getRange(row, 2).setNumberFormat('@');
+  sheet.getRange(row, 1, 1, 8).setValues([[item.id, item.date, safeSheetText_(item.name), item.kg, item.cost, safeSheetText_(item.note), item.revision, false]]);
+  return htmlResponse_(true, 'Nákup krmiva uložen.', item.id, {feedPurchase:item});
+}
+
+function deleteFeedPurchase_(payload) {
+  const id = feedPurchaseId_(payload.id);
+  const sheet = feedSheet_();
+  const item = feedPurchases_(sheet).find(purchase => purchase.id === id);
+  if (!item || item.deleted) return htmlResponse_(true, 'Nákup byl odstraněn.', id, {feedDeletedId:id});
+  if (item.revision !== String(payload.expectedRevision || '')) throw new Error('Nákup se mezitím změnil. Obnovte přehled před smazáním.');
+  // Záznam zůstane jako smazaný: opožděné opakování požadavku jej nesmí obnovit.
+  sheet.getRange(item.row, 7, 1, 2).setValues([[Utilities.getUuid(), true]]);
+  return htmlResponse_(true, 'Nákup byl odstraněn.', id, {feedDeletedId:id});
+}

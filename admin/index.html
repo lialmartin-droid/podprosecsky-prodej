@@ -20,11 +20,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@600;700&display=swap&subset=latin-ext" rel="stylesheet">
   <link rel="preload" href="../assets/config.js?v=364" as="script">
-  <link rel="preload" href="../assets/admin.js?v=364" as="script">
+  <link rel="preload" href="../assets/admin.js?v=370" as="script">
   <link rel="preload" href="../assets/admin-enhancements.js?v=364" as="script">
   <link rel="stylesheet" href="../assets/style.css?v=360-20260907-customer-assignment">
+  <link rel="stylesheet" href="../assets/admin-feed.css?v=370">
 </head>
-<body data-pdp-admin-version="3.6.4">
+<body data-pdp-admin-version="3.7.0">
 <section id="adminLogin" class="login-screen hidden">
   <div class="login-card">
     <div class="admin-login-brand">
@@ -73,6 +74,7 @@
       <button class="tab active" data-tab="ordersTab">Objednávky</button>
       <button class="tab" data-tab="calendarTab">Kalendář</button>
       <button class="tab" data-tab="eggsTab">Vejce</button>
+      <button class="tab" data-tab="feedTab">Krmivo a výdělek</button>
       <button class="tab" data-tab="productsTab">Produkty</button>
       <button class="tab" data-tab="albumTab">Fotoalbum</button>
       <button class="tab" data-tab="insightsTab">Statistiky</button>
@@ -171,6 +173,57 @@
         <span><strong>Další volná kapacita</strong> = kolik nových vajec lze na tento den ještě bezpečně objednat, aniž by chyběla pro pozdější zákazníky.</span>
       </div>
       <div id="eggForecast" class="forecast-list"></div>
+    </section>
+
+    <section id="feedTab" class="tab-panel" aria-labelledby="feedHeading">
+      <div class="section-head">
+        <h2 id="feedHeading">Krmivo a výdělek</h2>
+        <button id="feedReload" type="button" class="secondary-button">Obnovit</button>
+      </div>
+      <p id="feedStatus" role="status" aria-live="polite">Přehled se načte po otevření záložky.</p>
+      <div id="feedContent" class="hidden">
+        <div class="feed-toolbar">
+          <label for="feedYear">Rok <select id="feedYear"></select></label>
+          <button id="feedAdd" type="button" class="primary-small">Přidat nákup krmiva</button>
+        </div>
+        <div id="feedActual" class="feed-cards"></div>
+        <p class="feed-note">Výdělek = tržby za vyzvednutá vejce po věrnostních slevách − nákupy krmiva v daném roce. Nezahrnuje cenu slepic, kurníku, obalů ani další náklady. Počítá jen zaznamenané prodeje a nákupy.</p>
+        <p id="feedRevenueNote" class="feed-note"></p>
+        <h3 id="feedForecastHeading">Odhad do konce roku</h3>
+        <div id="feedForecast" class="feed-cards"></div>
+        <p id="feedForecastNote" class="feed-note"></p>
+        <details id="feedSettingsDetails" class="admin-form">
+          <summary>Spotřeba, zásoba a cena pro odhad</summary>
+          <form id="feedSettingsForm">
+            <fieldset class="feed-fields">
+              <div class="form-grid">
+                <label><span>Denní spotřeba celého hejna (kg)</span><input id="feedDaily" type="number" inputmode="decimal" min="0.001" max="10000" step="0.001" required></label>
+                <label><span>Cena pro budoucí nákupy (Kč/kg)</span><input id="feedPrice" type="number" inputmode="decimal" min="0" max="100000" step="0.01" required></label>
+                <label><span>Zásoba na začátku zvoleného dne (kg)</span><input id="feedStock" type="number" inputmode="decimal" min="0" max="1000000" step="0.001" required></label>
+                <label><span>Datum této zásoby</span><input id="feedStockDate" type="date" required></label>
+              </div>
+              <p class="feed-note">Uveď zásobu před nákupy v tento den. Nákupy od tohoto data se přičtou automaticky. Spotřeba platí od zvoleného data; při změně hejna zadej novou zásobu a datum. Počáteční zásoba se nezapočítá jako výdaj — zaplacené krmivo zapiš do nákupů.</p>
+              <div class="actions"><button type="submit" class="primary-small">Uložit nastavení</button></div>
+            </fieldset>
+          </form>
+        </details>
+        <form id="feedPurchaseForm" class="admin-form hidden">
+          <h3 id="feedPurchaseHeading">Nový nákup krmiva</h3>
+          <fieldset class="feed-fields">
+            <div class="form-grid">
+              <label><span>Datum nákupu</span><input id="feedPurchaseDate" type="date" required></label>
+              <label><span>Krmivo</span><input id="feedPurchaseName" maxlength="100" placeholder="Např. směs pro nosnice" required></label>
+              <label><span>Množství (kg)</span><input id="feedPurchaseKg" type="number" inputmode="decimal" min="0.001" max="1000000" step="0.001" required></label>
+              <label><span>Zaplaceno celkem (Kč)</span><input id="feedPurchaseCost" type="number" inputmode="decimal" min="0" max="10000000" step="0.01" required></label>
+              <label class="full"><span>Poznámka (nepovinná)</span><input id="feedPurchaseNote" maxlength="300"></label>
+            </div>
+            <p id="feedPurchaseUnitPrice" class="feed-note"></p>
+            <div class="actions"><button id="feedPurchaseCancel" type="button" class="secondary-button">Zrušit</button><button type="submit" class="primary-small">Uložit nákup</button></div>
+          </fieldset>
+        </form>
+        <h3>Nákupy krmiva</h3>
+        <div id="feedPurchases" class="stack"></div>
+      </div>
     </section>
 
     <section id="productsTab" class="tab-panel">
@@ -307,7 +360,9 @@
   <input id="adminPayload" name="payload" type="hidden">
 </form>
 <script src="../assets/config.js?v=364"></script>
-<script src="../assets/admin.js?v=364"></script>
+<script src="../assets/admin.js?v=370"></script>
 <script src="../assets/admin-enhancements.js?v=364" data-pdp-admin-enhancements="1"></script>
+<script src="../assets/feed-model.js?v=370"></script>
+<script src="../assets/admin-feed.js?v=370"></script>
 </body>
 </html>

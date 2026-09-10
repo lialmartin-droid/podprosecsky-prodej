@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "3.6.4";
-console.info("Podprosečské produkty – admin.js V3.6.4 – QR platby");
+window.PDP_ADMIN_VERSION = "3.7.0";
+console.info("Podprosečské produkty – admin.js V3.7.0 – krmivo a výdělek");
 
 let products = [];
 let orders = [];
@@ -2023,6 +2023,7 @@ function markAdminTabsDirty(...panelIds) {
 
 function renderAdminTab(panelId, force = false) {
   const id = String(panelId || "ordersTab");
+  if (id === "feedTab") { window.PDPFeed?.open(force); return; }
   if (!force && renderedAdminTabs.has(id)) return;
 
   if (id === "ordersTab") renderOrders();
