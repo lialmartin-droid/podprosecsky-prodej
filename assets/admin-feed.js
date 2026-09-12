@@ -196,3 +196,213 @@
     else render();
   }};
 })();
+
+(() => {
+  'use strict';
+  const TAB_ID = 'cashboxTab';
+  const MARKER_PREFIX = 'Kasička QR:';
+  const markerPattern = /^Kasička QR:\s*([0-9]+(?:[.,][0-9]+)?)\s*Kč\s*\|\s*(.+)$/i;
+  const cashMoney = value => Number(value || 0).toLocaleString('cs-CZ', {style:'currency', currency:'CZK', maximumFractionDigits:2});
+
+  function isTest(order) {
+    return Boolean(order && (order.isTest === true || /^TEST-\d+$/i.test(String(order.orderNumber || ''))));
+  }
+
+  function paidAmount(order) {
+    const paid = Number(order?.payment?.paidAmount);
+    if (Number.isFinite(paid) && paid > 0) return paid;
+    return Math.max(0, Number(order?.total || 0));
+  }
+
+  function cashboxEntry(order) {
+    const lines = String(order?.internalNote || '').split(/\r?\n/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const match = lines[i].trim().match(markerPattern);
+      if (!match) continue;
+      const amount = Number(String(match[1]).replace(',', '.'));
+      return {amount:Number.isFinite(amount) ? amount : paidAmount(order), at:String(match[2] || '').trim()};
+    }
+    return null;
+  }
+
+  function cleanCashboxMarker(note) {
+    return String(note || '')
+      .split(/\r?\n/)
+      .filter(line => !markerPattern.test(line.trim()))
+      .join('\n')
+      .trim();
+  }
+
+  function noteWithCashboxMarker(note, amount, at) {
+    const clean = cleanCashboxMarker(note);
+    const line = `${MARKER_PREFIX} ${Number(amount || 0).toFixed(2)} Kč | ${at}`;
+    return [clean, line].filter(Boolean).join('\n');
+  }
+
+  function receivedAt(order) {
+    const entries = Array.isArray(order?.timeline) ? order.timeline : [];
+    const entry = entries.filter(item => item && item.type === 'payment' && item.paid).slice(-1)[0];
+    return String(entry?.at || '');
+  }
+
+  function formatDateTime(value) {
+    if (!value) return 'datum neuvedeno';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString('cs-CZ', {dateStyle:'short', timeStyle:'short'});
+  }
+
+  function eligibleOrders() {
+    return (Array.isArray(orders) ? orders : []).filter(order => {
+      const payment = order?.payment || {};
+      return !isTest(order) && payment.method === 'qr' && payment.paid === true && paidAmount(order) > 0;
+    });
+  }
+
+  function orderTitle(order) {
+    return `${order?.orderNumber || order?.id || 'Objednávka'} · ${order?.name || 'Bez jména'}`;
+  }
+
+  function renderRow(order, moved) {
+    const entry = cashboxEntry(order);
+    const amount = moved && entry ? entry.amount : paidAmount(order);
+    const detail = moved
+      ? `Vloženo ${formatDateTime(entry?.at)} · platba přijata ${formatDateTime(receivedAt(order))}`
+      : `Platba přijata ${formatDateTime(receivedAt(order))} · stav objednávky: ${order?.status || '—'}`;
+    return `<article class="card cashbox-order">
+      <div class="cashbox-order-main">
+        <div><h4>${esc(orderTitle(order))}</h4><p>${esc(detail)}</p></div>
+        <strong>${esc(cashMoney(amount))}</strong>
+      </div>
+      <div class="actions">${moved
+        ? `<button type="button" class="secondary-button" data-cashbox-undo="${esc(order.id)}">Vrátit jako nevložené</button>`
+        : `<button type="button" class="primary-small" data-cashbox-add="${esc(order.id)}">Přidat do kasičky</button>`}
+      </div>
+    </article>`;
+  }
+
+  function renderCashbox() {
+    const panel = document.getElementById(TAB_ID);
+    if (!panel) return;
+    const eligible = eligibleOrders();
+    const pending = eligible.filter(order => !cashboxEntry(order));
+    const moved = eligible.filter(order => cashboxEntry(order));
+    const pendingSum = pending.reduce((sum, order) => sum + paidAmount(order), 0);
+    const movedSum = moved.reduce((sum, order) => sum + Number(cashboxEntry(order)?.amount || 0), 0);
+
+    const cards = panel.querySelector('#cashboxCards');
+    const status = panel.querySelector('#cashboxStatus');
+    const pendingList = panel.querySelector('#cashboxPending');
+    const movedList = panel.querySelector('#cashboxMoved');
+    if (!cards || !status || !pendingList || !movedList) return;
+
+    cards.innerHTML = `
+      <article class="cashbox-card cashbox-card-pending"><span>Na účtu k přesunu</span><strong>${esc(cashMoney(pendingSum))}</strong><small>${pending.length} ${pending.length === 1 ? 'přijatá QR platba' : 'přijatých QR plateb'}</small></article>
+      <article class="cashbox-card"><span>Vloženo do kasičky</span><strong>${esc(cashMoney(movedSum))}</strong><small>${moved.length} zaevidovaných plateb</small></article>
+      <article class="cashbox-card"><span>Přijaté QR platby celkem</span><strong>${esc(cashMoney(pendingSum + movedSum))}</strong><small>Jen platby potvrzené v administraci</small></article>`;
+
+    status.className = pendingSum > 0 ? 'cashbox-status cashbox-attention' : 'cashbox-status cashbox-ok';
+    status.textContent = pendingSum > 0
+      ? `Podle evidence máš na účtu ještě ${cashMoney(pendingSum)}, které je potřeba vložit do kasičky.`
+      : 'Všechny přijaté QR platby jsou zaevidované v kasičce. Na účtu podle evidence nezůstává nic k přesunu.';
+
+    pending.sort((a, b) => String(receivedAt(b)).localeCompare(String(receivedAt(a))));
+    moved.sort((a, b) => String(cashboxEntry(b)?.at || '').localeCompare(String(cashboxEntry(a)?.at || '')));
+    pendingList.innerHTML = pending.length ? pending.map(order => renderRow(order, false)).join('') : '<p class="empty">Žádná přijatá QR platba teď nečeká na vložení do kasičky.</p>';
+    movedList.innerHTML = moved.length ? moved.map(order => renderRow(order, true)).join('') : '<p class="empty">Zatím není zaevidovaný žádný přesun do kasičky.</p>';
+  }
+
+  async function setCashboxState(id, moved, button) {
+    const current = (Array.isArray(orders) ? orders : []).find(order => String(order.id) === String(id));
+    if (!current) return alert('Objednávka nebyla nalezena.');
+    if (moved && (!current.payment || current.payment.method !== 'qr' || !current.payment.paid)) {
+      return alert('Nejdřív označ QR platbu jako přijatou.');
+    }
+    const next = {...current};
+    next.internalNote = moved
+      ? noteWithCashboxMarker(current.internalNote, paidAmount(current), new Date().toISOString())
+      : cleanCashboxMarker(current.internalNote);
+    await saveOrder(next, button);
+    renderCashbox();
+  }
+
+  function injectStyles() {
+    if (document.getElementById('pdp-cashbox-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'pdp-cashbox-styles';
+    style.textContent = `
+      #cashboxTab .cashbox-note{font-size:14px;line-height:1.55;color:var(--muted)}
+      #cashboxTab .cashbox-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+      #cashboxTab .cashbox-card{padding:18px;border:1px solid var(--line);border-radius:18px;min-width:0;background:#fff}
+      #cashboxTab .cashbox-card-pending{background:#fff8e5;border-color:#e6c46e}
+      #cashboxTab .cashbox-card span,#cashboxTab .cashbox-card small{display:block;font-size:14px;line-height:1.4;color:var(--muted)}
+      #cashboxTab .cashbox-card strong{display:block;font-size:clamp(22px,4vw,30px);line-height:1.25;margin:10px 0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+      #cashboxTab .cashbox-status{padding:14px 16px;border-radius:14px;margin:12px 0 18px;font-weight:700;line-height:1.5}
+      #cashboxTab .cashbox-ok{background:#edf5e9;border:1px solid #baceb1;color:#315d42}
+      #cashboxTab .cashbox-attention{background:#fff4d6;border:1px solid #e5c36b;color:#73521b}
+      #cashboxTab .cashbox-order-main{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
+      #cashboxTab .cashbox-order-main h4{margin:0;font-size:17px;overflow-wrap:anywhere}
+      #cashboxTab .cashbox-order-main p{margin:6px 0 0;font-size:14px;line-height:1.45;color:var(--muted)}
+      #cashboxTab .cashbox-order-main strong{font-size:20px;white-space:nowrap}
+      #cashboxTab .cashbox-order .actions{margin-top:12px}
+      #cashboxTab button:disabled{opacity:.55;cursor:wait}
+      @media(max-width:600px){#cashboxTab .cashbox-cards{grid-template-columns:1fr}#cashboxTab .cashbox-card{padding:14px 16px}#cashboxTab .cashbox-order-main{flex-wrap:wrap}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function injectCashbox() {
+    if (document.getElementById(TAB_ID)) return;
+    const feedButton = document.querySelector('[data-tab="feedTab"]');
+    const feedPanel = document.getElementById('feedTab');
+    if (!feedButton || !feedPanel) return;
+
+    injectStyles();
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tab';
+    button.dataset.tab = TAB_ID;
+    button.textContent = 'Kasička';
+    feedButton.insertAdjacentElement('afterend', button);
+
+    const panel = document.createElement('section');
+    panel.id = TAB_ID;
+    panel.className = 'tab-panel';
+    panel.innerHTML = `
+      <div class="section-head"><div><div class="eyebrow">QR platby předem</div><h2>Kasička</h2></div></div>
+      <p class="cashbox-note">Zobrazuje jen QR platby, které už jsou u objednávky označené jako přijaté. Tlačítkem potvrď, že jsi stejnou částku fyzicky vložil do kasičky.</p>
+      <div id="cashboxCards" class="cashbox-cards"></div>
+      <div id="cashboxStatus" class="cashbox-status" role="status" aria-live="polite"></div>
+      <div class="section-head compact-head"><div><div class="eyebrow">Ještě na účtu</div><h2>Čeká na vložení</h2></div></div>
+      <div id="cashboxPending" class="stack"></div>
+      <div class="section-head compact-head"><div><div class="eyebrow">Historie</div><h2>Vloženo do kasičky</h2></div></div>
+      <div id="cashboxMoved" class="stack"></div>`;
+    feedPanel.insertAdjacentElement('afterend', panel);
+
+    button.onclick = () => {
+      document.querySelectorAll('.tab,.tab-panel').forEach(element => element.classList.remove('active'));
+      button.classList.add('active');
+      panel.classList.add('active');
+      renderCashbox();
+    };
+
+    panel.addEventListener('click', event => {
+      const target = event.target.closest('button');
+      if (!target) return;
+      if (target.dataset.cashboxAdd) setCashboxState(target.dataset.cashboxAdd, true, target);
+      if (target.dataset.cashboxUndo && confirm('Vrátit tuto částku zpět mezi peníze, které ještě nejsou vložené do kasičky?')) {
+        setCashboxState(target.dataset.cashboxUndo, false, target);
+      }
+    });
+  }
+
+  window.addEventListener('pdp:admin-state-updated', () => {
+    if (document.getElementById(TAB_ID)?.classList.contains('active')) renderCashbox();
+  });
+  window.addEventListener('pdp:order-saved', () => {
+    if (document.getElementById(TAB_ID)?.classList.contains('active')) renderCashbox();
+  });
+
+  injectCashbox();
+  window.PDPCashbox = {render:renderCashbox};
+})();
