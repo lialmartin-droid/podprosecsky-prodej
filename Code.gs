@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V3.7.0
+ * Podprosečské domácí produkty — sdílený backend V3.8.0
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -552,7 +552,7 @@ function setupFastPublicOfferV311() {
   }, 20000);
 }
 
-function buildAdminPayload_() {
+function buildAdminPayload_(accessRole) {
   // Admin při otevření čte list Objednávky jen jednou. Produkty a nastavení
   // sdílí s rychlou veřejnou cache, která se po každé změně automaticky zneplatní.
   const catalog = readPublicCatalogFast_();
@@ -561,9 +561,10 @@ function buildAdminPayload_() {
   const reservations = reservationMapFromOrders_(orders, preorderMap);
   const eggSettings = eggSettingsFromMapFast_(catalog.settingsMap || {});
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
-  return {
+  const payload = {
     ok: true,
-    version: '3.6.4',
+    version: '3.8.0',
+    role: accessRole === 'limited' ? 'limited' : 'owner',
     products: readProductsFast_(reservations, availability, catalog.products),
     orders: orders,
     eggSettings: availability.settings,
@@ -572,9 +573,11 @@ function buildAdminPayload_() {
     album: readAlbumPhotos_(true),
     generatedAt: new Date().toISOString()
   };
+  if (payload.role === 'limited') delete payload.businessSettings;
+  return payload;
 }
 
-function buildAdminPlanningPayload_() {
+function buildAdminPlanningPayload_(accessRole) {
   const catalog = readPublicCatalogFast_();
   const orders = readOrdersAdminFast_();
   const preorderMap = catalog.preorderMap || {};
@@ -583,7 +586,8 @@ function buildAdminPlanningPayload_() {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.6.4',
+    version: '3.8.0',
+    role: accessRole === 'limited' ? 'limited' : 'owner',
     products: readProductsFast_(reservations, availability, catalog.products),
     eggSettings: availability.settings,
     eggAvailability: availability,
@@ -708,13 +712,13 @@ function doGet(e) {
     }
 
     if (action === 'adminData') {
-      requireToken_(e.parameter.token || '');
-      return jsonpResponse_(e, buildAdminPayload_());
+      const access = requireToken_(e.parameter.token || '');
+      return jsonpResponse_(e, buildAdminPayload_(access.role));
     }
 
     if (action === 'adminPlanningData') {
-      requireToken_(e.parameter.token || '');
-      return jsonpResponse_(e, buildAdminPlanningPayload_());
+      const access = requireToken_(e.parameter.token || '');
+      return jsonpResponse_(e, buildAdminPlanningPayload_(access.role));
     }
 
     return jsonpResponse_(e, {
@@ -747,6 +751,7 @@ function doPost(e) {
 
     // Veřejné operace nesmí čekat na administrativní upload, e-maily ani jiné pomalé akce.
     if (action === 'login') return login_(payload);
+    if (action === 'claimLimitedAccess') return claimLimitedAccess_(payload);
     if (action === 'createOrder') return createOrder_(payload, false);
     if (action === 'subscribeStock') return withMutationLock_(() => subscribeStock_(payload), 10000);
     if (action === 'loyaltyStatus') return loyaltyStatusResponse_(payload);
@@ -756,8 +761,11 @@ function doPost(e) {
     if (action === 'customerAccountData') return customerAccountData_(payload);
     if (action === 'joinCustomerAccountLoyalty') return withMutationLock_(() => joinCustomerAccountLoyalty_(payload), 15000);
 
-    const token = cleanText_(e.parameter.token || payload.token || '', 100);
-    requireToken_(token);
+    const token = cleanText_(e.parameter.token || payload.token || '', 220);
+    const access = requireToken_(token);
+    assertAdminActionAllowed_(access, action);
+
+    if (action === 'createLimitedAccessInvite') return createLimitedAccessInvite_();
 
     // Čtení a upload obrázků nepotřebují globální tabulkový zámek.
     if (action === 'uploadProductImage') return uploadProductImage_(payload);
@@ -1288,21 +1296,89 @@ function login_(payload) {
   let adminData = null;
   try {
     // Přihlášení i první aktuální data vracíme jedním požadavkem.
-    adminData = buildAdminPayload_();
+    adminData = buildAdminPayload_('owner');
   } catch (error) {
     // Platné přihlášení nesmí selhat jen proto, že byla tabulka na okamžik pomalá.
     console.error('První administrativní data se nepodařilo připojit k přihlášení.', error);
   }
   return htmlResponse_(true, 'Přihlášení bylo úspěšné.', '', {
     token:token,
+    role:'owner',
     adminData:adminData
   });
 }
 
 function requireToken_(token) {
   const cachedVersion = token ? CacheService.getScriptCache().get('session:' + token) : '';
-  if (!cachedVersion || cachedVersion !== getSessionVersion_()) {
-    throw new Error('Přihlášení vypršelo. Přihlaste se znovu.');
+  if (cachedVersion && cachedVersion === getSessionVersion_()) return {role:'owner'};
+
+  const expectedLimitedHash = PropertiesService.getScriptProperties().getProperty('LIMITED_ACCESS_TOKEN_HASH') || '';
+  if (expectedLimitedHash && safeHashEquals_(expectedLimitedHash, accessTokenHash_(token))) return {role:'limited'};
+
+  throw new Error('Přihlášení vypršelo. Přihlaste se znovu.');
+}
+
+function accessTokenHash_(value) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value || ''), Utilities.Charset.UTF_8)
+    .map(byte => ('0' + ((byte + 256) % 256).toString(16)).slice(-2))
+    .join('');
+}
+
+function safeHashEquals_(left, right) {
+  const a = String(left || '');
+  const b = String(right || '');
+  if (!a || a.length !== b.length) return false;
+  let different = 0;
+  for (let i = 0; i < a.length; i++) different |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return different === 0;
+}
+
+function createLimitedAccessInvite_() {
+  const code = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  const expiresAt = Date.now() + 48 * 60 * 60 * 1000;
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('LIMITED_ACCESS_INVITE_HASH', accessTokenHash_(code));
+  props.setProperty('LIMITED_ACCESS_INVITE_EXPIRES', String(expiresAt));
+  return htmlResponse_(true, 'Jednorázový odkaz je připravený. Platí 48 hodin.', '', {
+    accessCode:code,
+    expiresAt:new Date(expiresAt).toISOString()
+  });
+}
+
+function claimLimitedAccess_(payload) {
+  const code = cleanText_(payload && payload.code || '', 220);
+  const props = PropertiesService.getScriptProperties();
+  const expected = props.getProperty('LIMITED_ACCESS_INVITE_HASH') || '';
+  const expiresAt = Number(props.getProperty('LIMITED_ACCESS_INVITE_EXPIRES') || 0);
+  if (!expected || !code || !safeHashEquals_(expected, accessTokenHash_(code)) || Date.now() > expiresAt) {
+    throw new Error('Odkaz už není platný. Vytvořte v administraci nový.');
+  }
+
+  const token = 'limited_' + Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  props.setProperty('LIMITED_ACCESS_TOKEN_HASH', accessTokenHash_(token));
+  props.setProperty('LIMITED_ACCESS_CREATED_AT', new Date().toISOString());
+  props.deleteProperty('LIMITED_ACCESS_INVITE_HASH');
+  props.deleteProperty('LIMITED_ACCESS_INVITE_EXPIRES');
+
+  return htmlResponse_(true, 'Zařízení bylo bezpečně autorizováno.', '', {
+    token:token,
+    role:'limited',
+    adminData:buildAdminPayload_('limited')
+  });
+}
+
+function assertAdminActionAllowed_(access, action) {
+  if (!access || access.role !== 'limited') return;
+  const allowed = [
+    'getAlbumData',
+    'getFeedData',
+    'uploadAlbumPhoto',
+    'saveAlbumPhoto',
+    'saveAlbumOrder',
+    'deleteAlbumPhoto'
+  ];
+  if (allowed.indexOf(String(action || '')) === -1) {
+    throw new Error('Tento přístup je pouze pro čtení. Upravovat lze jen fotoalbum.');
   }
 }
 
