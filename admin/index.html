@@ -20,7 +20,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@600;700&display=swap&subset=latin-ext" rel="stylesheet">
   <link rel="preload" href="../assets/config.js?v=364" as="script">
-  <link rel="preload" href="../assets/admin.js?v=382" as="script">
+  <link rel="preload" href="../assets/admin.js?v=383" as="script">
   <link rel="preload" href="../assets/admin-enhancements.js?v=364" as="script">
   <link rel="stylesheet" href="../assets/style.css?v=360-20260907-customer-assignment">
   <link rel="stylesheet" href="../assets/admin-feed.css?v=370">
@@ -353,14 +353,14 @@
   </main>
 </div>
 
-<iframe name="adminSubmitFrame" id="adminSubmitFrame" hidden></iframe>
+<iframe name="adminSubmitFrame" id="adminSubmitFrame" aria-hidden="true" tabindex="-1" style="position:fixed;width:1px;height:1px;right:-2px;bottom:-2px;border:0;opacity:0;pointer-events:none"></iframe>
 <form id="adminBackendForm" method="post" target="adminSubmitFrame" hidden>
   <input id="adminAction" name="action" type="hidden">
   <input id="adminToken" name="token" type="hidden">
   <input id="adminPayload" name="payload" type="hidden">
 </form>
 <script src="../assets/config.js?v=364"></script>
-<script src="../assets/admin.js?v=382"></script>
+<script src="../assets/admin.js?v=383"></script>
 <script src="../assets/admin-enhancements.js?v=364" data-pdp-admin-enhancements="1"></script>
 <script src="../assets/feed-model.js?v=370"></script>
 <script src="../assets/admin-feed.js?v=370"></script>
