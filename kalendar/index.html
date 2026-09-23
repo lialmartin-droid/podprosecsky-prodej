@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f1e4">
+  <title>Sdílený kalendář | Pod Prosečí</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap&subset=latin-ext" rel="stylesheet">
+  <link rel="stylesheet" href="calendar.css?v=1">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="kicker">Podprosečské domácí produkty</div>
+      <h1>Sdílený kalendář</h1>
+      <p>Termíny vyzvednutí objednávek</p>
+    </header>
+    <section class="calendar-card" aria-label="Kalendář objednávek">
+      <div class="toolbar">
+        <button id="previous" type="button" aria-label="Předchozí měsíc">←</button>
+        <h2 id="monthTitle">Načítám…</h2>
+        <button id="next" type="button" aria-label="Následující měsíc">→</button>
+      </div>
+      <button id="today" class="today-button" type="button">Dnešní měsíc</button>
+      <div id="weekdays" class="weekdays" aria-hidden="true"></div>
+      <div id="grid" class="grid" aria-live="polite"></div>
+    </section>
+    <section class="detail-card">
+      <h2 id="detailTitle">Vyber den v kalendáři</h2>
+      <div id="detail"><p class="muted">Klepnutím na den zobrazíš objednávky a počet kusů.</p></div>
+    </section>
+    <p id="status" class="status" role="status">Načítám kalendář…</p>
+  </main>
+  <script src="../assets/config.js?v=382"></script>
+  <script src="calendar.js?v=1"></script>
+</body>
+</html>

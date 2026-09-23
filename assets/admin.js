@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "3.8.0";
-console.info("Podprosečské produkty – admin.js V3.8.0 – omezený přístup");
+window.PDP_ADMIN_VERSION = "3.8.2";
+console.info("Podprosečské produkty – admin.js V3.8.2 – veřejný kalendář");
 
 let products = [];
 let orders = [];
@@ -11,11 +11,8 @@ let eggPlanningRequestId = 0;
 let businessSettings = {};
 let albumPhotos = [];
 let visitStats = null;
-const LIMITED_ACCESS_TOKEN_KEY = "pdp-limited-access-token-v1";
-const ownerToken = sessionStorage.getItem("pdp-admin-token") || "";
-const limitedToken = localStorage.getItem(LIMITED_ACCESS_TOKEN_KEY) || "";
-let token = ownerToken || limitedToken;
-let adminRole = ownerToken ? "owner" : limitedToken ? "limited" : "";
+let token = sessionStorage.getItem("pdp-admin-token") || "";
+let adminRole = token ? "owner" : "";
 window.PDP_ADMIN_ROLE = adminRole;
 let requestTimer = null;
 let activePost = null;
@@ -385,7 +382,7 @@ function openSmsReminder(order) {
 function showLogin(message = "") {
   $("#adminLogin").classList.remove("hidden");
   $("#adminApp").classList.add("hidden");
-  $("#loginMessage").textContent = message;
+  $("#loginMessage").textContent = message || "";
   const button = $("#loginButton");
   button.disabled = false;
   button.textContent = "Přihlásit";
@@ -398,37 +395,23 @@ function showApp() {
 }
 
 function adminCacheKey() {
-  return `${ADMIN_CACHE_KEY_PREFIX}-${adminRole === "limited" ? "limited" : "owner"}`;
+  return `${ADMIN_CACHE_KEY_PREFIX}-owner`;
 }
 
 function setAdminRole(role) {
-  adminRole = role === "limited" ? "limited" : role === "owner" ? "owner" : "";
+  adminRole = role === "owner" ? "owner" : "";
   window.PDP_ADMIN_ROLE = adminRole;
   document.body.dataset.adminRole = adminRole;
 }
 
 function applyAccessUi() {
   setAdminRole(adminRole);
-  const limited = adminRole === "limited";
   const description = $("#adminHeroDescription");
-  if (description) description.textContent = limited
-    ? "Objednávky, kalendář, vejce a finance jsou pouze ke čtení. Fotoalbum lze upravovat."
-    : "Objednávky, rezervace vajec, věrnostní slevy, kalendář a správa nabídky.";
-  ["eggCurrentStock", "eggDailyProduction", "eggSafetyReserve", "eggPlanningDays"].forEach(id => {
-    const input = $("#" + id);
-    if (input) input.disabled = limited;
-  });
-  if (limited) {
-    const active = activeAdminTabId();
-    if (!["ordersTab", "calendarTab", "eggsTab", "feedTab", "albumTab"].includes(active)) {
-      document.querySelector('[data-tab="ordersTab"]')?.click();
-    }
-  }
+  if (description) description.textContent = "Objednávky, rezervace vajec, věrnostní slevy, kalendář a správa nabídky.";
 }
 
 function clearCurrentAccess() {
   sessionStorage.removeItem("pdp-admin-token");
-  localStorage.removeItem(LIMITED_ACCESS_TOKEN_KEY);
   token = "";
   setAdminRole("");
 }
@@ -611,55 +594,6 @@ function login() {
       setAdminRefreshState("Přihlášeno. Načítám aktuální objednávky a produkty…");
     }
     loadData(true);
-  });
-}
-
-function limitedAccessCodeFromUrl() {
-  const hash = String(window.location.hash || "").replace(/^#/, "");
-  return new URLSearchParams(hash).get("pristup") || "";
-}
-
-function claimLimitedAccess(code) {
-  showLogin("Ověřuji jednorázový odkaz…");
-  post("claimLimitedAccess", {code}, data => {
-    if (!data.ok || !data.token) {
-      clearCurrentAccess();
-      return showLogin(data.message || "Odkaz se nepodařilo ověřit.");
-    }
-    sessionStorage.removeItem("pdp-admin-token");
-    token = data.token;
-    setAdminRole("limited");
-    localStorage.setItem(LIMITED_ACCESS_TOKEN_KEY, token);
-    history.replaceState(null, "", window.location.pathname + window.location.search);
-    if (data.adminData && data.adminData.ok) {
-      applyAdminData(data.adminData);
-      setAdminRefreshState("");
-    } else {
-      showApp();
-      loadData(true);
-    }
-  });
-}
-
-function createLimitedAccessLink() {
-  if (adminRole !== "owner") return;
-  if (!confirm("Vytvořit nový jednorázový odkaz? Po jeho použití přestane fungovat případný starý omezený přístup.")) return;
-  const button = $("#limitedAccessButton");
-  const original = button?.textContent || "Přístup pro ženu";
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Vytvářím…";
-  }
-  post("createLimitedAccessInvite", {}, data => {
-    if (button) {
-      button.disabled = false;
-      button.textContent = original;
-    }
-    if (!data.ok || !data.accessCode) return alert(data.message || "Odkaz se nepodařilo vytvořit.");
-    const base = `${window.location.origin}${window.location.pathname}`;
-    const link = `${base}#pristup=${encodeURIComponent(data.accessCode)}`;
-    navigator.clipboard?.writeText(link).catch(() => {});
-    window.prompt("Pošli tento odkaz ženě. Funguje jednou a platí 48 hodin. Odkaz je také zkopírovaný, pokud to prohlížeč dovolil.", link);
   });
 }
 
@@ -2224,7 +2158,6 @@ $("#newProductImage")?.addEventListener("input", event => {
 
 $("#loginButton").onclick = login;
 $("#adminPassword").onkeydown = event => { if (event.key === "Enter") login(); };
-$("#limitedAccessButton")?.addEventListener("click", createLimitedAccessLink);
 $("#logoutButton").onclick = () => {
   clearCurrentAccess();
   showLogin("Byli jste odhlášeni.");
@@ -2421,10 +2354,7 @@ if (excludeMyVisits) {
 }
 
 setAdminRole(adminRole);
-const limitedAccessCode = limitedAccessCodeFromUrl();
-if (limitedAccessCode) {
-  claimLimitedAccess(limitedAccessCode);
-} else if (token) {
+if (token) {
   markThisDeviceAsAdminVisitor(true);
   const cacheShown = loadAdminCache();
   if (!cacheShown) {

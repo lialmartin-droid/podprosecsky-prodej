@@ -369,8 +369,8 @@ body.photo-lightbox-open{overflow:hidden}
 
 /* V3.4.0 – skutečný měsíční kalendář */
 .admin-calendar-toolbar{display:flex;align-items:center;gap:10px;margin:4px 0 14px}.admin-calendar-toolbar h3{min-width:220px;margin:0;text-align:center;color:var(--brown);font-size:23px}.admin-calendar-toolbar .secondary-button{width:auto}
-.admin-calendar-scroll{overflow-x:auto;padding:1px 1px 9px}
-.admin-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(100px,1fr));min-width:760px;overflow:hidden;border:1px solid #dcd1c2;border-radius:18px;background:#dcd1c2;gap:1px}
+.admin-calendar-scroll{padding:1px 1px 9px}
+.admin-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));overflow:hidden;border:1px solid #dcd1c2;border-radius:18px;background:#dcd1c2;gap:1px}
 .admin-calendar-weekday{padding:10px 5px;background:#f3eadb;color:#694a2b;font-size:12px;font-weight:900;text-align:center;text-transform:uppercase}
 .admin-calendar-day{min-height:132px;padding:7px;background:#fff}.admin-calendar-day.weekend{background:#fffaf0}.admin-calendar-day.outside{background:#f5f2ed;color:#9a938a}.admin-calendar-day.today{box-shadow:inset 0 0 0 3px #d7a529}
 .admin-calendar-date{display:flex;justify-content:space-between;align-items:center;gap:5px;margin-bottom:6px}.admin-calendar-date time{display:grid;width:25px;height:25px;place-items:center;border-radius:999px;font-weight:900}.admin-calendar-day.today .admin-calendar-date time{background:#efb632;color:#352600}.admin-calendar-date span{font-size:10px;font-weight:800;white-space:nowrap}
@@ -383,6 +383,7 @@ body.photo-lightbox-open{overflow:hidden}
   .photo-lightbox{padding:58px 12px 76px}.photo-lightbox figure img{max-height:calc(100vh - 175px)}.photo-lightbox-nav{top:auto;bottom:13px;width:54px;height:48px;margin:0}.photo-lightbox-nav.previous{left:calc(50% - 64px)}.photo-lightbox-nav.next{right:calc(50% - 64px)}
   .album-admin-card{grid-template-columns:1fr}.album-admin-card>img{height:240px}.album-admin-actions{display:grid;grid-template-columns:1fr 1fr}.album-admin-actions button{width:100%}
   .admin-calendar-toolbar{display:grid;grid-template-columns:auto 1fr auto}.admin-calendar-toolbar h3{min-width:0;font-size:20px}.admin-calendar-toolbar #calendarCurrentMonth{grid-column:1/-1;width:100%}
+  .admin-calendar-day{min-height:76px;padding:4px}.admin-calendar-weekday{padding:7px 1px;font-size:10px}.admin-calendar-date{margin-bottom:3px}.admin-calendar-date time{width:21px;height:21px;font-size:12px}.admin-calendar-date span{font-size:8px}.admin-calendar-events{gap:2px}.admin-calendar-event{padding:3px 4px;border-left-width:3px}.admin-calendar-event strong{font-size:9px}.admin-calendar-event span{display:none}.admin-calendar-more{padding-left:2px;font-size:8px}
 }
 
 /* V3.5.0 – více veřejných stránek */

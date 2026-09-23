@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V3.8.0
+ * Podprosečské domácí produkty — sdílený backend V3.8.1
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -563,8 +563,8 @@ function buildAdminPayload_(accessRole) {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   const payload = {
     ok: true,
-    version: '3.8.0',
-    role: accessRole === 'limited' ? 'limited' : 'owner',
+    version: '3.8.1',
+    role: 'owner',
     products: readProductsFast_(reservations, availability, catalog.products),
     orders: orders,
     eggSettings: availability.settings,
@@ -573,7 +573,6 @@ function buildAdminPayload_(accessRole) {
     album: readAlbumPhotos_(true),
     generatedAt: new Date().toISOString()
   };
-  if (payload.role === 'limited') delete payload.businessSettings;
   return payload;
 }
 
@@ -586,13 +585,51 @@ function buildAdminPlanningPayload_(accessRole) {
   const availability = buildEggAvailability_('', orders, preorderMap, eggSettings);
   return {
     ok: true,
-    version: '3.8.0',
-    role: accessRole === 'limited' ? 'limited' : 'owner',
+    version: '3.8.1',
+    role: 'owner',
     products: readProductsFast_(reservations, availability, catalog.products),
     eggSettings: availability.settings,
     eggAvailability: availability,
     generatedAt: new Date().toISOString()
   };
+}
+
+function buildPublicCalendarPayload_() {
+  const today = todayKey_();
+  const catalog = readPublicCatalogFast_();
+  const productsById = {};
+  (catalog.products || []).forEach(product => { productsById[String(product.id)] = product; });
+  const entries = [];
+
+  readOrdersAdminFast_().forEach(order => {
+    if (isTestOrder_(order)) return;
+    const addEntry = (date, status, partLabel, items) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || String(date) < today || status === 'Zrušeno' || !items.length) return;
+      entries.push({
+        date: String(date),
+        status: String(status || 'Nová'),
+        partLabel: partLabel,
+        name: cleanText_(order.name || 'Objednávka', 80),
+        items: items.map(item => ({
+          name: cleanText_(item.name || 'Položka', 80),
+          qty: Math.max(0, safeInteger_(item.qty, 0))
+        })).filter(item => item.qty > 0)
+      });
+    };
+
+    if (!order.splitOrder) {
+      addEntry(order.pickup, order.status, '', order.items || []);
+      return;
+    }
+
+    const regularItems = (order.items || []).filter(item => !Boolean(productsById[String(item.productId)] && productsById[String(item.productId)].preorder));
+    const preorderItems = (order.items || []).filter(item => Boolean(productsById[String(item.productId)] && productsById[String(item.productId)].preorder));
+    addEntry(order.pickup, order.regularStatus || order.status, '1. část', regularItems);
+    addEntry(order.preorderPickup || order.pickup, order.preorderStatus, '2. část', preorderItems);
+  });
+
+  entries.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name, 'cs'));
+  return { ok:true, version:'3.8.2', entries:entries, generatedAt:new Date().toISOString() };
 }
 
 function readOrdersAdminFast_() {
@@ -698,6 +735,12 @@ function doGet(e) {
       return jsonpResponse_(e, { ok:true, version:'3.5.0', album:publicAlbumPhotos_() });
     }
 
+    // Veřejný přehled vyzvednutí pro samostatnou sdílenou stránku kalendáře.
+    // Záměrně nevrací telefon, e-mail, cenu ani poznámku k objednávce.
+    if (action === 'publicCalendar') {
+      return jsonpResponse_(e, buildPublicCalendarPayload_());
+    }
+
     if (action === 'loyaltyInfo') {
       const catalog = readPublicCatalogFast_();
       return jsonpResponse_(e, { ok:true, version:'3.5.0', loyalty:loyaltySettingsFromMap_(catalog.settingsMap || {}) });
@@ -751,7 +794,6 @@ function doPost(e) {
 
     // Veřejné operace nesmí čekat na administrativní upload, e-maily ani jiné pomalé akce.
     if (action === 'login') return login_(payload);
-    if (action === 'claimLimitedAccess') return claimLimitedAccess_(payload);
     if (action === 'createOrder') return createOrder_(payload, false);
     if (action === 'subscribeStock') return withMutationLock_(() => subscribeStock_(payload), 10000);
     if (action === 'loyaltyStatus') return loyaltyStatusResponse_(payload);
@@ -762,10 +804,8 @@ function doPost(e) {
     if (action === 'joinCustomerAccountLoyalty') return withMutationLock_(() => joinCustomerAccountLoyalty_(payload), 15000);
 
     const token = cleanText_(e.parameter.token || payload.token || '', 220);
-    const access = requireToken_(token);
-    assertAdminActionAllowed_(access, action);
+    requireToken_(token);
 
-    if (action === 'createLimitedAccessInvite') return createLimitedAccessInvite_();
 
     // Čtení a upload obrázků nepotřebují globální tabulkový zámek.
     if (action === 'uploadProductImage') return uploadProductImage_(payload);
@@ -1312,74 +1352,7 @@ function requireToken_(token) {
   const cachedVersion = token ? CacheService.getScriptCache().get('session:' + token) : '';
   if (cachedVersion && cachedVersion === getSessionVersion_()) return {role:'owner'};
 
-  const expectedLimitedHash = PropertiesService.getScriptProperties().getProperty('LIMITED_ACCESS_TOKEN_HASH') || '';
-  if (expectedLimitedHash && safeHashEquals_(expectedLimitedHash, accessTokenHash_(token))) return {role:'limited'};
-
   throw new Error('Přihlášení vypršelo. Přihlaste se znovu.');
-}
-
-function accessTokenHash_(value) {
-  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value || ''), Utilities.Charset.UTF_8)
-    .map(byte => ('0' + ((byte + 256) % 256).toString(16)).slice(-2))
-    .join('');
-}
-
-function safeHashEquals_(left, right) {
-  const a = String(left || '');
-  const b = String(right || '');
-  if (!a || a.length !== b.length) return false;
-  let different = 0;
-  for (let i = 0; i < a.length; i++) different |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return different === 0;
-}
-
-function createLimitedAccessInvite_() {
-  const code = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
-  const expiresAt = Date.now() + 48 * 60 * 60 * 1000;
-  const props = PropertiesService.getScriptProperties();
-  props.setProperty('LIMITED_ACCESS_INVITE_HASH', accessTokenHash_(code));
-  props.setProperty('LIMITED_ACCESS_INVITE_EXPIRES', String(expiresAt));
-  return htmlResponse_(true, 'Jednorázový odkaz je připravený. Platí 48 hodin.', '', {
-    accessCode:code,
-    expiresAt:new Date(expiresAt).toISOString()
-  });
-}
-
-function claimLimitedAccess_(payload) {
-  const code = cleanText_(payload && payload.code || '', 220);
-  const props = PropertiesService.getScriptProperties();
-  const expected = props.getProperty('LIMITED_ACCESS_INVITE_HASH') || '';
-  const expiresAt = Number(props.getProperty('LIMITED_ACCESS_INVITE_EXPIRES') || 0);
-  if (!expected || !code || !safeHashEquals_(expected, accessTokenHash_(code)) || Date.now() > expiresAt) {
-    throw new Error('Odkaz už není platný. Vytvořte v administraci nový.');
-  }
-
-  const token = 'limited_' + Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
-  props.setProperty('LIMITED_ACCESS_TOKEN_HASH', accessTokenHash_(token));
-  props.setProperty('LIMITED_ACCESS_CREATED_AT', new Date().toISOString());
-  props.deleteProperty('LIMITED_ACCESS_INVITE_HASH');
-  props.deleteProperty('LIMITED_ACCESS_INVITE_EXPIRES');
-
-  return htmlResponse_(true, 'Zařízení bylo bezpečně autorizováno.', '', {
-    token:token,
-    role:'limited',
-    adminData:buildAdminPayload_('limited')
-  });
-}
-
-function assertAdminActionAllowed_(access, action) {
-  if (!access || access.role !== 'limited') return;
-  const allowed = [
-    'getAlbumData',
-    'getFeedData',
-    'uploadAlbumPhoto',
-    'saveAlbumPhoto',
-    'saveAlbumOrder',
-    'deleteAlbumPhoto'
-  ];
-  if (allowed.indexOf(String(action || '')) === -1) {
-    throw new Error('Tento přístup je pouze pro čtení. Upravovat lze jen fotoalbum.');
-  }
 }
 
 function getSessionVersion_() {
