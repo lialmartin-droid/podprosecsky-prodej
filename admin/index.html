@@ -20,12 +20,34 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@600;700&display=swap&subset=latin-ext" rel="stylesheet">
   <link rel="preload" href="../assets/config.js?v=364" as="script">
-  <link rel="preload" href="../assets/admin.js?v=383" as="script">
+  <link rel="preload" href="../assets/admin.js?v=380" as="script">
   <link rel="preload" href="../assets/admin-enhancements.js?v=364" as="script">
   <link rel="stylesheet" href="../assets/style.css?v=360-20260907-customer-assignment">
   <link rel="stylesheet" href="../assets/admin-feed.css?v=370">
+  <style>
+    body[data-admin-role="limited"] .stats-grid,
+    body[data-admin-role="limited"] #limitedAccessButton,
+    body[data-admin-role="limited"] #showManualOrder,
+    body[data-admin-role="limited"] #manualOrderForm,
+    body[data-admin-role="limited"] #ordersTab .actions,
+    body[data-admin-role="limited"] #ordersTab .editor,
+    body[data-admin-role="limited"] #saveEggSettings,
+    body[data-admin-role="limited"] #feedAdd,
+    body[data-admin-role="limited"] #feedSettingsDetails,
+    body[data-admin-role="limited"] #feedPurchaseForm,
+    body[data-admin-role="limited"] #feedPurchases .actions { display:none !important; }
+    body[data-admin-role="limited"] .tabs .tab { display:none !important; }
+    body[data-admin-role="limited"] .tabs [data-tab="ordersTab"],
+    body[data-admin-role="limited"] .tabs [data-tab="calendarTab"],
+    body[data-admin-role="limited"] .tabs [data-tab="eggsTab"],
+    body[data-admin-role="limited"] .tabs [data-tab="feedTab"],
+    body[data-admin-role="limited"] .tabs [data-tab="albumTab"] { display:inline-flex !important; }
+    body[data-admin-role="limited"] #eggsTab input { pointer-events:none; opacity:.75; }
+    #accessModeLabel { display:none; margin-top:10px; font-weight:700; color:#315d42; }
+    body[data-admin-role="limited"] #accessModeLabel { display:block; }
+  </style>
 </head>
-<body data-pdp-admin-version="3.8.1">
+<body data-pdp-admin-version="3.8.0">
 <section id="adminLogin" class="login-screen hidden">
   <div class="login-card">
     <div class="admin-login-brand">
@@ -48,7 +70,8 @@
     <div class="kicker">Administrace</div>
     <h1>Podprosečské domácí produkty</h1>
     <p id="adminHeroDescription">Objednávky, rezervace vajec, věrnostní slevy, kalendář a správa nabídky.</p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button id="logoutButton" class="secondary-button" type="button">Odhlásit</button><a href="../kalendar/" class="secondary-button" style="display:inline-block;text-decoration:none">Sdílený kalendář</a><a href="../" class="secondary-button" style="display:inline-block;text-decoration:none">← Zpět na nabídku</a></div>
+    <div id="accessModeLabel">Omezený přístup · pouze čtení, upravovat lze fotoalbum</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px"><button id="logoutButton" class="secondary-button" type="button">Odhlásit</button><button id="limitedAccessButton" class="secondary-button" type="button">Přístup pro ženu</button><a href="../" class="secondary-button" style="display:inline-block;text-decoration:none">← Zpět na nabídku</a></div>
   </header>
 
   <main class="content">
@@ -130,7 +153,7 @@
 
     <section id="calendarTab" class="tab-panel">
       <div class="section-head">
-        <div><div class="eyebrow">Termíny vyzvednutí</div><h2>Kalendář objednávek</h2></div><a href="../kalendar/" class="secondary-button" style="text-decoration:none">Otevřít sdílený</a>
+        <div><div class="eyebrow">Termíny vyzvednutí</div><h2>Kalendář objednávek</h2></div>
       </div>
       <div class="admin-calendar-toolbar">
         <button id="calendarPreviousMonth" class="secondary-button" type="button" aria-label="Předchozí měsíc">←</button>
@@ -353,14 +376,14 @@
   </main>
 </div>
 
-<iframe name="adminSubmitFrame" id="adminSubmitFrame" aria-hidden="true" tabindex="-1" style="position:fixed;width:1px;height:1px;right:-2px;bottom:-2px;border:0;opacity:0;pointer-events:none"></iframe>
+<iframe name="adminSubmitFrame" id="adminSubmitFrame" hidden></iframe>
 <form id="adminBackendForm" method="post" target="adminSubmitFrame" hidden>
   <input id="adminAction" name="action" type="hidden">
   <input id="adminToken" name="token" type="hidden">
   <input id="adminPayload" name="payload" type="hidden">
 </form>
 <script src="../assets/config.js?v=364"></script>
-<script src="../assets/admin.js?v=383"></script>
+<script src="../assets/admin.js?v=380"></script>
 <script src="../assets/admin-enhancements.js?v=364" data-pdp-admin-enhancements="1"></script>
 <script src="../assets/feed-model.js?v=370"></script>
 <script src="../assets/admin-feed.js?v=370"></script>
