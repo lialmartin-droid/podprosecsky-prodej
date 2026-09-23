@@ -1,0 +1,20 @@
+KALENDÁŘ – NÁHRÁNÍ
+
+1) GitHub: přepište pouze tyto soubory se zachováním složek:
+   - admin/index.html
+   - assets/style.css
+   - kalendar/index.html
+   - kalendar/calendar.css
+   - kalendar/calendar.js
+
+2) Google Apps Script: přepište soubor Code.gs tímto Code.gs.
+   V nasazení upravte existující nasazení (nevytvářejte nové), zvolte
+   „Nová verze“ a potvrďte nasazení. Adresa /exec musí zůstat stejná.
+
+3) Potom otevřete:
+   https://lialmartin-droid.github.io/podprosecsky-prodej/kalendar/?v=2
+
+Administrativní přihlášení není v tomto balíčku změněné.
+Kalendář lze na telefonu posouvat do stran. Veřejná stránka neobsahuje
+telefon, e-mail, poznámku ani cenu objednávky; je ale bez přihlášení,
+proto odkaz sdílejte jen s lidmi, kteří mají kalendář vidět.
