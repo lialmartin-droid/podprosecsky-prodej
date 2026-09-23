@@ -369,8 +369,8 @@ body.photo-lightbox-open{overflow:hidden}
 
 /* V3.4.0 – skutečný měsíční kalendář */
 .admin-calendar-toolbar{display:flex;align-items:center;gap:10px;margin:4px 0 14px}.admin-calendar-toolbar h3{min-width:220px;margin:0;text-align:center;color:var(--brown);font-size:23px}.admin-calendar-toolbar .secondary-button{width:auto}
-.admin-calendar-scroll{padding:1px 1px 9px}
-.admin-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));overflow:hidden;border:1px solid #dcd1c2;border-radius:18px;background:#dcd1c2;gap:1px}
+.admin-calendar-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;padding:1px 1px 9px}
+.admin-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(108px,1fr));min-width:756px;overflow:hidden;border:1px solid #dcd1c2;border-radius:18px;background:#dcd1c2;gap:1px}
 .admin-calendar-weekday{padding:10px 5px;background:#f3eadb;color:#694a2b;font-size:12px;font-weight:900;text-align:center;text-transform:uppercase}
 .admin-calendar-day{min-height:132px;padding:7px;background:#fff}.admin-calendar-day.weekend{background:#fffaf0}.admin-calendar-day.outside{background:#f5f2ed;color:#9a938a}.admin-calendar-day.today{box-shadow:inset 0 0 0 3px #d7a529}
 .admin-calendar-date{display:flex;justify-content:space-between;align-items:center;gap:5px;margin-bottom:6px}.admin-calendar-date time{display:grid;width:25px;height:25px;place-items:center;border-radius:999px;font-weight:900}.admin-calendar-day.today .admin-calendar-date time{background:#efb632;color:#352600}.admin-calendar-date span{font-size:10px;font-weight:800;white-space:nowrap}

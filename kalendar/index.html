@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap&subset=latin-ext" rel="stylesheet">
-  <link rel="stylesheet" href="calendar.css?v=1">
+  <link rel="stylesheet" href="calendar.css?v=2">
 </head>
 <body>
   <main class="shell">
@@ -24,8 +24,10 @@
         <button id="next" type="button" aria-label="Následující měsíc">→</button>
       </div>
       <button id="today" class="today-button" type="button">Dnešní měsíc</button>
-      <div id="weekdays" class="weekdays" aria-hidden="true"></div>
-      <div id="grid" class="grid" aria-live="polite"></div>
+      <div class="calendar-scroll" aria-label="Kalendář lze na telefonu posouvat do stran">
+        <div id="weekdays" class="weekdays" aria-hidden="true"></div>
+        <div id="grid" class="grid" aria-live="polite"></div>
+      </div>
     </section>
     <section class="detail-card">
       <h2 id="detailTitle">Vyber den v kalendáři</h2>
@@ -34,6 +36,6 @@
     <p id="status" class="status" role="status">Načítám kalendář…</p>
   </main>
   <script src="../assets/config.js?v=382"></script>
-  <script src="calendar.js?v=1"></script>
+  <script src="calendar.js?v=2"></script>
 </body>
 </html>
