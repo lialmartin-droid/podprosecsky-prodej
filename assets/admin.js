@@ -1,5 +1,5 @@
-window.PDP_ADMIN_VERSION = "3.8.0";
-console.info("Podprosečské produkty – admin.js V3.8.0 – omezený přístup");
+window.PDP_ADMIN_VERSION = "3.8.3";
+console.info("Podprosečské produkty – admin.js V3.8.3 – platby a kasička");
 
 let products = [];
 let orders = [];
@@ -1162,6 +1162,57 @@ document.addEventListener('click', event => {
   });
 });
 
+function showAdminPaymentQr(id) {
+  const order = orders.find(item => String(item.id) === String(id));
+  const panel = document.querySelector(dataSelector('payment-qr-panel', id));
+  if (!order || !panel) return;
+  const payment = order.payment || {};
+  panel.replaceChildren();
+  if (payment.method !== 'qr' || payment.paid || !payment.spd) {
+    alert('U této objednávky teď není nezaplacený QR kód k dispozici.');
+    return;
+  }
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(payment.spd, 'Alphanumeric');
+    qr.make();
+    const size = 6, quiet = 4, count = qr.getModuleCount();
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = (count + quiet * 2) * size;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#000';
+    for (let y = 0; y < count; y++) for (let x = 0; x < count; x++) {
+      if (qr.isDark(y, x)) context.fillRect((x + quiet) * size, (y + quiet) * size, size, size);
+    }
+    const heading = document.createElement('strong');
+    heading.textContent = 'QR platba · ' + (order.orderNumber || order.id);
+    const details = document.createElement('p');
+    details.textContent = `${Number(payment.amount).toFixed(2)} Kč · účet ${payment.account} · VS ${payment.vs}`;
+    const image = document.createElement('img');
+    image.src = canvas.toDataURL('image/png');
+    image.alt = 'QR kód k platbě za objednávku ' + (order.orderNumber || order.id);
+    image.style.cssText = 'display:block;width:280px;max-width:100%;height:auto;margin:12px auto;background:#fff';
+    const download = document.createElement('a');
+    download.href = image.src;
+    download.download = 'platba-' + payment.vs + '.png';
+    download.className = 'secondary-button';
+    download.textContent = 'Uložit QR kód';
+    panel.append(heading, details, image, download);
+    if (order.isTest || /^TEST-\d+$/i.test(order.orderNumber || '')) {
+      const warning = document.createElement('p');
+      warning.textContent = 'TEST: QR používá skutečný účet. Převod v bance nepotvrzujte.';
+      panel.append(warning);
+    }
+    panel.classList.remove('hidden');
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+  } catch (error) {
+    console.error('QR kód se nepodařilo vytvořit.', error);
+    alert('QR kód se nepodařilo vytvořit. Zkontrolujte připojení a obnovte administraci.');
+  }
+}
+
 function renderOrders() {
   const filtered = filteredOrders();
   const list = filtered.slice(0, adminOrderRenderLimit);
@@ -1196,7 +1247,7 @@ function renderOrders() {
         <div class="actions">
           ${overdueOrderParts(order).length ? `<button class="reminder-button" data-remind-order="${esc(order.id)}">Připomenout</button>` : ""}
           <button class="secondary-button" data-edit-order="${esc(order.id)}">Upravit</button>
-          ${order.status !== 'Zrušeno' && (!order.payment?.paid || !order.payment?.emailSent) ? `<button class="secondary-button" data-bank-payment="${esc(order.id)}">${order.payment?.paid ? 'Odeslat potvrzení platby znovu' : isTestOrder(order) ? 'TEST – simulovat zaplacení převodem' : 'Zaplaceno převodem'}</button>` : ''}
+          ${order.status !== 'Zrušeno' && order.payment?.method === 'qr' && (!order.payment?.paid || !order.payment?.emailSent) ? `<button class="secondary-button" data-bank-payment="${esc(order.id)}">${order.payment?.paid ? 'Odeslat potvrzení platby znovu' : isTestOrder(order) ? 'TEST – simulovat zaplacení převodem' : 'Zaplaceno převodem'}</button>` : ''}
           <button class="danger-button" data-delete-order="${esc(order.id)}">Smazat</button>
         </div>
       </div>
@@ -1219,6 +1270,12 @@ function renderOrders() {
           <label class="full"><span>Poznámka zákazníka</span><textarea data-ot="${esc(order.id)}">${esc(order.note)}</textarea></label><label class="full"><span>Interní poznámka (vidíš jen ty)</span><textarea data-oin="${esc(order.id)}">${esc(order.internalNote || "")}</textarea></label><label class="full"><input data-ol="${esc(order.id)}" type="checkbox" ${order.loyaltyOptIn || order.loyaltyCustomerId ? "checked" : ""}> Zařadit zákazníka do věrnostních slev na vejce</label><div class="full"><span class="field-label">Komunikace</span><div class="meta">${(order.communication || []).length ? (order.communication || []).map(x => `✔ ${esc(x.text)} · ${esc(new Date(x.at).toLocaleString("cs-CZ"))}`).join("<br>") : "Zatím bez dalších zpráv."}</div></div><div class="full"><span class="field-label">Časová osa</span><div class="meta">${(order.timeline || []).length ? (order.timeline || []).map(x => `${esc(x.text)} · ${esc(new Date(x.at).toLocaleString("cs-CZ"))}`).join("<br>") : "Bez záznamu."}</div></div>
         </div>
         <div class="actions"><button class="primary-small" data-save-order="${esc(order.id)}">Uložit změny</button><button class="secondary-button" data-preview-ready="${esc(order.id)}">Náhled e-mailu</button><button class="secondary-button" data-resend-ready="${esc(order.id)}" data-part="regular">Odeslat znovu 1. část</button>${order.splitOrder ? `<button class="secondary-button" data-resend-ready="${esc(order.id)}" data-part="preorder">Odeslat znovu 2. část</button>` : ""}</div>
+        <div class="card" style="margin-top:16px">
+          <label><span class="field-label">Způsob platby</span><select data-payment-method="${esc(order.id)}" ${order.payment?.paid || order.status === 'Zrušeno' ? 'disabled' : ''}><option value="pickup" ${order.payment?.method !== 'qr' ? 'selected' : ''}>Při vyzvednutí</option><option value="qr" ${order.payment?.method === 'qr' ? 'selected' : ''}>QR platba převodem</option></select></label>
+          <div class="actions" style="margin-top:12px"><button class="primary-small" type="button" data-save-payment-method="${esc(order.id)}" ${order.payment?.paid || order.status === 'Zrušeno' ? 'disabled' : ''}>Uložit způsob platby</button>${order.payment?.method === 'qr' && !order.payment?.paid ? `<button class="secondary-button" type="button" data-show-payment-qr="${esc(order.id)}">Zobrazit QR kód</button><button class="secondary-button" type="button" data-send-payment-qr="${esc(order.id)}" ${order.email && !isTestOrder(order) ? '' : 'disabled'}>Odeslat QR e-mailem</button>` : ''}</div>
+          <div class="meta">Způsob platby se ukládá samostatně. QR e-mail se odešle na adresu uloženou u objednávky${order.email ? ': ' + esc(order.email) : ' (chybí e-mail)'}.</div>
+          <div class="card hidden" data-payment-qr-panel="${esc(order.id)}" style="margin-top:12px;text-align:center"></div>
+        </div>
       </div>
     </article>`).join("") + moreHtml : '<div class="empty">Žádné objednávky.</div>';
 
@@ -1256,6 +1313,46 @@ function renderOrders() {
 
   document.querySelectorAll("[data-edit-order]").forEach(button => {
     button.onclick = () => document.getElementById("oe" + button.dataset.editOrder)?.classList.toggle("open");
+  });
+
+  document.querySelectorAll('[data-save-payment-method]').forEach(button => {
+    button.onclick = () => {
+      const id = button.dataset.savePaymentMethod;
+      const order = orders.find(item => String(item.id) === String(id));
+      if (!order) return alert('Objednávka nebyla nalezena.');
+      const method = document.querySelector(dataSelector('payment-method', id))?.value;
+      if (method === order.payment?.method) {
+        if (method === 'qr') showAdminPaymentQr(id);
+        else alert('Tento způsob platby už je uložený.');
+        return;
+      }
+      button.disabled = true;
+      post('changeOrderPayment', {id, method, expectedMethod:order.payment?.method || 'pickup', expectedTotal:order.total}, result => {
+        button.disabled = false;
+        if (!result.ok) return alert(result.message || 'Způsob platby se nepodařilo změnit.');
+        if (!applyReturnedOrder(result, id)) return loadData(true);
+        document.getElementById('oe' + id)?.classList.add('open');
+        if (method === 'qr') showAdminPaymentQr(id);
+        setAdminRefreshState(result.message || 'Způsob platby byl změněn.');
+      });
+    };
+  });
+  document.querySelectorAll('[data-show-payment-qr]').forEach(button => {
+    button.onclick = () => showAdminPaymentQr(button.dataset.showPaymentQr);
+  });
+  document.querySelectorAll('[data-send-payment-qr]').forEach(button => {
+    button.onclick = () => {
+      const id = button.dataset.sendPaymentQr;
+      const order = orders.find(item => String(item.id) === String(id));
+      if (!order) return;
+      if (!confirm(`Odeslat QR kód k platbě ${money(order.total)} zákazníkovi na ${order.email}?`)) return;
+      button.disabled = true;
+      post('sendOrderPaymentQr', {id, expectedTotal:order.total}, result => {
+        button.disabled = false;
+        if (result.ok && result.order) applyReturnedOrder(result, id);
+        alert(result.message || 'QR e-mail se nepodařilo odeslat.');
+      });
+    };
   });
 
   document.querySelectorAll("[data-save-order]").forEach(button => {

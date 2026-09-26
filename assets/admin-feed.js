@@ -200,7 +200,6 @@
 (() => {
   'use strict';
   const TAB_ID = 'cashboxTab';
-  const MARKER_PREFIX = 'Kasička QR:';
   const markerPattern = /^Kasička QR:\s*([0-9]+(?:[.,][0-9]+)?)\s*Kč\s*\|\s*(.+)$/i;
   const cashMoney = value => Number(value || 0).toLocaleString('cs-CZ', {style:'currency', currency:'CZK', maximumFractionDigits:2});
 
@@ -223,20 +222,6 @@
       return {amount:Number.isFinite(amount) ? amount : paidAmount(order), at:String(match[2] || '').trim()};
     }
     return null;
-  }
-
-  function cleanCashboxMarker(note) {
-    return String(note || '')
-      .split(/\r?\n/)
-      .filter(line => !markerPattern.test(line.trim()))
-      .join('\n')
-      .trim();
-  }
-
-  function noteWithCashboxMarker(note, amount, at) {
-    const clean = cleanCashboxMarker(note);
-    const line = `${MARKER_PREFIX} ${Number(amount || 0).toFixed(2)} Kč | ${at}`;
-    return [clean, line].filter(Boolean).join('\n');
   }
 
   function receivedAt(order) {
@@ -312,18 +297,18 @@
     movedList.innerHTML = moved.length ? moved.map(order => renderRow(order, true)).join('') : '<p class="empty">Zatím není zaevidovaný žádný přesun do kasičky.</p>';
   }
 
-  async function setCashboxState(id, moved, button) {
+  function setCashboxState(id, moved, button) {
     const current = (Array.isArray(orders) ? orders : []).find(order => String(order.id) === String(id));
     if (!current) return alert('Objednávka nebyla nalezena.');
     if (moved && (!current.payment || current.payment.method !== 'qr' || !current.payment.paid)) {
       return alert('Nejdřív označ QR platbu jako přijatou.');
     }
-    const next = {...current};
-    next.internalNote = moved
-      ? noteWithCashboxMarker(current.internalNote, paidAmount(current), new Date().toISOString())
-      : cleanCashboxMarker(current.internalNote);
-    await saveOrder(next, button);
-    renderCashbox();
+    button.disabled = true;
+    post('setCashboxState', {id:current.id, moved, expectedAmount:Math.round(paidAmount(current) * 100) / 100}, result => {
+      button.disabled = false;
+      if (!result.ok) return alert(result.message || 'Kasičku se nepodařilo aktualizovat.');
+      if (!applyReturnedOrder(result, current.id)) return loadData(true);
+    });
   }
 
   function injectStyles() {
