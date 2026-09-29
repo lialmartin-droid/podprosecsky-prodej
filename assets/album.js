@@ -1,4 +1,4 @@
-window.PDP_ALBUM_VERSION = "3.5.2";
+window.PDP_ALBUM_VERSION = "3.8.4";
 
 const albumState = { photos:[], activeIndex:-1 };
 const albumStatus = document.getElementById("albumPageStatus");
@@ -19,6 +19,12 @@ function albumEsc(value) {
 
 function albumThumbnail(url) {
   return String(url || "").replace(/=w\d+$/, "=w700");
+}
+
+function albumFullSize(url) {
+  // Náhled má být rychlý, ale po rozkliknutí vždy vyžádáme velkou fotografii.
+  // Google Drive ponechá původní poměr stran a obrázek si jen přizpůsobí displeji.
+  return String(url || "").replace(/=w\d+(?:-[^?]+)?(?=$|\?)/, "=w2200");
 }
 
 function normalizeAlbum(input) {
@@ -58,13 +64,19 @@ function openAlbumPhoto(index) {
   const nextIndex = (Number(index) + albumState.photos.length) % albumState.photos.length;
   const photo = albumState.photos[nextIndex];
   albumState.activeIndex = nextIndex;
-  document.getElementById("albumPageLightboxImage").src = photo.image;
-  document.getElementById("albumPageLightboxImage").alt = photo.title || "Fotografie z Pod Prosečí";
+  const lightbox = document.getElementById("albumPageLightbox");
+  const image = document.getElementById("albumPageLightboxImage");
+  image.removeAttribute("width");
+  image.removeAttribute("height");
+  image.src = albumFullSize(photo.image);
+  image.alt = photo.title || "Fotografie z Pod Prosečí";
   document.getElementById("albumPageLightboxTitle").textContent = photo.title || "Fotografie z Pod Prosečí";
   const caption = document.getElementById("albumPageLightboxCaption");
   caption.textContent = photo.caption || "";
   caption.classList.toggle("hidden", !photo.caption);
-  document.getElementById("albumPageLightbox").classList.remove("hidden");
+  lightbox.classList.remove("hidden");
+  lightbox.setAttribute("aria-hidden", "false");
+  document.documentElement.classList.add("photo-lightbox-open");
   document.body.classList.add("photo-lightbox-open");
   const single = albumState.photos.length < 2;
   document.getElementById("albumPageLightboxPrevious").classList.toggle("hidden", single);
@@ -72,7 +84,10 @@ function openAlbumPhoto(index) {
 }
 
 function closeAlbumPhoto() {
-  document.getElementById("albumPageLightbox").classList.add("hidden");
+  const lightbox = document.getElementById("albumPageLightbox");
+  lightbox.classList.add("hidden");
+  lightbox.setAttribute("aria-hidden", "true");
+  document.documentElement.classList.remove("photo-lightbox-open");
   document.body.classList.remove("photo-lightbox-open");
   albumState.activeIndex = -1;
 }

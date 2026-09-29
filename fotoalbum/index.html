@@ -14,7 +14,36 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Merienda:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap&subset=latin-ext" rel="stylesheet">
-  <link rel="stylesheet" href="../assets/style.css?v=352-20260901-public-polish">
+  <link rel="stylesheet" href="../assets/style.css?v=384-20260929-photo-lightbox">
+  <style>
+    /* V3.8.4 – samostatná pojistka velkého náhledu ve fotoalbu.
+       Je schválně jen na této stránce: nic v objednávkách ani administraci nemění. */
+    #albumPageLightbox{
+      box-sizing:border-box;
+      z-index:2147483000;
+      min-height:100vh;
+      min-height:100dvh;
+    }
+    html.photo-lightbox-open{overflow:hidden}
+    #albumPageLightbox:not(.hidden){display:flex!important}
+    #albumPageLightbox figure{
+      align-items:center;
+      justify-content:center;
+      width:min(1100px,100%);
+    }
+    #albumPageLightboxImage{
+      display:block!important;
+      width:auto!important;
+      height:auto!important;
+      max-width:100%!important;
+      max-height:calc(100dvh - 170px)!important;
+      object-fit:contain!important;
+    }
+    @media(max-width:760px){
+      #albumPageLightbox{padding:calc(14px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(72px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left))}
+      #albumPageLightboxImage{max-height:calc(100dvh - 155px)!important}
+    }
+  </style>
 </head>
 <body data-pdp-page-version="3.5.2">
 <div class="site-shell v2-shell subpage-shell">
@@ -42,7 +71,7 @@
   <footer><div><strong>Podprosečské domácí produkty</strong><br>Pod Prosečí · Jablonec nad Nisou</div><div class="footer-contact"><a href="../">Objednat produkty</a><br><a href="../kontakt/">Kontakt a mapa</a></div></footer>
 </div>
 
-<div id="albumPageLightbox" class="photo-lightbox hidden" role="dialog" aria-modal="true" aria-labelledby="albumPageLightboxTitle">
+<div id="albumPageLightbox" class="photo-lightbox hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="albumPageLightboxTitle">
   <button id="albumPageLightboxClose" class="photo-lightbox-close" type="button" aria-label="Zavřít fotografii">×</button>
   <button id="albumPageLightboxPrevious" class="photo-lightbox-nav previous" type="button" aria-label="Předchozí fotografie">‹</button>
   <figure><img id="albumPageLightboxImage" alt=""><figcaption><strong id="albumPageLightboxTitle"></strong><span id="albumPageLightboxCaption"></span></figcaption></figure>
@@ -50,6 +79,6 @@
 </div>
 
 <script src="../assets/config.js?v=350-20260901"></script>
-<script src="../assets/album.js?v=352-20260901"></script>
+<script src="../assets/album.js?v=384-20260929-photo-lightbox"></script>
 </body>
 </html>
