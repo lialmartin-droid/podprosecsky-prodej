@@ -23,9 +23,9 @@
   <link rel="preload" href="../assets/admin.js?v=383-payment" as="script">
   <link rel="preload" href="../assets/admin-enhancements.js?v=364" as="script">
   <link rel="stylesheet" href="../assets/style.css?v=381-calendar-scroll">
-  <link rel="stylesheet" href="../assets/admin-feed.css?v=370">
+  <link rel="stylesheet" href="../assets/admin-feed.css?v=385">
 </head>
-<body data-pdp-admin-version="3.8.3">
+<body data-pdp-admin-version="3.8.5">
 <section id="adminLogin" class="login-screen hidden">
   <div class="login-card">
     <div class="admin-login-brand">
@@ -189,29 +189,32 @@
         <div id="feedActual" class="feed-cards"></div>
         <p class="feed-note">Výdělek = tržby za vyzvednutá vejce po věrnostních slevách − nákupy krmiva v daném roce. Nezahrnuje cenu slepic, kurníku, obalů ani další náklady. Počítá jen zaznamenané prodeje a nákupy.</p>
         <p id="feedRevenueNote" class="feed-note"></p>
+        <h3>Denní cena krmení</h3>
+        <div id="feedDailyCosts" class="feed-cards" aria-live="polite"></div>
+        <p id="feedDailyNote" class="feed-note"></p>
+        <form id="feedSettingsForm" class="admin-form">
+          <fieldset class="feed-fields">
+            <div class="feed-toolbar">
+              <h3>Co dávám hejnu</h3>
+              <button id="feedItemAdd" type="button" class="secondary-button">Přidat krmivo</button>
+            </div>
+            <p class="feed-note">U každého krmiva zadej cenu za kilogram a denní dávku <strong>pro celé hejno</strong>. Dávku můžeš psát v gramech nebo kilogramech. Krmiva bez vyplněné ceny a dávky se neukládají. Vlastní krmivo zdarma může mít cenu 0 Kč.</p>
+            <div id="feedItems" class="feed-items"></div>
+            <p id="feedSettingsNotice" class="feed-note" role="status"></p>
+            <p id="feedDirtyNote" class="feed-note" role="status" hidden></p>
+            <div class="actions"><button type="submit" class="primary-small">Uložit krmiva a dávky</button></div>
+          </fieldset>
+        </form>
         <h3 id="feedForecastHeading">Odhad do konce roku</h3>
         <div id="feedForecast" class="feed-cards"></div>
         <p id="feedForecastNote" class="feed-note"></p>
-        <details id="feedSettingsDetails" class="admin-form">
-          <summary>Spotřeba, zásoba a cena pro odhad</summary>
-          <form id="feedSettingsForm">
-            <fieldset class="feed-fields">
-              <div class="form-grid">
-                <label><span>Denní spotřeba celého hejna (kg)</span><input id="feedDaily" type="number" inputmode="decimal" min="0.001" max="10000" step="0.001" required></label>
-                <label><span>Cena pro budoucí nákupy (Kč/kg)</span><input id="feedPrice" type="number" inputmode="decimal" min="0" max="100000" step="0.01" required></label>
-                <label><span>Zásoba na začátku zvoleného dne (kg)</span><input id="feedStock" type="number" inputmode="decimal" min="0" max="1000000" step="0.001" required></label>
-                <label><span>Datum této zásoby</span><input id="feedStockDate" type="date" required></label>
-              </div>
-              <p class="feed-note">Uveď zásobu před nákupy v tento den. Nákupy od tohoto data se přičtou automaticky. Spotřeba platí od zvoleného data; při změně hejna zadej novou zásobu a datum. Počáteční zásoba se nezapočítá jako výdaj — zaplacené krmivo zapiš do nákupů.</p>
-              <div class="actions"><button type="submit" class="primary-small">Uložit nastavení</button></div>
-            </fieldset>
-          </form>
-        </details>
+        <details class="feed-stock-breakdown"><summary>Zásoby jednotlivých krmiv</summary><div id="feedStockBreakdown"></div></details>
         <form id="feedPurchaseForm" class="admin-form hidden">
           <h3 id="feedPurchaseHeading">Nový nákup krmiva</h3>
           <fieldset class="feed-fields">
             <div class="form-grid">
               <label><span>Datum nákupu</span><input id="feedPurchaseDate" type="date" required></label>
+              <label><span>Vyber ze svých krmiv</span><select id="feedPurchaseType"><option value="">Jiné krmivo / vlastní název</option></select></label>
               <label><span>Krmivo</span><input id="feedPurchaseName" maxlength="100" placeholder="Např. směs pro nosnice" required></label>
               <label><span>Množství (kg)</span><input id="feedPurchaseKg" type="number" inputmode="decimal" min="0.001" max="1000000" step="0.001" required></label>
               <label><span>Zaplaceno celkem (Kč)</span><input id="feedPurchaseCost" type="number" inputmode="decimal" min="0" max="10000000" step="0.01" required></label>
@@ -363,7 +366,8 @@
 <script src="../assets/qrcode.js?v=366"></script>
 <script src="../assets/admin.js?v=383-payment"></script>
 <script src="../assets/admin-enhancements.js?v=364" data-pdp-admin-enhancements="1"></script>
-<script src="../assets/feed-model.js?v=370"></script>
-<script src="../assets/admin-feed.js?v=371-cashbox"></script>
+<script src="../assets/feed-model.js?v=385"></script>
+<script src="../assets/admin-feed.js?v=385"></script>
 </body>
 </html>
+

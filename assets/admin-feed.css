@@ -21,4 +21,32 @@
 #feedTab button:disabled{opacity:.55;cursor:wait}
 #feedTab input:focus-visible,#feedTab button:focus-visible,#feedTab summary:focus-visible,#feedTab select:focus-visible{outline:3px solid var(--brown);outline-offset:3px}
 #feedStatus{font-size:14px;line-height:1.5}
+#feedTab .feed-items{display:grid;gap:14px}
+#feedTab .feed-item{min-width:0;padding:16px;background:var(--paper,#fff);border:1px solid var(--line);border-radius:16px}
+#feedTab .feed-item-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
+#feedTab .feed-item-head strong{font-size:17px;overflow-wrap:anywhere;min-width:0}
+#feedTab .feed-remove{min-height:44px;padding:10px 12px;font-size:14px;flex-shrink:0}
+#feedTab .feed-item-fields{display:grid;grid-template-columns:1.35fr .8fr 1.1fr .85fr;align-items:end;gap:12px}
+#feedTab .feed-item-fields label{display:block;min-width:0}
+#feedTab .feed-item input,#feedTab .feed-item select{font-size:16px;box-sizing:border-box;min-width:0}
+#feedTab .admin-form select{margin-left:0}
+#feedTab .feed-dose-input{display:flex;gap:6px}
+#feedTab .feed-dose-input input{width:100%;flex:1;min-width:0}
+#feedTab .feed-dose-input select{width:66px;flex:0 0 66px;padding:12px 8px}
+#feedTab .feed-item-cost{padding:10px 12px;background:#edf5e9;border-radius:12px;min-width:0}
+#feedTab .feed-item-cost span{font-size:13px;color:var(--muted);display:block}
+#feedTab .feed-item-cost output{display:block;font-size:21px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#feedTab .feed-item-stock{margin-top:12px}
+#feedTab .feed-item-stock summary,#feedTab .feed-stock-breakdown summary{font-size:14px;color:var(--brown);font-weight:600}
+#feedTab .feed-item-stock .form-grid{margin-top:12px}
+#feedTab .feed-stock-row{display:flex;justify-content:space-between;align-items:start;gap:14px;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}
+#feedTab .feed-stock-row strong{overflow-wrap:anywhere;min-width:0}
+#feedTab .feed-stock-row span{flex-shrink:0;color:var(--muted);text-align:right}
+#feedTab .feed-toolbar h3{margin:0}
+#feedSettingsNotice:empty{display:none}
+#feedDailyCosts article:first-child strong{color:#395b30}
+#feedDirtyNote{color:#795016!important}
+@media(max-width:1050px){#feedTab .feed-item-fields{grid-template-columns:1fr 1fr 1fr}#feedTab .feed-item-name{grid-column:1/-1}}
+@media(max-width:600px){#feedTab .feed-item-fields{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr)}#feedTab .feed-item-cost{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:12px}#feedTab .feed-item-cost output{margin:0}#feedTab .feed-item{padding:13px}#feedTab .feed-item-head{gap:10px}#feedTab .feed-stock-row{flex-wrap:wrap}#feedTab .feed-stock-row span{flex-shrink:1}}
 @media(max-width:600px){#feedTab .feed-cards{grid-template-columns:1fr}#feedTab .feed-cards article{padding:14px 16px}#feedTab .feed-cards strong{font-size:26px;margin:6px 0}#feedTab .section-head{align-items:center;flex-wrap:wrap}#feedTab .feed-purchase-main{flex-wrap:wrap}}
+
