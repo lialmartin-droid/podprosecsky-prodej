@@ -1,5 +1,5 @@
 /**
- * Podprosečské domácí produkty — sdílený backend V3.8.1
+ * Podprosečské domácí produkty — sdílený backend V3.8.6
  * Produkty, objednávky a plánování dostupnosti vajec jsou uloženy v jedné Google Tabulce.
  */
 const CONFIG = Object.freeze({
@@ -838,6 +838,9 @@ function doPost(e) {
     if (action === 'setLoyaltyCustomerActive') return withMutationLock_(() => setLoyaltyCustomerActive_(payload), 15000);
     if (action === 'assignOrdersToCustomerEmail') return withMutationLock_(() => assignOrdersToCustomerEmail_(payload), 20000);
     if (action === 'markBankPayment') return withMutationLock_(() => markBankPayment_(payload), 20000);
+    if (action === 'changeOrderPayment') return withMutationLock_(() => changeOrderPayment_(payload), 10000);
+    if (action === 'setCashboxState') return withMutationLock_(() => setCashboxState_(payload), 10000);
+    if (action === 'sendOrderPaymentQr') return sendOrderPaymentQr_(payload);
 
     // Volitelné rozšíření V2.6+ (sklad obalů a přesné návštěvy).
     if (['savePackagingSelection', 'consumePackagingForOrder'].includes(action)) {
@@ -1390,6 +1393,96 @@ function orderPayment_(order) {
   return {method:method, paid:paid, paidAmount:entry.amount, emailSent:Boolean(entry.emailSent), account:'987466/5500', iban:'CZ6055000000000000987466', amount:total, vs:vs, spd:spd, message:paymentMessage, isTest:isTest};
 }
 
+function changeOrderPayment_(payload) {
+  const id = cleanIdentifier_(payload.id, 'ID objednávky');
+  const method = String(payload.method || '');
+  if (!['pickup', 'qr'].includes(method)) throw new Error('Neplatný způsob platby.');
+  const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
+  const rows = sheet.getDataRange().getValues();
+  const index = rows.findIndex((row, i) => i > 0 && String(row[0]) === id);
+  if (index < 1) throw new Error('Objednávka nebyla nalezena.');
+  const order = orderFromSheetRow_(rows[index]);
+  const payment = orderPayment_(order);
+  if (order.status === 'Zrušeno') throw new Error('U zrušené objednávky nelze měnit způsob platby.');
+  if (payment.paid) throw new Error('Platba už je označena jako přijatá. Nejdřív vyřešte případné vrácení peněz.');
+  if (Number(payload.expectedTotal) !== Number(order.total) || String(payload.expectedMethod) !== payment.method) {
+    throw new Error('Objednávka nebo platba se mezitím změnila. Obnovte objednávky a zkuste to znovu.');
+  }
+  if (method !== payment.method) {
+    const timeline = Array.isArray(order.timeline) ? order.timeline.slice() : [];
+    timeline.push({type:'payment', at:new Date().toISOString(), method:method, paid:false,
+      text:method === 'qr' ? 'Změna platby: QR převodem – čeká na platbu' : 'Změna platby: při vyzvednutí'});
+    rows[index][22] = JSON.stringify(timeline);
+    sheet.getRange(index + 1, 23).setValue(rows[index][22]);
+  }
+  const updated = orderFromSheetRow_(rows[index]);
+  return htmlResponse_(true, method === 'qr' ? 'QR platba je nastavena. Kód můžete uložit nebo odeslat zákazníkovi.' : 'Platba při vyzvednutí je nastavena.', id, {order:updated});
+}
+
+function setCashboxState_(payload) {
+  const id = cleanIdentifier_(payload.id, 'ID objednávky');
+  if (typeof payload.moved !== 'boolean') throw new Error('Neplatný stav kasičky.');
+  const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
+  const rows = sheet.getDataRange().getValues();
+  const index = rows.findIndex((row, i) => i > 0 && String(row[0]) === id);
+  if (index < 1) throw new Error('Objednávka nebyla nalezena.');
+  const order = orderFromSheetRow_(rows[index]);
+  if (isTestOrder_(order)) throw new Error('Testovací platba se do kasičky nevkládá.');
+  const payment = orderPayment_(order);
+  const amount = Number(payment.paidAmount) > 0 ? Number(payment.paidAmount) : Number(order.total || 0);
+  const roundedAmount = Math.round(amount * 100) / 100;
+  const marker = /^Kasička QR:\s*[0-9]+(?:[.,][0-9]+)?\s*Kč\s*\|\s*.+$/i;
+  const lines = String(order.internalNote || '').split(/\r?\n/);
+  const hasMarker = lines.some(line => marker.test(line.trim()));
+  if (payload.moved && (payment.method !== 'qr' || !payment.paid || !(roundedAmount > 0))) {
+    throw new Error('Nejdřív u objednávky potvrďte přijatou QR platbu.');
+  }
+  if (Number(payload.expectedAmount) !== roundedAmount) {
+    throw new Error('Částka platby se změnila. Obnovte přehled kasičky.');
+  }
+  if (hasMarker !== payload.moved) {
+    const note = lines.filter(line => !marker.test(line.trim())).join('\n').trim();
+    const updatedNote = payload.moved
+      ? [note, 'Kasička QR: ' + roundedAmount.toFixed(2) + ' Kč | ' + new Date().toISOString()].filter(Boolean).join('\n')
+      : note;
+    rows[index][21] = safeSheetText_(updatedNote);
+    sheet.getRange(index + 1, 22).setValue(rows[index][21]);
+  }
+  return htmlResponse_(true, payload.moved ? 'Platba byla zaevidována v kasičce.' : 'Platba byla vrácena mezi nevložené.', id,
+    {order:orderFromSheetRow_(rows[index])});
+}
+
+function sendOrderPaymentQr_(payload) {
+  const id = cleanIdentifier_(payload.id, 'ID objednávky');
+  const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
+  const rows = sheet.getDataRange().getValues();
+  const index = rows.findIndex((row, i) => i > 0 && String(row[0]) === id);
+  if (index < 1) throw new Error('Objednávka nebyla nalezena.');
+  const order = orderFromSheetRow_(rows[index]);
+  if (isTestOrder_(order)) throw new Error('Testovací objednávce nelze odeslat QR e-mail.');
+  const payment = paymentReceipt_(order);
+  if (order.status === 'Zrušeno' || payment.method !== 'qr' || payment.paid || !payment.qrDataUrl) {
+    throw new Error('Pro tuto objednávku není dostupný QR kód k úhradě.');
+  }
+  if (Number(payload.expectedTotal) !== Number(order.total)) throw new Error('Cena se změnila. Obnovte objednávky.');
+  if (!isValidEmail_(order.email)) throw new Error('U objednávky chybí platný e-mail zákazníka.');
+  const blob = Utilities.newBlob(Utilities.base64Decode(payment.qrDataUrl.split(',')[1]), 'image/gif', 'QR-' + order.orderNumber + '.gif');
+  MailApp.sendEmail({to:order.email, subject:'QR kód k platbě – objednávka ' + order.orderNumber,
+    body:'Dobrý den,\n\nna základě změny způsobu platby posíláme QR kód k objednávce ' + order.orderNumber + '.\n\nČástka: ' + payment.amount.toFixed(2) + ' Kč\nÚčet: ' + payment.account + '\nVariabilní symbol: ' + payment.vs + '\n\nQR kód najdete v příloze. Pokud jste už zaplatili jiným způsobem, převod znovu nepotvrzujte.\n\n' + CONFIG.BRAND_NAME,
+    htmlBody:'<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;line-height:1.6"><h2>QR platba k objednávce ' + escapeHtml_(order.orderNumber) + '</h2><p>Dobrý den, posíláme Vám QR kód po změně způsobu platby.</p><img src="cid:paymentQr" width="280" height="280" alt="QR platba" style="display:block;max-width:100%;margin:16px auto"><p><b>Částka:</b> ' + payment.amount.toFixed(2) + ' Kč<br><b>Účet:</b> ' + escapeHtml_(payment.account) + '<br><b>Variabilní symbol:</b> ' + escapeHtml_(payment.vs) + '</p><p>Pokud jste již zaplatili jiným způsobem, převod znovu nepotvrzujte.</p><p>' + escapeHtml_(CONFIG.BRAND_NAME) + '</p></div>',
+    inlineImages:{paymentQr:blob}, attachments:[blob], name:CONFIG.BRAND_NAME, replyTo:CONFIG.NOTIFICATION_EMAIL});
+  try {
+    const timeline = Array.isArray(order.timeline) ? order.timeline.slice() : [];
+    timeline.push({type:'email', at:new Date().toISOString(), text:'QR kód k platbě odeslán zákazníkovi na ' + order.email});
+    rows[index][22] = JSON.stringify(timeline);
+    sheet.getRange(index + 1, 23).setValue(rows[index][22]);
+  } catch (error) {
+    console.error('QR e-mail byl odeslán, ale záznam do časové osy se nezdařil.', error);
+    return htmlResponse_(true, 'QR e-mail byl odeslán, záznam v časové ose se ale nepodařilo uložit.', id);
+  }
+  return htmlResponse_(true, 'QR kód byl odeslán zákazníkovi na ' + order.email + '.', id, {order:orderFromSheetRow_(rows[index])});
+}
+
 function markBankPayment_(payload) {
   const sheet = getOrCreateSheet_(CONFIG.ORDERS_SHEET);
   const rows = sheet.getDataRange().getValues();
@@ -1397,6 +1490,8 @@ function markBankPayment_(payload) {
   if (index < 1) throw new Error('Objednávka nebyla nalezena.');
   const order = orderFromSheetRow_(rows[index]);
   const isTest = isTestOrder_(order);
+  const currentPayment = orderPayment_(order);
+  if (!currentPayment.paid && currentPayment.method !== 'qr') throw new Error('Nejdřív u objednávky nastavte QR platbu převodem.');
   if (Number(payload.expectedTotal) !== Number(order.total)) throw new Error('Cena objednávky se mezitím změnila. Obnovte objednávky a zkontrolujte přijatou částku.');
   if (order.status === 'Zrušeno') throw new Error('Objednávka je zrušená. Přijetí platby zkontrolujte ručně.');
   const timeline = order.timeline;
@@ -7092,17 +7187,17 @@ function feedDate_(value) {
 
 function feedSheet_() {
   const sheet = getOrCreateSheet_('Krmivo slepic');
-  ensureHeaders_(sheet, ['ID', 'Datum nákupu', 'Krmivo', 'Množství kg', 'Zaplaceno Kč', 'Poznámka', 'Verze', 'Smazáno']);
+  ensureHeaders_(sheet, ['ID', 'Datum nákupu', 'Krmivo', 'Množství kg', 'Zaplaceno Kč', 'Poznámka', 'Verze', 'Smazáno', 'ID krmiva']);
   return sheet;
 }
 
 function feedPurchases_(sheet) {
   const source = sheet || feedSheet_();
   if (source.getLastRow() < 2) return [];
-  return source.getRange(2, 1, source.getLastRow() - 1, 8).getValues().map((row, i) => ({
+  return source.getRange(2, 1, source.getLastRow() - 1, 9).getValues().map((row, i) => ({
     id:String(row[0] || ''), date:formatSheetDate_(row[1]), name:restoreSheetText_(row[2] || ''),
     kg:Number(row[3] || 0), cost:Number(row[4] || 0), note:restoreSheetText_(row[5] || ''),
-    revision:String(row[6] || ''), deleted:toBool_(row[7]), row:i + 2
+    revision:String(row[6] || ''), deleted:toBool_(row[7]), feedId:String(row[8] || ''), row:i + 2
   })).filter(purchase => purchase.id);
 }
 
@@ -7145,25 +7240,72 @@ function feedEggRevenue_(sourceOrders, today) {
 function feedData_() {
   const today = todayKey_();
   return {
-    asOf:today, settings:feedSettings_(),
+    asOf:today, settings:feedSettings_(), schemaVersion:2,
     purchases:feedPurchases_().filter(item => !item.deleted).map(item => { delete item.row; return item; }),
     sales:feedEggRevenue_(readOrdersAdminFast_(), today)
   };
 }
 
+// Each feed keeps its own price, daily ration and stock checkpoint.
+function feedNameKey_(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function feedItemsValidate_(source) {
+  if (!Array.isArray(source) || source.length < 1 || source.length > 50) throw new Error('Zadejte 1 až 50 krmiv.');
+  const ids = Object.create(null);
+  const names = Object.create(null);
+  return source.map(raw => {
+    if (!raw || typeof raw !== 'object') throw new Error('Neplatné krmivo.');
+    const id = String(raw.id || '');
+    if (!/^[a-zA-Z0-9_-]{12,80}$/.test(id) || ids[id]) throw new Error('Neplatné nebo duplicitní ID krmiva. Obnovte přehled.');
+    ids[id] = true;
+    const name = cleanText_(raw.name || '', 100);
+    const key = feedNameKey_(name);
+    if (!name || Object.prototype.hasOwnProperty.call(names, key)) throw new Error('Každé krmivo musí mít vlastní název.');
+    names[key] = true;
+    const item = {id:id, name:name,
+      dailyKg:feedNumber_(raw.dailyKg, 0, 10000, 'Denní dávka: ' + name, 6),
+      pricePerKg:feedNumber_(raw.pricePerKg, 0, 100000, 'Cena za kg: ' + name, 2),
+      stockKg:feedNumber_(raw.stockKg, 0, 1000000, 'Zásoba: ' + name, 3),
+      stockDate:feedDate_(raw.stockDate), unit:raw.unit === 'g' ? 'g' : 'kg'};
+    // Only the one original row may collect unmatched purchases from the old summary.
+    if (id === 'legacy-feed-v370') item.legacy = true;
+    return item;
+  });
+}
+
 function saveFeedSettings_(payload) {
   const current = feedSettings_();
-  if (String(payload.expectedRevision || '') !== current.revision) throw new Error('Nastavení se mezitím změnilo. Obnovte přehled a změnu zopakujte.');
   const source = payload.settings || {};
-  const settings = {
-    dailyKg:feedNumber_(source.dailyKg, 0.001, 10000, 'Denní spotřeba', 3),
-    pricePerKg:feedNumber_(source.pricePerKg, 0, 100000, 'Cena za kg', 2),
-    stockKg:feedNumber_(source.stockKg, 0, 1000000, 'Zásoba', 3),
-    stockDate:feedDate_(source.stockDate), revision:Utilities.getUuid()
-  };
+  if (String(payload.expectedRevision || '') !== current.revision) {
+    // Retrying a timed-out save must not lose the successfully stored ration.
+    if (Array.isArray(current.items) && Array.isArray(source.items) &&
+        JSON.stringify(current.items) === JSON.stringify(feedItemsValidate_(source.items))) {
+      return htmlResponse_(true, 'Krmiva a denní dávky jsou uložené.', '', {feedSettings:current});
+    }
+    throw new Error('Nastavení se mezitím změnilo. Obnovte přehled a změnu zopakujte.');
+  }
+  let settings;
+  if (Array.isArray(source.items)) {
+    const items = feedItemsValidate_(source.items);
+    const dailyKg = Math.round(items.reduce((sum, item) => sum + item.dailyKg, 0) * 1000000) / 1000000;
+    const dailyCost = items.reduce((sum, item) => sum + item.dailyKg * item.pricePerKg, 0);
+    settings = {items:items, dailyKg:dailyKg, pricePerKg:dailyKg > 0 ? dailyCost / dailyKg : 0,
+      stockKg:Math.round(items.reduce((sum, item) => sum + item.stockKg, 0) * 1000) / 1000,
+      stockDate:items.map(item => item.stockDate).sort()[0], revision:Utilities.getUuid(), schemaVersion:2};
+  } else {
+    if (Array.isArray(current.items)) throw new Error('Obnovte administraci. Starší verze neumí uložit jednotlivá krmiva.');
+    settings = {
+      dailyKg:feedNumber_(source.dailyKg, 0.001, 10000, 'Denní spotřeba', 3),
+      pricePerKg:feedNumber_(source.pricePerKg, 0, 100000, 'Cena za kg', 2),
+      stockKg:feedNumber_(source.stockKg, 0, 1000000, 'Zásoba', 3),
+      stockDate:feedDate_(source.stockDate), revision:Utilities.getUuid()
+    };
+  }
   const sheet = getOrCreateSheet_(CONFIG.SETTINGS_SHEET);
-  setSettingsBatch_(sheet, [{key:'FEED_SETTINGS_V370', value:JSON.stringify(settings), text:true, description:'Spotřeba, výchozí zásoba a cena krmiva pro odhad'}]);
-  return htmlResponse_(true, 'Nastavení krmiva uloženo.', '', {feedSettings:settings});
+  setSettingsBatch_(sheet, [{key:'FEED_SETTINGS_V370', value:JSON.stringify(settings), text:true, description:'Jednotlivá krmiva, denní dávky, ceny a zásoby'}]);
+  return htmlResponse_(true, 'Krmiva a denní dávky uložené.', '', {feedSettings:settings});
 }
 
 function feedPurchaseId_(value) {
@@ -7180,9 +7322,16 @@ function saveFeedPurchase_(payload) {
     cost:feedNumber_(source.cost, 0, 10000000, 'Zaplaceno', 2), note:cleanText_(source.note || '', 300)
   };
   if (!item.name) throw new Error('Vyplňte název krmiva.');
+  item.feedId = String(source.feedId || '');
+  if (item.feedId && !/^[a-zA-Z0-9_-]{12,80}$/.test(item.feedId)) throw new Error('Neplatné ID krmiva.');
+  const settings = feedSettings_();
+  if (!item.feedId && Array.isArray(settings.items)) {
+    const match = settings.items.find(feed => feedNameKey_(feed.name) === feedNameKey_(item.name));
+    if (match) item.feedId = match.id;
+  }
   const sheet = feedSheet_();
   const existing = feedPurchases_(sheet).find(purchase => purchase.id === item.id);
-  if (existing && !existing.deleted && ['date','name','kg','cost','note'].every(key => existing[key] === item[key])) {
+  if (existing && !existing.deleted && ['date','name','kg','cost','note','feedId'].every(key => (existing[key] == null ? '' : existing[key]) === item[key])) {
     delete existing.row;
     return htmlResponse_(true, 'Nákup je uložený.', item.id, {feedPurchase:existing});
   }
@@ -7193,7 +7342,7 @@ function saveFeedPurchase_(payload) {
   item.deleted = false;
   const row = existing ? existing.row : sheet.getLastRow() + 1;
   sheet.getRange(row, 2).setNumberFormat('@');
-  sheet.getRange(row, 1, 1, 8).setValues([[item.id, item.date, safeSheetText_(item.name), item.kg, item.cost, safeSheetText_(item.note), item.revision, false]]);
+  sheet.getRange(row, 1, 1, 9).setValues([[item.id, item.date, safeSheetText_(item.name), item.kg, item.cost, safeSheetText_(item.note), item.revision, false, item.feedId]]);
   return htmlResponse_(true, 'Nákup krmiva uložen.', item.id, {feedPurchase:item});
 }
 

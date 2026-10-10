@@ -1,4 +1,4 @@
-/* Krmiva V3.8.5: daily costs and calendar-day stock forecasts. */
+/* Krmiva V3.8.6: daily costs and calendar-day stock forecasts. */
 (function(root) {
   'use strict';
   const round = (value, digits = 2) => Math.round((value + Number.EPSILON) * 10 ** digits) / 10 ** digits;
